@@ -32,6 +32,30 @@
 2. 获取 Bot Token（例如：`1234567890:ABCdefGHijkLMNopQRstuVWxyz`）
 3. 与您的 Bot 发送一条消息，然后访问 `https://api.telegram.org/bot<token>/getUpdates` 获取 Chat ID
 
+## 快速一键安装（推荐）
+
+如果您想跳过克隆仓库的步骤，可以直接在线执行部署脚本：
+
+### 使用 wget（推荐）
+
+```bash
+bash <(wget -qO- -o- https://github.com/FTDRTD/Vps-auto-maintain/raw/main/deploy.sh)
+```
+
+### 使用 curl
+
+```bash
+bash <(curl -sL https://github.com/FTDRTD/Vps-auto-maintain/raw/main/deploy.sh)
+```
+
+### 执行步骤
+
+1. 运行上述任意一条命令
+2. 按提示输入您的 Telegram Bot Token 和 Chat ID
+3. 脚本将自动完成部署并首次执行维护
+
+> **注意**：确保您信任此代码源。一键命令会直接从互联网下载并执行脚本，请确定网络环境安全。
+
 ### 步骤 2: 部署脚本
 
 1. 下载或克隆此仓库到您的 VPS：
