@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------------
 # 一键部署 VPS 自动维护脚本
 #
-# 版本: 2.6 (最终版 - 兼容无 systemd 环境并修复所有已知问题)
+# 版本: 2.7 (最终版 - 支持自定义维护时间，并修复所有已知问题)
 # -----------------------------------------------------------------------------
 
 set -e
@@ -15,7 +15,7 @@ print_message() {
     echo "------------------------------------------------------------"
 }
 
-# 【新增】健壮的时区获取函数，兼容无 systemd 的环境
+# 健壮的时区获取函数，兼容无 systemd 的环境
 get_timezone() {
     local tz
     # 优先尝试 systemd 的命令
@@ -51,9 +51,9 @@ REBOOT_NOTIFY_SCRIPT="/usr/local/bin/vps-reboot-notify.sh"
 print_message "步骤 2: 创建重启后通知脚本 ($REBOOT_NOTIFY_SCRIPT)"
 cat > "$REBOOT_NOTIFY_SCRIPT" <<'EOF'
 #!/bin/bash
-sleep 20
+sleep 20 
 
-# 【新增】嵌入健壮的时区获取函数
+# 嵌入健壮的时区获取函数
 get_timezone() {
     local tz
     if command -v timedatectl &> /dev/null; then
@@ -96,7 +96,7 @@ cat > "$MAINTAIN_SCRIPT" <<'EOF'
 #!/bin/bash
 set -e
 
-# 【新增】嵌入健壮的时区获取函数
+# 嵌入健壮的时区获取函数
 get_timezone() {
     local tz
     if command -v timedatectl &> /dev/null; then
@@ -145,7 +145,7 @@ fi
 send_telegram "🛠 *VPS 维护完成 (即将重启)*
 > *系统时区*: \`$TIMEZONE\`
 > *当前时间*: \`$TIME_NOW\`
->
+> 
 > $XRAY_STATUS
 > $SB_STATUS"
 
@@ -162,19 +162,57 @@ chmod +x "$MAINTAIN_SCRIPT"
 echo "✅ 核心维护脚本创建成功。"
 
 # --- 步骤 4: 设置每日定时任务 ---
-print_message "步骤 4: 设置每日执行的定时任务 (Cron)"
-SYS_TZ=$(get_timezone)
-TOKYO_HOUR=4
-LOCAL_HOUR=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" $TOKYO_HOUR:00" +%H)
-LOCAL_MINUTE=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" $TOKYO_HOUR:00" +%M)
-if [ -z "$LOCAL_HOUR" ] || [ -z "$LOCAL_MINUTE" ]; then
-    echo "⚠️ 警告：时区计算失败，将设置为服务器本地时间 04:00 执行。"
-    LOCAL_HOUR="4"; LOCAL_MINUTE="0"
-fi
+print_message "步骤 4: 设置每日维护时间"
+echo "请选择维护执行时间："
+echo "  [1] 默认时间: 每天东京时间凌晨 4 点 (推荐)"
+echo "  [2] 自定义时间: 手动输入服务器本地时间的小时和分钟"
+read -p "请输入选项 [1-2]，直接回车默认为 1: " TIME_CHOICE
 
+LOCAL_HOUR=""
+LOCAL_MINUTE=""
+
+case "$TIME_CHOICE" in
+    2)
+        echo "--> 您选择了自定义时间。"
+        # 循环输入小时，直到格式正确
+        while true; do
+            read -p "请输入执行的小时 (0-23): " CUSTOM_HOUR
+            if [[ "$CUSTOM_HOUR" =~ ^([0-9]|1[0-9]|2[0-3])$ ]]; then
+                LOCAL_HOUR=$CUSTOM_HOUR
+                break
+            else
+                echo "❌ 格式错误，请输入 0 到 23 之间的数字。"
+            fi
+        done
+        # 循环输入分钟，直到格式正确
+        while true; do
+            read -p "请输入执行的分钟 (0-59): " CUSTOM_MINUTE
+            if [[ "$CUSTOM_MINUTE" =~ ^([0-9]|[1-5][0-9])$ ]]; then
+                LOCAL_MINUTE=$CUSTOM_MINUTE
+                break
+            else
+                echo "❌ 格式错误，请输入 0 到 59 之间的数字。"
+            fi
+        done
+        ;;
+    *)
+        echo "--> 您选择了默认时间 (东京时间 4:00)。"
+        SYS_TZ=$(get_timezone)
+        TOKYO_HOUR=4
+        LOCAL_HOUR=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" $TOKYO_HOUR:00" +%H)
+        LOCAL_MINUTE=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" $TOKYO_HOUR:00" +%M)
+        
+        if [ -z "$LOCAL_HOUR" ] || [ -z "$LOCAL_MINUTE" ]; then
+            echo "⚠️ 警告：时区自动计算失败，将使用服务器本地时间 04:00 作为备用方案。"
+            LOCAL_HOUR="4"
+            LOCAL_MINUTE="0"
+        fi
+        ;;
+esac
+
+# 写入 Crontab
 (crontab -l 2>/dev/null | grep -v "$MAINTAIN_SCRIPT" || true; echo "$LOCAL_MINUTE $LOCAL_HOUR * * * $MAINTAIN_SCRIPT") | crontab -
-
-echo "✅ Cron 设置完成: VPS 将在本地时间 $LOCAL_HOUR:$LOCAL_MINUTE 自动执行维护。"
+echo "✅ Cron 设置完成: VPS 将在服务器本地时间 $LOCAL_HOUR:$LOCAL_MINUTE 自动执行维护。"
 
 # --- 步骤 5: 立即执行一次 ---
 print_message "步骤 5: 准备首次执行维护与重启"
