@@ -51,7 +51,7 @@ REBOOT_NOTIFY_SCRIPT="/usr/local/bin/vps-reboot-notify.sh"
 print_message "步骤 2: 创建重启后通知脚本 ($REBOOT_NOTIFY_SCRIPT)"
 cat > "$REBOOT_NOTIFY_SCRIPT" <<'EOF'
 #!/bin/bash
-sleep 20 
+sleep 20
 
 # 嵌入健壮的时区获取函数
 get_timezone() {
@@ -128,7 +128,7 @@ TIMEZONE=$(get_timezone)
 TIME_NOW=$(date '+%Y-%m-%d %H:%M:%S')
 
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -y && apt-get upgrade -y && apt-get autoremove -y && apt-get clean
+sudo apt update && sudo apt upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean
 
 XRAY_STATUS="*Xray*: 未安装"
 if command -v xray &> /dev/null; then
@@ -145,7 +145,7 @@ fi
 send_telegram "🛠 *VPS 维护完成 (即将重启)*
 > *系统时区*: \`$TIMEZONE\`
 > *当前时间*: \`$TIME_NOW\`
-> 
+>
 > $XRAY_STATUS
 > $SB_STATUS"
 
@@ -201,7 +201,7 @@ case "$TIME_CHOICE" in
         TOKYO_HOUR=4
         LOCAL_HOUR=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" $TOKYO_HOUR:00" +%H)
         LOCAL_MINUTE=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" $TOKYO_HOUR:00" +%M)
-        
+
         if [ -z "$LOCAL_HOUR" ] || [ -z "$LOCAL_MINUTE" ]; then
             echo "⚠️ 警告：时区自动计算失败，将使用服务器本地时间 04:00 作为备用方案。"
             LOCAL_HOUR="4"
