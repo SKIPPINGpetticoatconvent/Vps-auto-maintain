@@ -6,7 +6,7 @@
 # - 自动检测 Xray 和 Sing-box (sb) 的开放端口
 # - 从配置文件解析端口信息
 # - 配置防火墙允许 UDP/TCP 流量通过这些端口
-# - 修复端口误匹配问题
+# - 修复端口误匹配和函数返回值污染问题
 # - 支持 Telegram 通知
 # -----------------------------------------------------------------------------------------
 
@@ -73,7 +73,8 @@ parse_config_ports() {
     local ports=""
 
     if [ -f "$config_file" ]; then
-        echo "📄 解析配置文件: $config_file"
+        # 【修复】将日志信息输出到 stderr (>&2)，以避免污染函数的 stdout 返回值
+        echo "📄 解析配置文件: $config_file" >&2
 
         # 方法1: 使用 jq 解析 JSON（推荐）
         if command -v jq &> /dev/null; then
@@ -82,7 +83,8 @@ parse_config_ports() {
 
         # 方法2: 如果 jq 不可用，使用 grep 解析
         if [ -z "$ports" ]; then
-            echo "⚠️ jq 不可用，使用备用解析方法"
+            # 【修复】将日志信息输出到 stderr (>&2)
+            echo "⚠️ jq 不可用，使用备用解析方法" >&2
             # 查找 listen_port 或 port 字段后的数字
             ports=$(grep -o '"listen_port":[[:space:]]*[0-9]\+' "$config_file" | grep -o '[0-9]\+' | sort -u | tr '\n' ' ')
             if [ -z "$ports" ]; then
@@ -91,10 +93,12 @@ parse_config_ports() {
         fi
 
         if [ -n "$ports" ]; then
-            echo "📋 从配置文件读取到端口: $ports"
+            # 【修复】将日志信息输出到 stderr (>&2)
+            echo "📋 从配置文件读取到端口: $ports" >&2
         fi
     fi
 
+    # 仅将最终的端口号输出到 stdout，作为函数的返回值
     echo "$ports"
 }
 
@@ -117,14 +121,25 @@ add_firewall_rule() {
 
     case "$firewall_type" in
         firewalld)
-            sudo firewall-cmd --permanent --add-port="$port/$protocol" > /dev/null 2>&1
-            sudo firewall-cmd --reload > /dev/null 2>&1
+            # 临时禁用 set -e，以防止 firewall-cmd 的“已存在”警告导致脚本退出
+            set +e
+            # 检查端口是否已在永久规则中
+            if ! sudo firewall-cmd --permanent --query-port="$port/$protocol" > /dev/null 2>&1; then
+                # echo "ℹ️ Port $port/$protocol not found in permanent firewall rules. Adding..." >&2
+                sudo firewall-cmd --permanent --add-port="$port/$protocol" > /dev/null 2>&1
+                # 仅在添加了新规则时才重载防火墙，提高效率
+                sudo firewall-cmd --reload > /dev/null 2>&1
+            # else
+            #    echo "✅ Port $port/$protocol is already configured in firewall. No changes needed." >&2
+            fi
+            # 重新启用 set -e
+            set -e
             ;;
         ufw)
             sudo ufw allow "$port/$protocol" > /dev/null 2>&1
             ;;
         none)
-            echo "⚠️ 未检测到活跃的防火墙，跳过规则添加"
+            echo "⚠️ 未检测到活跃的防火墙，跳过规则添加" >&2
             ;;
     esac
 }
@@ -138,6 +153,8 @@ main() {
 
     local xray_ports=""
     local sb_ports=""
+    local all_ports=""
+    local unique_ports=""
     local firewall_type=$(detect_firewall)
 
     echo "🔍 检测防火墙类型: $firewall_type"
@@ -149,10 +166,7 @@ main() {
         xray_ports=$(get_process_ports "xray")
         if [ -n "$xray_ports" ]; then
             echo "✅ 检测到 Xray 运行端口: $xray_ports"
-            for port in $xray_ports; do
-                add_firewall_rule "$port" "tcp" "$firewall_type"
-                add_firewall_rule "$port" "udp" "$firewall_type"
-            done
+            all_ports="$all_ports $xray_ports"
         else
             echo "⚠️ Xray 正在运行但未检测到监听端口"
         fi
@@ -161,8 +175,7 @@ main() {
     fi
 
     # 检测 Sing-box 端口
-    if command -v sb &> /dev/null; then
-        # 检查是否有 sing-box 进程在运行
+    if command -v sb &> /dev/null || command -v sing-box &> /dev/null; then
         if pgrep -f "sing-box" > /dev/null; then
             echo "🔍 正在检测 Sing-box 监听端口..."
 
@@ -172,116 +185,48 @@ main() {
 
             # 方法2: 从配置文件解析端口
             if [ -z "$sb_ports" ]; then
-                echo "🔍 尝试从 Sing-box 配置文件读取端口..."
-                config_files=(
+                echo "🔍 尝试从 Sing-box 配置文件读取端口..." >&2
+                local config_files=(
                     "/etc/sing-box/config.json"
                     "/etc/sing-box/conf/Hysteria2-36479.json"
                     "/etc/sing-box/conf/TUIC-46500.json"
                     "/usr/local/etc/sing-box/config.json"
                     "/opt/sing-box/config.json"
                 )
-
+                local temp_sb_ports=""
                 for config_file in "${config_files[@]}"; do
                     config_ports=$(parse_config_ports "$config_file")
                     if [ -n "$config_ports" ]; then
-                        sb_ports="$sb_ports $config_ports"
+                        temp_sb_ports="$temp_sb_ports $config_ports"
                     fi
                 done
-                sb_ports=$(echo "$sb_ports" | sed 's/^ *//' | tr -s ' ')
-            fi
-
-            # 方法3: 扫描所有监听端口，寻找可能的 Sing-box 端口（修复版本）
-            if [ -z "$sb_ports" ]; then
-                echo "🔍 扫描所有监听端口，寻找 Sing-box 相关端口..."
-                if command -v ss &> /dev/null; then
-                    listening_ports=$(ss -tlnp 2>/dev/null | grep LISTEN)
-                elif command -v netstat &> /dev/null; then
-                    listening_ports=$(netstat -tlnp 2>/dev/null | grep LISTEN)
-                fi
-
-                echo "$listening_ports" | while read -r line; do
-                    if command -v ss &> /dev/null; then
-                        port=$(echo "$line" | awk '{print $4}' | awk -F: '{print $NF}')
-                        pid=$(echo "$line" | awk '{print $6}' | sed 's/.*pid=\([0-9]*\).*/\1/')
-                        if [ -n "$pid" ] && [ "$pid" != "-" ]; then
-                            process=$(ps -p "$pid" -o comm= 2>/dev/null || echo "")
-                            full_cmd=$(ps -p "$pid" -o cmd= 2>/dev/null || echo "")
-                        else
-                            process=""
-                            full_cmd=""
-                        fi
-                    else
-                        port=$(echo "$line" | awk '{print $4}' | awk -F: '{print $NF}')
-                        process=$(echo "$line" | awk '{print $7}' | awk '{print $1}')
-                        full_cmd=""
-                    fi
-
-                    # 精确检查是否是 Sing-box 端口，避免与其他代理软件冲突
-                    if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -gt 1024 ] && [ "$port" -lt 65535 ]; then
-                        is_singbox_port=false
-
-                        # 1. 检查进程名是否为 sing-box 或 sb
-                        if echo "$process" | grep -q -E "^(sing-box|sb)$"; then
-                            is_singbox_port=true
-                        fi
-
-                        # 2. 检查完整命令行是否包含 sing-box 相关信息
-                        if echo "$full_cmd" | grep -q -i -E "(sing-box|sb|/etc/sing-box)"; then
-                            is_singbox_port=true
-                        fi
-
-                        # 3. 检查是否为已知的 Sing-box 端口（从配置文件名推断）
-                        if [[ "$port" =~ ^(36479|46500)$ ]]; then
-                            is_singbox_port=true
-                            echo "📋 从已知配置推断端口 $port 为 Sing-box 端口"
-                        fi
-
-                        # 4. 确保这个端口不是已经被 Xray 使用的
-                        if [ "$is_singbox_port" = true ]; then
-                            port_already_used=false
-                            for xray_port in $xray_ports; do
-                                if [ "$port" = "$xray_port" ]; then
-                                    port_already_used=true
-                                    break
-                                fi
-                            done
-
-                            if [ "$port_already_used" = false ]; then
-                                sb_ports="$sb_ports $port"
-                                echo "📡 确认 Sing-box 端口 $port (进程: $process)"
-                            else
-                                echo "⚠️ 跳过端口 $port (已被 Xray 使用)"
-                            fi
-                        fi
-                    fi
-                done
-                sb_ports=$(echo "$sb_ports" | sed 's/^ *//' | tr -s ' ')
+                sb_ports=$(echo "$temp_sb_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
             fi
 
             if [ -n "$sb_ports" ]; then
-                echo "✅ 检测到 Sing-box 运行端口: $sb_ports"
-                for port in $sb_ports; do
-                    add_firewall_rule "$port" "tcp" "$firewall_type"
-                    add_firewall_rule "$port" "udp" "$firewall_type"
-                done
+                echo "✅ 检测到 Sing-box 运行端口:$sb_ports"
+                all_ports="$all_ports $sb_ports"
             else
                 echo "⚠️ Sing-box 正在运行但未检测到监听端口"
-                echo "💡 可能的解决方案:"
-                echo "   1. 确保 Sing-box 服务已正确启动并监听端口"
-                echo "   2. 检查配置文件中的端口设置是否正确"
-                echo "   3. 运行 'ss -tlnp | grep -i sing' 查看端口监听情况"
-                echo "   4. 运行 'ps aux | grep sing' 查看进程详细信息"
-                echo "   5. 检查 Sing-box 日志获取更多诊断信息"
             fi
         else
-            echo "ℹ️ Sing-box (sb) 已安装但未运行，请先启动服务"
+            echo "ℹ️ Sing-box 已安装但未运行"
         fi
     else
-        echo "❌ Sing-box (sb) 未安装"
+        echo "❌ Sing-box 未安装"
     fi
 
-    # 发送通知
-    if [ -n "$xray_ports" ] || [ -n "$sb_ports" ]; then
+    # 统一处理所有端口，去重并添加防火墙规则
+    if [ -n "$all_ports" ]; then
+        unique_ports=$(echo "$all_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+        
+        for port in $unique_ports; do
+            if [[ "$port" =~ ^[0-9]+$ ]]; then
+                add_firewall_rule "$port" "tcp" "$firewall_type"
+                add_firewall_rule "$port" "udp" "$firewall_type"
+            fi
+        done
+        
         local message="🔧 *代理服务端口配置完成*
 > *系统时区*: \`$timezone\`
 > *当前时间*: \`$time_now\`
@@ -320,9 +265,9 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         *)
-            echo "用法: $0 [--no-notify] [--token TOKEN] [--chat-id CHAT_ID]"
-            echo "示例:"
-            echo "  $0 --token YOUR_TOKEN --chat-id YOUR_ID"
+            echo "用法: $0 [--no-notify] [--token TOKEN] [--chat-id CHAT_ID]" >&2
+            echo "示例:" >&2
+            echo "  $0 --token YOUR_TOKEN --chat-id YOUR_ID" >&2
             exit 1
             ;;
     esac
