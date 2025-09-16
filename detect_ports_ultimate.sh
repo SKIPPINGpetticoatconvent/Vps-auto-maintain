@@ -14,8 +14,8 @@
 set -e
 
 # --- 配置变量 ---
-TG_TOKEN=""
-TG_CHAT_ID=""
+TG_TOKEN="7982836307:AAEU-ru2xLuuWFhNLqBgHQVaMmKTh4VF5Js"
+TG_CHAT_ID="6103295147"
 NOTIFY=true
 
 # --- 函数定义 ---
