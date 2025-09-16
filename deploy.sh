@@ -90,6 +90,34 @@ sed -i "s|__REBOOT_NOTIFY_SCRIPT_PATH__|$REBOOT_NOTIFY_SCRIPT|g" "$REBOOT_NOTIFY
 chmod +x "$REBOOT_NOTIFY_SCRIPT"
 echo "✅ 重启后通知脚本创建成功。"
 
+# --- 步骤 2.5: 配置日志存储到内存 ---
+print_message "步骤 2.5: 配置日志存储到内存"
+
+if systemctl is-active --quiet systemd-journald; then
+    echo "检测到 systemd-journald 正在运行，正在配置日志存储到内存..."
+    # 备份配置文件
+    sudo cp /etc/systemd/journald.conf /etc/systemd/journald.conf.backup
+    # 修改或添加 Storage=volatile
+    if grep -q '^#Storage=' /etc/systemd/journald.conf; then
+        sudo sed -i 's/^#Storage=.*/Storage=volatile/' /etc/systemd/journald.conf
+    elif grep -q '^Storage=' /etc/systemd/journald.conf; then
+        sudo sed -i 's/^Storage=.*/Storage=volatile/' /etc/systemd/journald.conf
+    else
+        echo "Storage=volatile" | sudo tee -a /etc/systemd/journald.conf
+    fi
+    # 重启服务
+    sudo systemctl restart systemd-journald
+    echo "✅ 日志配置已更新，存储到内存。"
+    # 验证配置
+    if grep -q '^Storage=volatile' /etc/systemd/journald.conf; then
+        echo "✅ 验证成功：日志存储已配置为内存。"
+    else
+        echo "❌ 验证失败：日志存储配置未正确应用。"
+    fi
+else
+    echo "systemd-journald 未运行，跳过日志配置。"
+fi
+
 # --- 步骤 3: 创建核心维护脚本 ---
 print_message "步骤 3: 创建核心维护脚本 ($MAINTAIN_SCRIPT)"
 cat > "$MAINTAIN_SCRIPT" <<'EOF'
