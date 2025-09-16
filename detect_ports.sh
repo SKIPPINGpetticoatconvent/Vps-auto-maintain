@@ -128,19 +128,29 @@ main() {
     fi
 
     # 检测 Sing-box 端口
-    if command -v sb &> /dev/null && pgrep -f "sb" > /dev/null; then
-        sb_ports=$(get_process_ports "sb")
-        if [ -n "$sb_ports" ]; then
-            echo "✅ 检测到 Sing-box 运行端口: $sb_ports"
-            for port in $sb_ports; do
-                add_firewall_rule "$port" "tcp" "$firewall_type"
-                add_firewall_rule "$port" "udp" "$firewall_type"
-            done
+    if command -v sb &> /dev/null; then
+        # 检查是否有 sing-box 进程在运行
+        if pgrep -f "sing-box" > /dev/null || pgrep -f "sb" > /dev/null; then
+            # 优先检测 sing-box 进程端口，然后是 sb 管理脚本端口
+            sb_ports=$(get_process_ports "sing-box")
+            if [ -z "$sb_ports" ]; then
+                sb_ports=$(get_process_ports "sb")
+            fi
+
+            if [ -n "$sb_ports" ]; then
+                echo "✅ 检测到 Sing-box 运行端口: $sb_ports"
+                for port in $sb_ports; do
+                    add_firewall_rule "$port" "tcp" "$firewall_type"
+                    add_firewall_rule "$port" "udp" "$firewall_type"
+                done
+            else
+                echo "⚠️ Sing-box 正在运行但未检测到监听端口"
+            fi
         else
-            echo "⚠️ Sing-box 正在运行但未检测到监听端口"
+            echo "ℹ️ Sing-box (sb) 已安装但未运行"
         fi
     else
-        echo "❌ Sing-box (sb) 未安装或未运行"
+        echo "❌ Sing-box (sb) 未安装"
     fi
 
     # 发送通知
