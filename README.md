@@ -10,6 +10,7 @@
 
 - **自动化系统维护**：自动更新系统包并清理垃圾
 - **网络工具更新**：支持检测和更新 Xray 和 Sing-box
+- **端口检测和防火墙配置**：自动检测代理服务端口并配置防火墙规则，支持 Sing-box 和 Xray
 - **Telegram 通知**：维护前、重启后分阶段发送通知，包括系统时区和当前时间
 - **定时任务**：使用 Cron 设置每日自动执行（默认东京时区凌晨 4:00）
 - **时区兼容**：智能检测系统时区，支持多种时区配置
@@ -74,8 +75,8 @@ sudo ./deploy.sh
 ```
 
 3. 输入您的 Telegram Bot Token 和 Chat ID
-
 4. 脚本将自动：
+
    - 创建维护脚本 (`/usr/local/bin/vps-maintain.sh`)
    - 创建重启通知脚本 (`/usr/local/bin/vps-reboot-notify.sh`)
    - 设置每日定时任务
@@ -111,24 +112,104 @@ crontab -l
 ### Telegram 通知内容
 
 通知信息包括：
+
 - 系统时区
 - 当前时间
 - Xray 状态（最新/已更新/未安装）
 - Sing-box 状态（最新/已更新/未安装）
 
+## 端口检测和防火墙配置
+
+项目包含端口检测脚本，用于自动检测代理服务端口并配置防火墙规则：
+
+### 脚本文件详情
+
+项目包含以下脚本文件：
+
+#### 1. `deploy.sh` - VPS自动维护部署脚本 ⭐主脚本
+
+- **版本**: 2.7 (最终版)
+- **功能**: 一键部署VPS自动维护系统
+- **特点**:
+  - 自动创建维护和重启通知脚本
+  - 支持自定义维护时间（默认东京时区凌晨4:00）
+  - 配置内存日志存储以提升性能
+  - 支持Telegram Bot通知
+  - 兼容无systemd环境
+
+#### 2. `detect_ports_fixed.sh` - 端口检测和防火墙配置脚本 ⭐推荐
+
+- **版本**: 修复版
+- **功能**: 自动检测代理服务端口并配置防火墙安全策略
+- **特点**:
+  - 自动检测Xray和Sing-box进程端口
+  - 支持进程监听检测和配置文件解析
+  - 智能防火墙配置（firewalld/ufw）
+  - 主动移除未使用端口实现安全锁定
+  - 修复所有已知bug和兼容性问题
+
+#### 3. `detect_ports_ultimate.sh` - 一键式端口检测脚本 ⭐终极版
+
+- **版本**: 终极版
+- **功能**: 完全自动化的防火墙安全配置
+- **特点**:
+  - 继承所有 `detect_ports_fixed.sh`功能
+  - **自动安装防火墙**: 如果系统未安装防火墙，会自动安装UFW或firewalld
+  - 支持多种Linux发行版（Ubuntu/Debian/CentOS/RHEL等）
+  - 一键式安全配置，无需手动干预
+
+### 推荐使用方案
+
+| 场景         | 推荐脚本                                     | 说明                             |
+| ------------ | -------------------------------------------- | -------------------------------- |
+| 首次使用     | `deploy.sh` + `detect_ports_ultimate.sh` | 先部署维护系统，再配置防火墙安全 |
+| 已有维护系统 | `detect_ports_ultimate.sh`                 | 仅需配置防火墙安全策略           |
+| 最小化配置   | `detect_ports_fixed.sh`                    | 适用于已有防火墙的环境           |
+| 手动配置     | 逐个脚本单独运行                             | 根据需要选择性使用               |
+
+### 使用方法
+
+```bash
+# 下载并运行修复版本
+wget https://github.com/FTDRTD/Vps-auto-maintain/raw/main/detect_ports_fixed.sh
+sudo bash detect_ports_fixed.sh --token YOUR_TOKEN --chat-id YOUR_ID
+```
+
+### 检测功能
+
+- **进程端口检测**：检查 `sing-box` 进程正在监听的端口
+- **配置文件解析**：从 `/etc/sing-box/config.json` 等配置文件读取端口
+- **智能扫描**：扫描所有监听端口，精确识别代理服务进程
+- **防火墙配置**：自动为检测到的端口配置 TCP/UDP 规则（支持 firewalld/ufw/iptables）
+
+### 参数选项
+
+- `--no-notify`: 禁用 Telegram 通知
+- `--token TOKEN`: Telegram Bot Token
+- `--chat-id ID`: Telegram Chat ID
+
+### 系统要求
+
+- `ss` 或 `netstat` 命令
+- `jq` 命令（用于解析JSON配置）
+- `curl` 命令（用于 Telegram 通知）
+
 ## 注意事项
 
 ⚠️ **重要警告**：
+
 - 此脚本会在维护完成后自动重启服务器！
 - 请确保所有重要数据已备份
 - 首次运行后，服务器将立即重启
 - 如果在生产环境中使用，确保不会影响关键服务
 
 ⚠️ **网络要求**：
+
 - 脚本需要访问 Telegram API，某些网络环境可能需要代理
 - 确保 VPS 能够访问软件包源和 Xray/Sing-box 更新源
 
 ⚠️ **权限要求**：
+
 - 部署时需要 sudo 权限
 - 确保用户有足够权限访问 `/usr/local/bin/` 和 Crontab
 
@@ -137,18 +218,19 @@ crontab -l
 ### 常见问题
 
 1. **Telegram 通知不发送**
+
    - 检查 Bot Token 和 Chat ID 是否正确
    - 确认网络能够访问 Telegram API
-
 2. **脚本执行失败**
+
    - 检查是否所有依赖已安装
    - 查看系统日志：`journalctl -u cron` 或 `/var/log/cron`
-
 3. **时区设置错误**
+
    - 脚本会自动检测时区，如有问题会在日志中显示
    - 手动检查：`date` 和 `/etc/timezone`
-
 4. **Cron 任务不执行**
+
    - 确认 Cron 服务正在运行
    - 检查脚本权限是否正确
 
@@ -178,7 +260,11 @@ crontab -e
 
 ## 版本信息
 
-当前版本：2.6 (最终版)
+当前版本：2.7
+
+- 新增端口检测和防火墙配置功能
+- 支持自动检测 Sing-box 和 Xray 端口
+- 智能防火墙规则配置（firewalld/ufw/iptables）
 - 兼容无 systemd 环境
 - 修复时区获取问题
 - 增强容错机制
@@ -194,6 +280,7 @@ crontab -e
 ## 联系支持
 
 如果您在使用过程中遇到问题，请：
+
 1. 检查上述故障排除指南
 2. 在 GitHub Issues 中详细描述问题
 3. 提供相关日志信息（注意去除敏感信息）
