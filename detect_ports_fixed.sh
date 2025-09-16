@@ -1,12 +1,13 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------------------
-# VPS 代理服务端口检测和防火墙配置脚本（安全锁定版）
+# VPS 代理服务端口检测和防火墙配置脚本（最终安全锁定版）
 #
 # 功能：
-# - 自动检测 Xray 和 Sing-box (sb) 的开放端口
-# - 自动检测 SSH 端口并加入白名单
-# - 配置防火墙允许代理和 SSH 端口的流量
-# - 【新】移除防火墙中所有其他未被使用的端口，实现安全锁定
+# - 自动检测 Xray 和 Sing-box 的开放端口
+# - 自动检测 SSH 端口并强制保留
+# - 配置防火墙仅允许代理和 SSH 端口的流量
+# - 主动移除防火墙中所有其他未知端口，实现安全锁定
+# - 修复所有已知 bug 和兼容性问题
 # - 支持 Telegram 通知
 # -----------------------------------------------------------------------------------------
 
@@ -77,10 +78,13 @@ parse_config_ports() {
         fi
         if [ -z "$ports" ]; then
             echo "⚠️ jq 不可用，使用备用解析方法" >&2
-            ports=$(grep -oP '(?<="listen_port":\s*)\d+' "$config_file" | sort -u | tr '\n' ' ')
-            if [ -z "$ports" ]; then
-                ports=$(grep -oP '(?<="port":\s*)\d+' "$config_file" | sort -u | tr '\n' ' ')
+            # 【修复】使用兼容性最强的 grep 方式，避免 "lookbehind assertion" 错误
+            local found_ports
+            found_ports=$(grep -o '"listen_port":[[:space:]]*[0-9]\+' "$config_file" | grep -o '[0-9]\+')
+            if [ -z "$found_ports" ]; then
+                found_ports=$(grep -o '"port":[[:space:]]*[0-9]\+' "$config_file" | grep -o '[0-9]\+')
             fi
+            ports=$(echo "$found_ports" | sort -u | tr '\n' ' ')
         fi
         if [ -n "$ports" ]; then
             echo "📋 从配置文件读取到端口: $ports" >&2
@@ -111,17 +115,19 @@ add_firewall_rule() {
             set +e
             if ! sudo firewall-cmd --permanent --query-port="$port/$protocol" > /dev/null 2>&1; then
                 sudo firewall-cmd --permanent --add-port="$port/$protocol" > /dev/null 2>&1
-                sudo firewall-cmd --reload > /dev/null 2>&1
+                # 标记有更改发生，以便最后统一重载
+                FIREWALL_CHANGED=true
             fi
             set -e
             ;;
         ufw)
-            sudo ufw allow "$port/$protocol" > /dev/null 2>&1
+            # 对于 UFW，在清理阶段统一处理
+            :
             ;;
     esac
 }
 
-# 【新功能】移除未使用的防火墙规则
+# 移除未使用的防火墙规则
 remove_unused_rules() {
     local ports_to_keep="$1"
     local firewall_type="$2"
@@ -131,32 +137,30 @@ remove_unused_rules() {
     case "$firewall_type" in
         firewalld)
             echo "ℹ️ 正在检查 firewalld 永久规则..."
-            local changes_made=false
-            # 获取当前永久规则中的服务和端口
-            local current_services=$(sudo firewall-cmd --permanent --list-services)
-            local current_ports=$(sudo firewall-cmd --permanent --list-ports)
+            local current_services
+            local current_ports
+            current_services=$(sudo firewall-cmd --permanent --list-services)
+            current_ports=$(sudo firewall-cmd --permanent --list-ports)
 
-            # 清理服务 (只保留 ssh 和 dhcpv6-client)
             for service in $current_services; do
                 if [[ "$service" != "ssh" && "$service" != "dhcpv6-client" ]]; then
                     echo "➖ 正在移除服务: $service"
                     sudo firewall-cmd --permanent --remove-service="$service" > /dev/null 2>&1
-                    changes_made=true
+                    FIREWALL_CHANGED=true
                 fi
             done
 
-            # 清理端口
             for port_rule in $current_ports; do
-                local port_num=$(echo "$port_rule" | cut -d'/' -f1)
-                # 检查当前端口是否在需要保留的列表中
+                local port_num
+                port_num=$(echo "$port_rule" | cut -d'/' -f1)
                 if ! echo " $ports_to_keep " | grep -q " $port_num "; then
                     echo "➖ 正在移除端口规则: $port_rule"
                     sudo firewall-cmd --permanent --remove-port="$port_rule" > /dev/null 2>&1
-                    changes_made=true
+                    FIREWALL_CHANGED=true
                 fi
             done
 
-            if [ "$changes_made" = true ]; then
+            if [ "$FIREWALL_CHANGED" = true ]; then
                 echo "🔄 正在重载防火墙以应用更改..."
                 sudo firewall-cmd --reload > /dev/null 2>&1
             else
@@ -181,27 +185,27 @@ remove_unused_rules() {
             echo "✅ UFW 已重置并配置完毕。"
             sudo ufw status
             ;;
-        none)
-            echo "⚠️ 未检测到活跃的防火墙，跳过清理操作。"
-            ;;
     esac
 }
-
 
 # 主函数
 main() {
     print_message "开始检测代理服务端口并配置防火墙"
 
-    local timezone=$(get_timezone)
-    local time_now=$(date '+%Y-%m-%d %H:%M:%S')
-    local firewall_type=$(detect_firewall)
+    local timezone
+    local time_now
+    local firewall_type
+    timezone=$(get_timezone)
+    time_now=$(date '+%Y-%m-%d %H:%M:%S')
+    firewall_type=$(detect_firewall)
+    FIREWALL_CHANGED=false # 用于标记防火墙是否有变动
 
     echo "🔍 检测防火墙类型: $firewall_type"
     echo "🕒 系统时区: $timezone"
     echo "🕐 当前时间: $time_now"
 
-    # 【新】自动检测SSH端口
-    local ssh_port=$(grep -i '^Port ' /etc/ssh/sshd_config | awk '{print $2}' | head -n1)
+    local ssh_port
+    ssh_port=$(grep -i '^Port ' /etc/ssh/sshd_config | awk '{print $2}' | head -n1)
     [ -z "$ssh_port" ] && ssh_port=22
     echo "🛡️ 检测到 SSH 端口为: $ssh_port (此端口将被强制保留)"
 
@@ -209,16 +213,11 @@ main() {
     local sb_ports=""
     local all_ports=""
     
-    # 检测 Xray 端口
     if command -v xray &> /dev/null && pgrep -f "xray" > /dev/null; then
         xray_ports=$(get_process_ports "xray")
-        if [ -n "$xray_ports" ]; then
-            echo "✅ 检测到 Xray 运行端口: $xray_ports"
-            all_ports="$all_ports $xray_ports"
-        fi
+        [ -n "$xray_ports" ] && echo "✅ 检测到 Xray 运行端口: $xray_ports" && all_ports="$all_ports $xray_ports"
     fi
 
-    # 检测 Sing-box 端口
     if command -v sb &> /dev/null || command -v sing-box &> /dev/null; then
         if pgrep -f "sing-box" > /dev/null; then
             sb_ports=$(get_process_ports "sing-box")
@@ -233,40 +232,37 @@ main() {
                 done
                 sb_ports=$(echo "$temp_sb_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
             fi
-            if [ -n "$sb_ports" ]; then
-                echo "✅ 检测到 Sing-box 运行端口:$sb_ports"
-                all_ports="$all_ports $sb_ports"
-            fi
+            [ -n "$sb_ports" ] && echo "✅ 检测到 Sing-box 运行端口:$sb_ports" && all_ports="$all_ports $sb_ports"
         fi
     fi
 
-    # 统一处理所有需要保留的端口
-    local ports_to_keep=$(echo "$all_ports $ssh_port" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+    local ports_to_keep
+    ports_to_keep=$(echo "$all_ports $ssh_port" | tr ' ' '\n' | sort -u | tr '\n' ' ')
 
-    if [ -n "$ports_to_keep" ]; then
-        echo "ℹ️ 将要确保以下端口开启: $ports_to_keep"
+    if [ -z "$ports_to_keep" ]; then
+        echo "ℹ️ 未检测到任何需要保留的端口，跳过防火墙配置。"
+        exit 0
+    fi
+    
+    echo "ℹ️ 将要确保以下端口开启:$ports_to_keep"
+    
+    if [ "$firewall_type" != "ufw" ]; then
         for port in $ports_to_keep; do
-            if [[ "$port" =~ ^[0-9]+$ ]]; then
-                add_firewall_rule "$port" "tcp" "$firewall_type"
-                add_firewall_rule "$port" "udp" "$firewall_type"
-            fi
+            add_firewall_rule "$port" "tcp" "$firewall_type"
+            add_firewall_rule "$port" "udp" "$firewall_type"
         done
-        
-        # 【新】调用清理函数
-        remove_unused_rules "$ports_to_keep" "$firewall_type"
+    fi
+    
+    remove_unused_rules "$ports_to_keep" "$firewall_type"
 
-        local message="🔒 *防火墙安全锁定完成*
+    local message="🔒 *防火墙安全锁定完成*
 > *保留端口*: \`$ports_to_keep\`
 > *防火墙类型*: \`$firewall_type\`"
-        send_telegram "$message"
-        print_message "防火墙配置完成，仅允许必需端口的流量"
-    else
-        echo "ℹ️ 未检测到运行中的代理服务，跳过防火墙配置"
-    fi
+    send_telegram "$message"
+    print_message "防火墙配置完成，仅允许必需端口的流量"
 }
 
-# 参数处理...
-# （此处代码与原版相同，为简洁省略）
+# 参数处理
 while [[ $# -gt 0 ]]; do
     case $1 in
         --no-notify) NOTIFY=false; shift ;;
