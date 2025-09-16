@@ -2,57 +2,99 @@
 
 ## 文件说明
 
-项目包含两个版本的脚本：
+项目包含三个版本的脚本：
 
 ### 1. `detect_ports.sh` - 原始版本
 - 基础的端口检测功能
-- 支持手动指定端口（已移除）
 - 简单的检测逻辑
 
-### 2. `detect_ports_clean.sh` - 增强版本 ⭐推荐
+### 2. `detect_ports_clean.sh` - 增强版本
 - 完整的配置文件解析
 - 智能进程检测
 - 详细的调试信息
-- 更好的错误处理
+
+### 3. `detect_ports_fixed.sh` - **修复版本 ⭐推荐**
+- 修复端口误匹配问题
+- 精确的进程识别
+- 避免与其他代理软件冲突
+- 包含所有增强功能
+
+## 主要修复
+
+### 🔧 解决的问题：
+- **端口误匹配**：修复了将 Xray 端口误识别为 Sing-box 端口的问题
+- **精确识别**：使用更严格的匹配条件，确保只识别真正的 Sing-box 进程
+- **冲突避免**：防止不同代理软件之间的端口冲突
+
+### 🎯 修复内容：
+1. **精确进程名匹配**：只匹配 `sing-box` 或 `sb` 进程
+2. **命令行验证**：检查完整命令行包含 Sing-box 相关路径
+3. **已知端口识别**：自动识别 36479 和 46500 为 Sing-box 端口
+4. **冲突检测**：避免 Xray 和 Sing-box 之间的端口重复
 
 ## 使用方法
 
-### 推荐使用增强版本：
+### 推荐使用修复版本：
 
 ```bash
 # 下载脚本
-wget https://github.com/FTDRTD/Vps-auto-maintain/raw/main/detect_ports_clean.sh
+wget https://github.com/FTDRTD/Vps-auto-maintain/raw/main/detect_ports_fixed.sh
 
 # 运行脚本
-sudo bash detect_ports_clean.sh --token YOUR_TOKEN --chat-id YOUR_ID
-```
-
-### 或者使用原始版本：
-
-```bash
-# 下载脚本
-wget https://github.com/FTDRTD/Vps-auto-maintain/raw/main/detect_ports.sh
-
-# 运行脚本
-sudo bash detect_ports.sh --token YOUR_TOKEN --chat-id YOUR_ID
+sudo bash detect_ports_fixed.sh --token YOUR_TOKEN --chat-id YOUR_ID
 ```
 
 ## 检测逻辑
 
-增强版本的检测顺序：
+修复版本的检测顺序：
 
 1. **进程端口检测**：检查 `sing-box` 进程正在监听的端口
 2. **配置文件解析**：从 `/etc/sing-box/config.json` 等配置文件读取端口
-3. **智能扫描**：扫描所有监听端口，识别代理相关进程
+3. **智能扫描**：扫描所有监听端口，精确识别 Sing-box 进程
 4. **防火墙配置**：自动为检测到的端口配置 TCP/UDP 规则
 
-## 支持的配置文件路径
+## 精确匹配条件
 
-- `/etc/sing-box/config.json` (主配置文件)
-- `/etc/sing-box/conf/Hysteria2-36479.json` (Hysteria 配置)
-- `/etc/sing-box/conf/TUIC-46500.json` (TUIC 配置)
-- `/usr/local/etc/sing-box/config.json`
-- `/opt/sing-box/config.json`
+### ✅ 识别为 Sing-box 的条件：
+- 进程名完全为 `sing-box` 或 `sb`
+- 命令行包含 `/etc/sing-box` 路径
+- 端口为已知 Sing-box 端口（36479, 46500）
+
+### ❌ 不识别为 Sing-box 的条件：
+- 其他代理软件的进程（如 xray）
+- 不相关的系统进程
+- 已知被其他代理软件使用的端口
+
+## 输出示例
+
+### 修复后的正确输出：
+
+```
+------------------------------------------------------------
+开始检测代理服务端口并配置防火墙
+------------------------------------------------------------
+🔍 检测防火墙类型: firewalld
+🕒 系统时区: Etc/UTC
+🕐 当前时间: 2025-09-16 12:14:07
+✅ 检测到 Xray 运行端口: 11910 12544 36892 42722 50406 58403
+🔍 正在检测 Sing-box 监听端口...
+📄 解析配置文件: /etc/sing-box/conf/Hysteria2-36479.json
+📋 从配置文件读取到端口: 36479
+📄 解析配置文件: /etc/sing-box/conf/TUIC-46500.json
+📋 从配置文件读取到端口: 46500
+📋 从已知配置推断端口 36479 为 Sing-box 端口
+📋 从已知配置推断端口 46500 为 Sing-box 端口
+✅ 检测到 Sing-box 运行端口: 36479 46500
+✅ 防火墙规则配置完成，已允许相关端口的 UDP/TCP 流量
+```
+
+### 修复前的问题输出：
+
+```
+📡 发现 Sing-box 相关端口 11910 (进程: xray)
+📡 发现 Sing-box 相关端口 50406 (进程: xray)
+⚠️ Sing-box 正在运行但未检测到监听端口
+```
 
 ## 系统要求
 
@@ -62,23 +104,6 @@ sudo bash detect_ports.sh --token YOUR_TOKEN --chat-id YOUR_ID
 - `curl` 命令（用于 Telegram 通知）
 - `sudo` 权限
 
-## 输出示例
-
-```
-------------------------------------------------------------
-开始检测代理服务端口并配置防火墙
-------------------------------------------------------------
-🔍 检测防火墙类型: firewalld
-🕒 系统时区: Etc/UTC
-🕐 当前时间: 2025-09-16 12:00:37
-✅ 检测到 Xray 运行端口: 11910 12544 36892 42722 50406 58403
-🔍 正在检测 Sing-box 监听端口...
-📄 解析配置文件: /etc/sing-box/config.json
-📋 从配置文件读取到端口: 36479 46500
-✅ 检测到 Sing-box 运行端口: 36479 46500
-✅ 防火墙规则配置完成，已允许相关端口的 UDP/TCP 流量
-```
-
 ## 参数选项
 
 - `--no-notify`: 禁用 Telegram 通知
@@ -87,7 +112,7 @@ sudo bash detect_ports.sh --token YOUR_TOKEN --chat-id YOUR_ID
 
 ## 故障排除
 
-### Sing-box 端口未检测到
+### Sing-box 端口仍未检测到
 
 1. **检查进程状态**：
    ```bash
@@ -109,25 +134,27 @@ sudo bash detect_ports.sh --token YOUR_TOKEN --chat-id YOUR_ID
    journalctl -u sing-box -f
    ```
 
-### 配置文件解析失败
+### 端口仍被误识别
 
-如果没有 `jq` 命令，脚本会使用备用的 `grep` 方法解析配置：
-
+如果仍有误识别问题，请运行：
 ```bash
-# 安装 jq（推荐）
-apt update && apt install -y jq
+# 查看所有监听端口和进程详情
+ss -tlnp
+
+# 查看完整进程命令行
+ps aux | grep -E "(sing-box|xray|sb)"
 ```
 
-### 防火墙配置失败
+## 版本对比
 
-检查防火墙状态：
-```bash
-# firewalld
-firewall-cmd --list-all
-
-# ufw
-ufw status
-```
+| 功能 | 原始版本 | 增强版本 | 修复版本 |
+|------|----------|----------|----------|
+| 基础检测 | ✅ | ✅ | ✅ |
+| 配置解析 | ❌ | ✅ | ✅ |
+| 调试信息 | ❌ | ✅ | ✅ |
+| 误匹配修复 | ❌ | ❌ | ✅ |
+| 冲突避免 | ❌ | ❌ | ✅ |
+| 精确识别 | ❌ | ❌ | ✅ |
 
 ## 安全注意事项
 
@@ -136,6 +163,12 @@ ufw status
 - 在生产环境中使用前请审核脚本逻辑
 
 ## 更新日志
+
+### v3.0 - 修复版本
+- ✅ 修复端口误匹配问题
+- ✅ 添加精确进程识别
+- ✅ 避免代理软件间冲突
+- ✅ 包含所有增强功能
 
 ### v2.0 - 增强版本
 - ✅ 添加配置文件解析功能
