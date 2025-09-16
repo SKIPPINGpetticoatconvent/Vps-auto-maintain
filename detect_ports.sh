@@ -128,8 +128,8 @@ main() {
     fi
 
     # 检测 Sing-box 端口
-    if command -v sb &> /dev/null && pgrep -f "sing-box\|sb" > /dev/null; then
-        sb_ports=$(get_process_ports "sing-box\|sb")
+    if command -v sb &> /dev/null && pgrep -f "sb" > /dev/null; then
+        sb_ports=$(get_process_ports "sb")
         if [ -n "$sb_ports" ]; then
             echo "✅ 检测到 Sing-box 运行端口: $sb_ports"
             for port in $sb_ports; do
