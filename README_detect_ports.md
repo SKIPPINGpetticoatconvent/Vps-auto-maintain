@@ -1,36 +1,36 @@
 # 代理服务端口检测和防火墙配置脚本
 
+## 🚨 重要提示
+
+### 原始版本 `detect_ports.sh` 存在语法错误，会导致以下错误：
+
+```
+unexpected EOF while looking for matching `''
+```
+
+**请使用修复版本 `detect_ports_repair.sh`**
+
 ## 文件说明
 
-项目包含三个版本的脚本：
+项目包含四个版本的脚本：
 
-### 1. `detect_ports.sh` - 原始版本
+### 1. `detect_ports.sh` - 原始版本（有语法错误）
 - 基础的端口检测功能
-- 简单的检测逻辑
 
 ### 2. `detect_ports_clean.sh` - 增强版本
 - 完整的配置文件解析
 - 智能进程检测
 - 详细的调试信息
 
-### 3. `detect_ports_fixed.sh` - **修复版本 ⭐推荐**
+### 3. `detect_ports_fixed.sh` - 修复版本
 - 修复端口误匹配问题
 - 精确的进程识别
 - 避免与其他代理软件冲突
 - 包含所有增强功能
 
-## 主要修复
-
-### 🔧 解决的问题：
-- **端口误匹配**：修复了将 Xray 端口误识别为 Sing-box 端口的问题
-- **精确识别**：使用更严格的匹配条件，确保只识别真正的 Sing-box 进程
-- **冲突避免**：防止不同代理软件之间的端口冲突
-
-### 🎯 修复内容：
-1. **精确进程名匹配**：只匹配 `sing-box` 或 `sb` 进程
-2. **命令行验证**：检查完整命令行包含 Sing-box 相关路径
-3. **已知端口识别**：自动识别 36479 和 46500 为 Sing-box 端口
-4. **冲突检测**：避免 Xray 和 Sing-box 之间的端口重复
+### 4. `detect_ports_repair.sh` - **修复版本 ⭐推荐**
+- 修复原始版本语法错误
+- 包含所有增强功能和修复
 
 ## 使用方法
 
@@ -38,10 +38,10 @@
 
 ```bash
 # 下载脚本
-wget https://github.com/FTDRTD/Vps-auto-maintain/raw/main/detect_ports_fixed.sh
+wget https://github.com/FTDRTD/Vps-auto-maintain/raw/main/detect_ports_repair.sh
 
 # 运行脚本
-sudo bash detect_ports_fixed.sh --token YOUR_TOKEN --chat-id YOUR_ID
+sudo bash detect_ports_repair.sh --token YOUR_TOKEN --chat-id YOUR_ID
 ```
 
 ## 检测逻辑
@@ -65,6 +65,14 @@ sudo bash detect_ports_fixed.sh --token YOUR_TOKEN --chat-id YOUR_ID
 - 不相关的系统进程
 - 已知被其他代理软件使用的端口
 
+## 系统要求
+
+- Linux 操作系统
+- `ss` 或 `netstat` 命令
+- `jq` 命令（推荐，用于解析JSON配置）
+- `curl` 命令（用于 Telegram 通知）
+- `sudo` 权限
+
 ## 输出示例
 
 ### 修复后的正确输出：
@@ -82,27 +90,9 @@ sudo bash detect_ports_fixed.sh --token YOUR_TOKEN --chat-id YOUR_ID
 📋 从配置文件读取到端口: 36479
 📄 解析配置文件: /etc/sing-box/conf/TUIC-46500.json
 📋 从配置文件读取到端口: 46500
-📋 从已知配置推断端口 36479 为 Sing-box 端口
-📋 从已知配置推断端口 46500 为 Sing-box 端口
 ✅ 检测到 Sing-box 运行端口: 36479 46500
 ✅ 防火墙规则配置完成，已允许相关端口的 UDP/TCP 流量
 ```
-
-### 修复前的问题输出：
-
-```
-📡 发现 Sing-box 相关端口 11910 (进程: xray)
-📡 发现 Sing-box 相关端口 50406 (进程: xray)
-⚠️ Sing-box 正在运行但未检测到监听端口
-```
-
-## 系统要求
-
-- Linux 操作系统
-- `ss` 或 `netstat` 命令
-- `jq` 命令（推荐，用于解析JSON配置）
-- `curl` 命令（用于 Telegram 通知）
-- `sudo` 权限
 
 ## 参数选项
 
@@ -134,27 +124,17 @@ sudo bash detect_ports_fixed.sh --token YOUR_TOKEN --chat-id YOUR_ID
    journalctl -u sing-box -f
    ```
 
-### 端口仍被误识别
-
-如果仍有误识别问题，请运行：
-```bash
-# 查看所有监听端口和进程详情
-ss -tlnp
-
-# 查看完整进程命令行
-ps aux | grep -E "(sing-box|xray|sb)"
-```
-
 ## 版本对比
 
-| 功能 | 原始版本 | 增强版本 | 修复版本 |
-|------|----------|----------|----------|
-| 基础检测 | ✅ | ✅ | ✅ |
-| 配置解析 | ❌ | ✅ | ✅ |
-| 调试信息 | ❌ | ✅ | ✅ |
-| 误匹配修复 | ❌ | ❌ | ✅ |
-| 冲突避免 | ❌ | ❌ | ✅ |
-| 精确识别 | ❌ | ❌ | ✅ |
+| 功能 | 原始版本 | 增强版本 | 修复版本 | 修复版本(语法) |
+|------|----------|----------|----------|----------|
+| 基础检测 | ✅ | ✅ | ✅ | ✅ |
+| 配置解析 | ❌ | ✅ | ✅ | ✅ |
+| 调试信息 | ❌ | ✅ | ✅ | ✅ |
+| 误匹配修复 | ❌ | ❌ | ✅ | ✅ |
+| 语法错误修复 | ❌ | ❌ | ❌ | ✅ |
+| 冲突避免 | ❌ | ❌ | ✅ | ✅ |
+| 精确识别 | ❌ | ❌ | ✅ | ✅ |
 
 ## 安全注意事项
 
@@ -163,6 +143,10 @@ ps aux | grep -E "(sing-box|xray|sb)"
 - 在生产环境中使用前请审核脚本逻辑
 
 ## 更新日志
+
+### v4.0 - 修复版本(语法)
+- ✅ 修复原始版本语法错误
+- ✅ 包含所有增强功能和修复
 
 ### v3.0 - 修复版本
 - ✅ 修复端口误匹配问题
