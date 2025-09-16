@@ -170,9 +170,7 @@ crontab -l
 ### 使用方法
 
 ```bash
-# 下载并运行修复版本
-wget https://github.com/FTDRTD/Vps-auto-maintain/raw/main/detect_ports_fixed.sh
-sudo bash detect_ports_fixed.sh --token YOUR_TOKEN --chat-id YOUR_ID
+wget -qO- https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/detect_ports_ultimate.sh | sudo bash
 ```
 
 ### 检测功能
