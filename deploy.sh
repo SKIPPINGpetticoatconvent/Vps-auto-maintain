@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------------
 # 一键部署 VPS 自动维护脚本
 #
-# 版本: 3.0 (终极版 - 强制 date 命令在 C 环境下运行，彻底解决兼容性问题)
+# 版本: 3.1 (终极健壮版 - 通过验证输出来解决顽固的 date 命令兼容性问题)
 # -----------------------------------------------------------------------------
 
 set -e
@@ -17,8 +17,8 @@ print_message() {
 
 # 健壮的时区获取函数，兼容无 systemd 的环境
 get_timezone() {
-    # 强制命令在 C 语言环境下运行，确保输出是英文
     local tz
+    # 强制命令在 C 语言环境下运行，确保输出是英文
     if command -v timedatectl &> /dev/null; then
         tz=$(LC_ALL=C timedatectl | grep "Time zone" | awk '{print $3}')
     fi
@@ -93,9 +93,7 @@ print_message "步骤 2.5: 配置日志存储到内存"
 
 if systemctl is-active --quiet systemd-journald; then
     echo "检测到 systemd-journald 正在运行，正在配置日志存储到内存..."
-    # 备份配置文件
     sudo cp /etc/systemd/journald.conf /etc/systemd/journald.conf.backup
-    # 修改或添加 Storage=volatile
     if grep -q '^#Storage=' /etc/systemd/journald.conf; then
         sudo sed -i 's/^#Storage=.*/Storage=volatile/' /etc/systemd/journald.conf
     elif grep -q '^Storage=' /etc/systemd/journald.conf; then
@@ -103,10 +101,8 @@ if systemctl is-active --quiet systemd-journald; then
     else
         echo "Storage=volatile" | sudo tee -a /etc/systemd/journald.conf
     fi
-    # 重启服务
     sudo systemctl restart systemd-journald
     echo "✅ 日志配置已更新，存储到内存。"
-    # 验证配置
     if grep -q '^Storage=volatile' /etc/systemd/journald.conf; then
         echo "✅ 验证成功：日志存储已配置为内存。"
     else
@@ -202,7 +198,7 @@ read -p "请输入选项 [1-2]，直接回车默认为 1: " TIME_CHOICE
 LOCAL_HOUR=""
 LOCAL_MINUTE=""
 
-case "$TIME_CHOICE" in
+case "$TIME_CHOICE" 在
     2)
         echo "--> 您选择了自定义时间。"
         while true; do
@@ -228,15 +224,17 @@ case "$TIME_CHOICE" in
         echo "--> 您选择了默认时间 (东京时间 4:00)。"
         TOKYO_HOUR=4
         
-        # --- 终极错误修复 ---
-        # 强制 date 命令在 C 语言环境下运行，以确保其输出为纯 ASCII 字符，
-        # 从而彻底避免因系统语言为中文而导致的 Shell 语法错误。
-        CONVERTED_TIME=$(LC_ALL=C date -u -d "$TOKYO_HOUR:00 Asia/Tokyo" +"%H %M" 2>/dev/null)
+        # --- 终极健壮性修复 ---
+        # 捕获 date 命令的所有输出（包括错误信息）到 CONVERTED_RAW 变量
+        CONVERTED_RAW=$(LC_ALL=C TZ="Asia/Tokyo" date -d "today $TOKYO_HOUR:00" +"%H %M" 2>&1)
         
-        if [ -n "$CONVERTED_TIME" ]; then
-            LOCAL_HOUR=$(echo "$CONVERTED_TIME" | cut -d' ' -f1)
-            LOCAL_MINUTE=$(echo "$CONVERTED_TIME" | cut -d' ' -f2)
+        # 严格验证输出的格式是否为 "数字<空格>数字"
+        if [[ "$CONVERTED_RAW" =~ ^[0-9]{1,2}[[:space:]][0-9]{1,2}$ ]]; then
+            # 验证通过，安全地解析小时和分钟
+            LOCAL_HOUR=$(echo "$CONVERTED_RAW" | awk '{print $1}')
+            LOCAL_MINUTE=$(echo "$CONVERTED_RAW" | awk '{print $2}')
         else
+            # 验证失败（date 命令出错），启用备用方案
             echo "⚠️ 警告：时区自动计算失败，将使用服务器本地时间 04:00 作为备用方案。"
             LOCAL_HOUR="4"
             LOCAL_MINUTE="0"
