@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------------
 # 一键部署 VPS 自动维护脚本
 #
-# 版本: 3.1 (终极健壮版 - 通过验证输出来解决顽固的 date 命令兼容性问题)
+# 版本: 2.7 (最终版 - 支持自定义维护时间，并修复所有已知问题)
 # -----------------------------------------------------------------------------
 
 set -e
@@ -18,13 +18,15 @@ print_message() {
 # 健壮的时区获取函数，兼容无 systemd 的环境
 get_timezone() {
     local tz
-    # 强制命令在 C 语言环境下运行，确保输出是英文
+    # 优先尝试 systemd 的命令
     if command -v timedatectl &> /dev/null; then
-        tz=$(LC_ALL=C timedatectl | grep "Time zone" | awk '{print $3}')
+        tz=$(timedatectl | grep "Time zone" | awk '{print $3}')
     fi
+    # 如果失败，尝试读取传统文件
     if [ -z "$tz" ] && [ -f /etc/timezone ]; then
         tz=$(cat /etc/timezone)
     fi
+    # 如果还失败，使用 UTC 作为默认值
     if [ -z "$tz" ]; then
         tz="Etc/UTC"
     fi
@@ -55,7 +57,7 @@ sleep 20
 get_timezone() {
     local tz
     if command -v timedatectl &> /dev/null; then
-        tz=$(LC_ALL=C timedatectl | grep "Time zone" | awk '{print $3}')
+        tz=$(timedatectl | grep "Time zone" | awk '{print $3}')
     fi
     if [ -z "$tz" ] && [ -f /etc/timezone ]; then
         tz=$(cat /etc/timezone)
@@ -70,7 +72,7 @@ TG_TOKEN="__TG_TOKEN__"
 TG_CHAT_ID="__TG_CHAT_ID__"
 
 TIMEZONE=$(get_timezone)
-TIME_NOW=$(LC_ALL=C date '+%Y-%m-%d %H:%M:%S')
+TIME_NOW=$(date '+%Y-%m-%d %H:%M:%S')
 
 curl --connect-timeout 10 --retry 5 -s -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
     -d chat_id="$TG_CHAT_ID" \
@@ -93,7 +95,9 @@ print_message "步骤 2.5: 配置日志存储到内存"
 
 if systemctl is-active --quiet systemd-journald; then
     echo "检测到 systemd-journald 正在运行，正在配置日志存储到内存..."
+    # 备份配置文件
     sudo cp /etc/systemd/journald.conf /etc/systemd/journald.conf.backup
+    # 修改或添加 Storage=volatile
     if grep -q '^#Storage=' /etc/systemd/journald.conf; then
         sudo sed -i 's/^#Storage=.*/Storage=volatile/' /etc/systemd/journald.conf
     elif grep -q '^Storage=' /etc/systemd/journald.conf; then
@@ -101,8 +105,10 @@ if systemctl is-active --quiet systemd-journald; then
     else
         echo "Storage=volatile" | sudo tee -a /etc/systemd/journald.conf
     fi
+    # 重启服务
     sudo systemctl restart systemd-journald
     echo "✅ 日志配置已更新，存储到内存。"
+    # 验证配置
     if grep -q '^Storage=volatile' /etc/systemd/journald.conf; then
         echo "✅ 验证成功：日志存储已配置为内存。"
     else
@@ -122,7 +128,7 @@ set -e
 get_timezone() {
     local tz
     if command -v timedatectl &> /dev/null; then
-        tz=$(LC_ALL=C timedatectl | grep "Time zone" | awk '{print $3}')
+        tz=$(timedatectl | grep "Time zone" | awk '{print $3}')
     fi
     if [ -z "$tz" ] && [ -f /etc/timezone ]; then
         tz=$(cat /etc/timezone)
@@ -147,20 +153,15 @@ send_telegram() {
 }
 
 TIMEZONE=$(get_timezone)
-TIME_NOW=$(LC_ALL=C date '+%Y-%m-%d %H:%M:%S')
+TIME_NOW=$(date '+%Y-%m-%d %H:%M:%S')
 
 export DEBIAN_FRONTEND=noninteractive
 sudo apt update && sudo apt upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean
 
 XRAY_STATUS="*Xray*: 未安装"
 if command -v xray &> /dev/null; then
-    XRAY_CORE_OUTPUT=$(xray up 2>&1)
-    CORE_MSG=$(echo "$XRAY_CORE_OUTPUT" | grep -q "当前已经是最新版本" && echo "✅ 核心最新" || echo "⚠️ 核心已更新")
-    
-    XRAY_DAT_OUTPUT=$(xray up dat 2>&1)
-    DAT_MSG=$(echo "$XRAY_DAT_OUTPUT" | grep -q "成功" && echo "✅ 规则最新" || echo "⚠️ 规则已更新")
-
-    XRAY_STATUS="*Xray*: $CORE_MSG, $DAT_MSG"
+    XRAY_OUTPUT=$(xray up 2>&1)
+    XRAY_STATUS=$(echo "$XRAY_OUTPUT" | grep -q "当前已经是最新版本" && echo "*Xray*: ✅ 最新版本" || echo "*Xray*: ⚠️ 已更新")
 fi
 
 SB_STATUS="*Sing-box*: 未安装"
@@ -198,9 +199,10 @@ read -p "请输入选项 [1-2]，直接回车默认为 1: " TIME_CHOICE
 LOCAL_HOUR=""
 LOCAL_MINUTE=""
 
-case "$TIME_CHOICE" 在
+case "$TIME_CHOICE" in
     2)
         echo "--> 您选择了自定义时间。"
+        # 循环输入小时，直到格式正确
         while true; do
             read -p "请输入执行的小时 (0-23): " CUSTOM_HOUR
             if [[ "$CUSTOM_HOUR" =~ ^([0-9]|1[0-9]|2[0-3])$ ]]; then
@@ -210,6 +212,7 @@ case "$TIME_CHOICE" 在
                 echo "❌ 格式错误，请输入 0 到 23 之间的数字。"
             fi
         done
+        # 循环输入分钟，直到格式正确
         while true; do
             read -p "请输入执行的分钟 (0-59): " CUSTOM_MINUTE
             if [[ "$CUSTOM_MINUTE" =~ ^([0-9]|[1-5][0-9])$ ]]; then
@@ -222,24 +225,16 @@ case "$TIME_CHOICE" 在
         ;;
     *)
         echo "--> 您选择了默认时间 (东京时间 4:00)。"
+        SYS_TZ=$(get_timezone)
         TOKYO_HOUR=4
-        
-        # --- 终极健壮性修复 ---
-        # 捕获 date 命令的所有输出（包括错误信息）到 CONVERTED_RAW 变量
-        CONVERTED_RAW=$(LC_ALL=C TZ="Asia/Tokyo" date -d "today $TOKYO_HOUR:00" +"%H %M" 2>&1)
-        
-        # 严格验证输出的格式是否为 "数字<空格>数字"
-        if [[ "$CONVERTED_RAW" =~ ^[0-9]{1,2}[[:space:]][0-9]{1,2}$ ]]; then
-            # 验证通过，安全地解析小时和分钟
-            LOCAL_HOUR=$(echo "$CONVERTED_RAW" | awk '{print $1}')
-            LOCAL_MINUTE=$(echo "$CONVERTED_RAW" | awk '{print $2}')
-        else
-            # 验证失败（date 命令出错），启用备用方案
+        LOCAL_HOUR=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" $TOKYO_HOUR:00" +%H)
+        LOCAL_MINUTE=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" $TOKYO_HOUR:00" +%M)
+
+        if [ -z "$LOCAL_HOUR" ] || [ -z "$LOCAL_MINUTE" ]; then
             echo "⚠️ 警告：时区自动计算失败，将使用服务器本地时间 04:00 作为备用方案。"
             LOCAL_HOUR="4"
             LOCAL_MINUTE="0"
         fi
-        # --- 修复结束 ---
         ;;
 esac
 
