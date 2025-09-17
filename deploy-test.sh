@@ -2,10 +2,14 @@
 # -----------------------------------------------------------------------------
 # 一键部署 VPS 自动维护脚本
 #
-# 版本: 2.8 (最终版 - 优化 Xray 更新状态的通知消息)
+# 版本: 2.9 (最终版 - 增加自动清理旧版本功能，确保覆盖安装成功)
 # -----------------------------------------------------------------------------
 
 set -e
+
+# --- 变量定义 ---
+MAINTAIN_SCRIPT="/usr/local/bin/vps-maintain.sh"
+REBOOT_NOTIFY_SCRIPT="/usr/local/bin/vps-reboot-notify.sh"
 
 # --- 函数定义 ---
 print_message() {
@@ -33,6 +37,15 @@ get_timezone() {
     echo "$tz"
 }
 
+# --- 步骤 0: 清理旧版本 (如果存在) ---
+print_message "步骤 0: 清理旧的脚本和定时任务（如果存在）"
+# 使用 rm -f 避免在文件不存在时报错
+rm -f "$MAINTAIN_SCRIPT"
+rm -f "$REBOOT_NOTIFY_SCRIPT"
+# 从 crontab 中移除相关的定时任务，同时保留其他任务
+(crontab -l 2>/dev/null | grep -v "$MAINTAIN_SCRIPT" | grep -v "$REBOOT_NOTIFY_SCRIPT" || true) | crontab -
+echo "✅ 旧版本清理完成。"
+
 
 # --- 步骤 1: 用户输入 ---
 print_message "步骤 1: 请输入您的 Telegram 配置信息"
@@ -43,9 +56,6 @@ if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT_ID" ]; then
     echo "❌ 错误：Telegram Bot Token 和 Chat ID 不能为空。"
     exit 1
 fi
-
-MAINTAIN_SCRIPT="/usr/local/bin/vps-maintain.sh"
-REBOOT_NOTIFY_SCRIPT="/usr/local/bin/vps-reboot-notify.sh"
 
 # --- 步骤 2: 创建重启后通知脚本 ---
 print_message "步骤 2: 创建重启后通知脚本 ($REBOOT_NOTIFY_SCRIPT)"
@@ -81,6 +91,7 @@ curl --connect-timeout 10 --retry 5 -s -X POST "https://api.telegram.org/bot$TG_
 > *当前时间*: \`$TIME_NOW\`" \
     -d parse_mode="Markdown" > /dev/null
 
+# 执行后自动从 crontab 中删除 @reboot 任务
 (crontab -l | grep -v "__REBOOT_NOTIFY_SCRIPT_PATH__" || true) | crontab -
 EOF
 
@@ -96,12 +107,12 @@ print_message "步骤 2.5: 配置日志存储到内存"
 if systemctl is-active --quiet systemd-journald; then
     echo "检测到 systemd-journald 正在运行，正在配置日志存储到内存..."
     # 备份配置文件
-    sudo cp /etc/systemd/journald.conf /etc/systemd/journald.conf.backup
+    if [ -f /etc/systemd/journald.conf ]; then
+        sudo cp /etc/systemd/journald.conf /etc/systemd/journald.conf.backup
+    fi
     # 修改或添加 Storage=volatile
-    if grep -q '^#Storage=' /etc/systemd/journald.conf; then
-        sudo sed -i 's/^#Storage=.*/Storage=volatile/' /etc/systemd/journald.conf
-    elif grep -q '^Storage=' /etc/systemd/journald.conf; then
-        sudo sed -i 's/^Storage=.*/Storage=volatile/' /etc/systemd/journald.conf
+    if grep -q '^#\?Storage=' /etc/systemd/journald.conf 2>/dev/null; then
+        sudo sed -i 's/^#\?Storage=.*/Storage=volatile/' /etc/systemd/journald.conf
     else
         echo "Storage=volatile" | sudo tee -a /etc/systemd/journald.conf
     fi
@@ -156,11 +167,12 @@ TIMEZONE=$(get_timezone)
 TIME_NOW=$(date '+%Y-%m-%d %H:%M:%S')
 
 export DEBIAN_FRONTEND=noninteractive
-sudo apt update && sudo apt upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean
+sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean
 
 XRAY_STATUS="*Xray*和规则文件: 未安装"
 if command -v xray &> /dev/null; then
     XRAY_OUTPUT=$(xray up 2>&1)
+    # 更新规则文件，并将输出重定向，避免干扰状态判断
     xray up dat &>/dev/null
     XRAY_STATUS=$(echo "$XRAY_OUTPUT" | grep -q "当前已经是最新版本" && echo "*Xray*和规则文件: ✅ 最新版本" || echo "*Xray*和规则文件: ⚠️ 已更新")
 fi
@@ -178,6 +190,7 @@ send_telegram "🛠 *VPS 维护完成 (即将重启)*
 > $XRAY_STATUS
 > $SB_STATUS"
 
+# 添加 @reboot 任务，用于重启后发送通知
 (crontab -l 2>/dev/null | grep -v "$REBOOT_NOTIFY_SCRIPT" || true; echo "@reboot $REBOOT_NOTIFY_SCRIPT") | crontab -
 
 sleep 3
@@ -228,6 +241,7 @@ case "$TIME_CHOICE" in
         echo "--> 您选择了默认时间 (东京时间 4:00)。"
         SYS_TZ=$(get_timezone)
         TOKYO_HOUR=4
+        # 使用 date 命令进行精确的时区转换
         LOCAL_HOUR=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" $TOKYO_HOUR:00" +%H)
         LOCAL_MINUTE=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" $TOKYO_HOUR:00" +%M)
 
