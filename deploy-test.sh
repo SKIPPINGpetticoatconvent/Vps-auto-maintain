@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------------
 # 一键部署 VPS 自动维护脚本
 #
-# 版本: 2.7 (最终版 - 支持自定义维护时间，并修复所有已知问题)
+# 版本: 2.8 (最终版 - 优化 Xray 更新状态的通知消息)
 # -----------------------------------------------------------------------------
 
 set -e
@@ -158,11 +158,11 @@ TIME_NOW=$(date '+%Y-%m-%d %H:%M:%S')
 export DEBIAN_FRONTEND=noninteractive
 sudo apt update && sudo apt upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean
 
-XRAY_STATUS="*Xray*: 未安装"
+XRAY_STATUS="*Xray*和规则文件: 未安装"
 if command -v xray &> /dev/null; then
     XRAY_OUTPUT=$(xray up 2>&1)
     xray up dat &>/dev/null
-    XRAY_STATUS=$(echo "$XRAY_OUTPUT" | grep -q "当前已经是最新版本" && echo "*Xray*: ✅ 最新版本" || echo "*Xray*: ⚠️ 已更新")
+    XRAY_STATUS=$(echo "$XRAY_OUTPUT" | grep -q "当前已经是最新版本" && echo "*Xray*和规则文件: ✅ 最新版本" || echo "*Xray*和规则文件: ⚠️ 已更新")
 fi
 
 SB_STATUS="*Sing-box*: 未安装"
