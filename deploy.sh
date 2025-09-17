@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------------
 # 一键部署 VPS 自动维护脚本
 #
-# 版本: 2.9 (最终版 - 修复时区计算的兼容性问题)
+# 版本: 3.0 (终极版 - 强制 date 命令在 C 环境下运行，彻底解决兼容性问题)
 # -----------------------------------------------------------------------------
 
 set -e
@@ -17,16 +17,14 @@ print_message() {
 
 # 健壮的时区获取函数，兼容无 systemd 的环境
 get_timezone() {
+    # 强制命令在 C 语言环境下运行，确保输出是英文
     local tz
-    # 优先尝试 systemd 的命令
     if command -v timedatectl &> /dev/null; then
-        tz=$(timedatectl | grep "Time zone" | awk '{print $3}')
+        tz=$(LC_ALL=C timedatectl | grep "Time zone" | awk '{print $3}')
     fi
-    # 如果失败，尝试读取传统文件
     if [ -z "$tz" ] && [ -f /etc/timezone ]; then
         tz=$(cat /etc/timezone)
     fi
-    # 如果还失败，使用 UTC 作为默认值
     if [ -z "$tz" ]; then
         tz="Etc/UTC"
     fi
@@ -57,7 +55,7 @@ sleep 20
 get_timezone() {
     local tz
     if command -v timedatectl &> /dev/null; then
-        tz=$(timedatectl | grep "Time zone" | awk '{print $3}')
+        tz=$(LC_ALL=C timedatectl | grep "Time zone" | awk '{print $3}')
     fi
     if [ -z "$tz" ] && [ -f /etc/timezone ]; then
         tz=$(cat /etc/timezone)
@@ -72,7 +70,7 @@ TG_TOKEN="__TG_TOKEN__"
 TG_CHAT_ID="__TG_CHAT_ID__"
 
 TIMEZONE=$(get_timezone)
-TIME_NOW=$(date '+%Y-%m-%d %H:%M:%S')
+TIME_NOW=$(LC_ALL=C date '+%Y-%m-%d %H:%M:%S')
 
 curl --connect-timeout 10 --retry 5 -s -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
     -d chat_id="$TG_CHAT_ID" \
@@ -128,7 +126,7 @@ set -e
 get_timezone() {
     local tz
     if command -v timedatectl &> /dev/null; then
-        tz=$(timedatectl | grep "Time zone" | awk '{print $3}')
+        tz=$(LC_ALL=C timedatectl | grep "Time zone" | awk '{print $3}')
     fi
     if [ -z "$tz" ] && [ -f /etc/timezone ]; then
         tz=$(cat /etc/timezone)
@@ -153,22 +151,19 @@ send_telegram() {
 }
 
 TIMEZONE=$(get_timezone)
-TIME_NOW=$(date '+%Y-%m-%d %H:%M:%S')
+TIME_NOW=$(LC_ALL=C date '+%Y-%m-%d %H:%M:%S')
 
 export DEBIAN_FRONTEND=noninteractive
 sudo apt update && sudo apt upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean
 
 XRAY_STATUS="*Xray*: 未安装"
 if command -v xray &> /dev/null; then
-    # 1. 更新 Xray 核心
     XRAY_CORE_OUTPUT=$(xray up 2>&1)
     CORE_MSG=$(echo "$XRAY_CORE_OUTPUT" | grep -q "当前已经是最新版本" && echo "✅ 核心最新" || echo "⚠️ 核心已更新")
     
-    # 2. 更新 Xray 的 dat 文件
     XRAY_DAT_OUTPUT=$(xray up dat 2>&1)
     DAT_MSG=$(echo "$XRAY_DAT_OUTPUT" | grep -q "成功" && echo "✅ 规则最新" || echo "⚠️ 规则已更新")
 
-    # 3. 组合最终状态消息
     XRAY_STATUS="*Xray*: $CORE_MSG, $DAT_MSG"
 fi
 
@@ -210,7 +205,6 @@ LOCAL_MINUTE=""
 case "$TIME_CHOICE" in
     2)
         echo "--> 您选择了自定义时间。"
-        # 循环输入小时，直到格式正确
         while true; do
             read -p "请输入执行的小时 (0-23): " CUSTOM_HOUR
             if [[ "$CUSTOM_HOUR" =~ ^([0-9]|1[0-9]|2[0-3])$ ]]; then
@@ -220,7 +214,6 @@ case "$TIME_CHOICE" in
                 echo "❌ 格式错误，请输入 0 到 23 之间的数字。"
             fi
         done
-        # 循环输入分钟，直到格式正确
         while true; do
             read -p "请输入执行的分钟 (0-59): " CUSTOM_MINUTE
             if [[ "$CUSTOM_MINUTE" =~ ^([0-9]|[1-5][0-9])$ ]]; then
@@ -235,21 +228,20 @@ case "$TIME_CHOICE" in
         echo "--> 您选择了默认时间 (东京时间 4:00)。"
         TOKYO_HOUR=4
         
-        # --- 错误修复开始 ---
-        # 使用更健壮的 date 命令来进行时区转换，避免受系统语言环境影响
-        CONVERTED_TIME=$(date -d "$TOKYO_HOUR:00 Asia/Tokyo" +"%H %M" 2>/dev/null)
+        # --- 终极错误修复 ---
+        # 强制 date 命令在 C 语言环境下运行，以确保其输出为纯 ASCII 字符，
+        # 从而彻底避免因系统语言为中文而导致的 Shell 语法错误。
+        CONVERTED_TIME=$(LC_ALL=C date -u -d "$TOKYO_HOUR:00 Asia/Tokyo" +"%H %M" 2>/dev/null)
         
-        # 检查转换是否成功
         if [ -n "$CONVERTED_TIME" ]; then
             LOCAL_HOUR=$(echo "$CONVERTED_TIME" | cut -d' ' -f1)
             LOCAL_MINUTE=$(echo "$CONVERTED_TIME" | cut -d' ' -f2)
         else
-            # 如果命令失败，则使用备用方案
             echo "⚠️ 警告：时区自动计算失败，将使用服务器本地时间 04:00 作为备用方案。"
             LOCAL_HOUR="4"
             LOCAL_MINUTE="0"
         fi
-        # --- 错误修复结束 ---
+        # --- 修复结束 ---
         ;;
 esac
 
