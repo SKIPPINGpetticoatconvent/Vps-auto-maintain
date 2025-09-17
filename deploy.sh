@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------------
 # 一键部署 VPS 自动维护脚本
 #
-# 版本: 2.7 (最终版 - 支持自定义维护时间，并修复所有已知问题)
+# 版本: 2.8 (最终版 - 新增 Xray 规则文件更新)
 # -----------------------------------------------------------------------------
 
 set -e
@@ -160,8 +160,16 @@ sudo apt update && sudo apt upgrade -y && sudo apt-get autoremove -y && sudo apt
 
 XRAY_STATUS="*Xray*: 未安装"
 if command -v xray &> /dev/null; then
-    XRAY_OUTPUT=$(xray up 2>&1)
-    XRAY_STATUS=$(echo "$XRAY_OUTPUT" | grep -q "当前已经是最新版本" && echo "*Xray*: ✅ 最新版本" || echo "*Xray*: ⚠️ 已更新")
+    # 1. 更新 Xray 核心
+    XRAY_CORE_OUTPUT=$(xray up 2>&1)
+    CORE_MSG=$(echo "$XRAY_CORE_OUTPUT" | grep -q "当前已经是最新版本" && echo "✅ 核心最新" || echo "⚠️ 核心已更新")
+    
+    # 2. 更新 Xray 的 dat 文件
+    XRAY_DAT_OUTPUT=$(xray up dat 2>&1)
+    DAT_MSG=$(echo "$XRAY_DAT_OUTPUT" | grep -q "成功" && echo "✅ 规则最新" || echo "⚠️ 规则已更新")
+
+    # 3. 组合最终状态消息
+    XRAY_STATUS="*Xray*: $CORE_MSG, $DAT_MSG"
 fi
 
 SB_STATUS="*Sing-box*: 未安装"
@@ -199,7 +207,7 @@ read -p "请输入选项 [1-2]，直接回车默认为 1: " TIME_CHOICE
 LOCAL_HOUR=""
 LOCAL_MINUTE=""
 
-case "$TIME_CHOICE" in
+case "$TIME_CHOICE" 在
     2)
         echo "--> 您选择了自定义时间。"
         # 循环输入小时，直到格式正确
