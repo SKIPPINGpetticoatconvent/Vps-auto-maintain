@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------------
 # 一键部署 VPS 自动维护脚本
 #
-# 版本: 2.8 (最终版 - 新增 Xray 规则文件更新)
+# 版本: 2.9 (最终版 - 修复时区计算的兼容性问题)
 # -----------------------------------------------------------------------------
 
 set -e
@@ -207,7 +207,7 @@ read -p "请输入选项 [1-2]，直接回车默认为 1: " TIME_CHOICE
 LOCAL_HOUR=""
 LOCAL_MINUTE=""
 
-case "$TIME_CHOICE" 在
+case "$TIME_CHOICE" in
     2)
         echo "--> 您选择了自定义时间。"
         # 循环输入小时，直到格式正确
@@ -233,16 +233,23 @@ case "$TIME_CHOICE" 在
         ;;
     *)
         echo "--> 您选择了默认时间 (东京时间 4:00)。"
-        SYS_TZ=$(get_timezone)
         TOKYO_HOUR=4
-        LOCAL_HOUR=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" $TOKYO_HOUR:00" +%H)
-        LOCAL_MINUTE=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" $TOKYO_HOUR:00" +%M)
-
-        if [ -z "$LOCAL_HOUR" ] || [ -z "$LOCAL_MINUTE" ]; then
+        
+        # --- 错误修复开始 ---
+        # 使用更健壮的 date 命令来进行时区转换，避免受系统语言环境影响
+        CONVERTED_TIME=$(date -d "$TOKYO_HOUR:00 Asia/Tokyo" +"%H %M" 2>/dev/null)
+        
+        # 检查转换是否成功
+        if [ -n "$CONVERTED_TIME" ]; then
+            LOCAL_HOUR=$(echo "$CONVERTED_TIME" | cut -d' ' -f1)
+            LOCAL_MINUTE=$(echo "$CONVERTED_TIME" | cut -d' ' -f2)
+        else
+            # 如果命令失败，则使用备用方案
             echo "⚠️ 警告：时区自动计算失败，将使用服务器本地时间 04:00 作为备用方案。"
             LOCAL_HOUR="4"
             LOCAL_MINUTE="0"
         fi
+        # --- 错误修复结束 ---
         ;;
 esac
 
