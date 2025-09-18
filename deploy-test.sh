@@ -2,13 +2,12 @@
 # -----------------------------------------------------------------------------
 # 一键部署 VPS 自动维护脚本
 #
-# 版本: 4.0 (高级版 - 将核心更新/重启 与 规则更新 分离为两个独立任务)
+# 版本: 4.1 (修正版 - 修复 if-else 语法错误并汉化通知)
 # -----------------------------------------------------------------------------
 
 set -e
 
 # --- 变量定义 ---
-# 定义两个独立的维护脚本路径
 CORE_MAINTAIN_SCRIPT="/usr/local/bin/vps-maintain-core.sh"
 RULES_MAINTAIN_SCRIPT="/usr/local/bin/vps-maintain-rules.sh"
 REBOOT_NOTIFY_SCRIPT="/usr/local/bin/vps-reboot-notify.sh"
@@ -21,7 +20,6 @@ print_message() {
     echo "------------------------------------------------------------"
 }
 
-# 健壮的时区获取函数
 get_timezone() {
     local tz
     if command -v timedatectl &> /dev/null; then
@@ -36,9 +34,8 @@ get_timezone() {
     echo "$tz"
 }
 
-# --- 步骤 0: 清理旧版本 (如果存在) ---
+# --- 步骤 0: 清理旧版本 ---
 print_message "步骤 0: 清理旧的脚本和定时任务（如果存在）"
-# 清理新旧所有版本的脚本和定时任务
 rm -f "$CORE_MAINTAIN_SCRIPT"
 rm -f "$RULES_MAINTAIN_SCRIPT"
 rm -f "$REBOOT_NOTIFY_SCRIPT"
@@ -57,9 +54,8 @@ if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT_ID" ]; then
     exit 1
 fi
 
-# --- 步骤 2: 创建重启后通知脚本 (不变) ---
+# --- 步骤 2: 创建重启后通知脚本 ---
 print_message "步骤 2: 创建重启后通知脚本"
-# (这部分代码与之前版本相同，为了简洁省略显示，实际脚本中是完整的)
 cat > "$REBOOT_NOTIFY_SCRIPT" <<'EOF'
 #!/bin/bash
 sleep 20
@@ -91,7 +87,7 @@ echo "✅ 重启后通知脚本创建成功。"
 
 # --- 步骤 3: 创建两个独立的维护脚本 ---
 
-# 3.1 创建核心更新脚本 (负责系统、核心程序更新 和 重启)
+# 3.1 创建核心更新脚本
 print_message "步骤 3.1: 创建核心更新脚本 ($CORE_MAINTAIN_SCRIPT)"
 cat > "$CORE_MAINTAIN_SCRIPT" <<'EOF'
 #!/bin/bash
@@ -146,7 +142,7 @@ sed -i "s|__REBOOT_NOTIFY_SCRIPT_PATH__|$REBOOT_NOTIFY_SCRIPT|g" "$CORE_MAINTAIN
 chmod +x "$CORE_MAINTAIN_SCRIPT"
 echo "✅ 核心更新脚本创建成功。"
 
-# 3.2 创建规则更新脚本 (只负责规则文件，不重启)
+# 3.2 创建规则更新脚本
 print_message "步骤 3.2: 创建规则文件更新脚本 ($RULES_MAINTAIN_SCRIPT)"
 cat > "$RULES_MAINTAIN_SCRIPT" <<'EOF'
 #!/bin/bash
@@ -162,32 +158,29 @@ TG_TOKEN="__TG_TOKEN__"
 TG_CHAT_ID="__TG_CHAT_ID__"
 send_telegram() {
     local message="$1"
-    # 规则更新很快，无需 sleep
     curl --connect-timeout 10 --retry 3 -s -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
         -d chat_id="$TG_CHAT_ID" -d text="$message" -d parse_mode="Markdown" > /dev/null
 }
 
 if ! command -v xray &> /dev/null; then
-    # 如果 Xray 未安装，则不执行任何操作
     exit 0
 fi
 
 XRAY_DAT_OUTPUT=$(xray up dat 2>&1 || true)
 if echo "$XRAY_DAT_OUTPUT" | grep -q "已经是最新版本"; then
-    # 如果是最新版本，可以选择不发送通知，或发送一个静默通知。这里我们选择不打扰。
     exit 0
 elif echo "$XRAY_DAT_OUTPUT" | grep -q "更新 geoip.dat geosite.dat 成功"; then
-    XRAY_DAT_STATUS="⚠️ *Xray 规则文件*: 更新成功"
+    XRAY_DAT_STATUS="⚠️ 已更新成功"
 else
-    XRAY_DAT_STATUS="❌ *Xray 规则文件*: 更新失败"
+    XRAY_DAT_STATUS="❌ 更新失败"
 fi
 
 TIMEZONE=$(get_timezone)
 TIME_NOW=$(date '+%Y-%m-%d %H:%M:%S')
 
-send_telegram " 규칙 파일 업데이트 완료
-> *상태*: \`$XRAY_DAT_STATUS\`
-> *시간*: \`$TIME_NOW ($TIMEZONE)\`"
+send_telegram "📜 *Xray 规则文件维护*
+> *状态*: $XRAY_DAT_STATUS
+> *时间*: \`$TIME_NOW ($TIMEZONE)\`"
 EOF
 sed -i "s|__TG_TOKEN__|$TG_TOKEN|g" "$RULES_MAINTAIN_SCRIPT"
 sed -i "s|__TG_CHAT_ID__|$TG_CHAT_ID|g" "$RULES_MAINTAIN_SCRIPT"
@@ -210,7 +203,7 @@ CORE_M=""
 RULES_H=""
 RULES_M=""
 
-if [[ "$TIME_CHOICE" == "2" ]]; 键，然后
+if [[ "$TIME_CHOICE" == "2" ]]; then
     echo "--> 设置任务 A (核心维护与重启) 的时间..."
     read -p "请输入执行的小时 (0-23): " CORE_H
     read -p "请输入执行的分钟 (0-59): " CORE_M
@@ -224,7 +217,7 @@ else
     CORE_M=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" 04:00" +%M)
     RULES_H=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Shanghai\" 07:00" +%H)
     RULES_M=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Shanghai\" 07:00" +%M)
-fi
+fi # <--- [修正] 在这里添加了缺失的 'fi'
 
 # 写入 Crontab
 (crontab -l 2>/dev/null; \
