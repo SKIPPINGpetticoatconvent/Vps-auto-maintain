@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------------
 # 一键部署 VPS 自动维护脚本
 #
-# 版本: 3.0 (增强版 - 优化 Xray 状态判断，可识别规则文件更新成功状态)
+# 版本: 3.1 (优化版 - 调整默认维护时间，确保获取当天最新规则)
 # -----------------------------------------------------------------------------
 
 set -e
@@ -169,22 +169,17 @@ TIME_NOW=$(date '+%Y-%m-%d %H:%M:%S')
 export DEBIAN_FRONTEND=noninteractive
 sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean
 
-# ----------------- [修改区域开始] -----------------
 XRAY_STATUS="*Xray*: 未安装"
 if command -v xray &> /dev/null; then
-    # 分别更新核心和规则文件，并捕获它们的输出
     XRAY_CORE_OUTPUT=$(xray up 2>&1 || true)
     XRAY_DAT_OUTPUT=$(xray up dat 2>&1 || true)
 
-    # 判断 Xray 核心的更新状态
     if echo "$XRAY_CORE_OUTPUT" | grep -q "当前已经是最新版本"; then
         XRAY_CORE_STATUS="✅ 核心最新"
     else
-        # 任何其他输出都意味着执行了更新或出现错误，统一标记为“已更新”
         XRAY_CORE_STATUS="⚠️ 核心已更新"
     fi
 
-    # 判断规则文件的更新状态
     if echo "$XRAY_DAT_OUTPUT" | grep -q "已经是最新版本"; then
         XRAY_DAT_STATUS="✅ 规则最新"
     elif echo "$XRAY_DAT_OUTPUT" | grep -q "更新 geoip.dat geosite.dat 成功"; then
@@ -193,10 +188,8 @@ if command -v xray &> /dev/null; then
         XRAY_DAT_STATUS="❌ 规则更新失败"
     fi
     
-    # 组合成最终的 Telegram 消息
     XRAY_STATUS="*Xray*: $XRAY_CORE_STATUS, $XRAY_DAT_STATUS"
 fi
-# ----------------- [修改区域结束] -----------------
 
 SB_STATUS="*Sing-box*: 未安装"
 if command -v sb &> /dev/null; then
@@ -225,17 +218,26 @@ chmod +x "$MAINTAIN_SCRIPT"
 echo "✅ 核心维护脚本创建成功。"
 
 # --- 步骤 4: 设置每日定时任务 ---
+# ----------------- [修改区域开始] -----------------
 print_message "步骤 4: 设置每日维护时间"
 echo "请选择维护执行时间："
-echo "  [1] 默认时间: 每天东京时间凌晨 4 点 (推荐)"
-echo "  [2] 自定义时间: 手动输入服务器本地时间的小时和分钟"
-read -p "请输入选项 [1-2]，直接回车默认为 1: " TIME_CHOICE
+echo "  [1] 每天北京时间早上 7 点 (推荐, 确保获取当天最新规则)"
+echo "  [2] 每天东京时间凌晨 4 点"
+echo "  [3] 自定义时间: 手动输入服务器本地时间的小时和分钟"
+read -p "请输入选项 [1-3]，直接回车默认为 1: " TIME_CHOICE
 
 LOCAL_HOUR=""
 LOCAL_MINUTE=""
 
 case "$TIME_CHOICE" in
     2)
+        echo "--> 您选择了东京时间 4:00。"
+        SYS_TZ=$(get_timezone)
+        # 使用 date 命令进行精确的时区转换
+        LOCAL_HOUR=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" 04:00" +%H)
+        LOCAL_MINUTE=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" 04:00" +%M)
+        ;;
+    3)
         echo "--> 您选择了自定义时间。"
         # 循环输入小时，直到格式正确
         while true; do
@@ -259,20 +261,21 @@ case "$TIME_CHOICE" in
         done
         ;;
     *)
-        echo "--> 您选择了默认时间 (东京时间 4:00)。"
+        echo "--> 您选择了默认推荐时间 (北京时间 7:00)。"
         SYS_TZ=$(get_timezone)
-        TOKYO_HOUR=4
-        # 使用 date 命令进行精确的时区转换
-        LOCAL_HOUR=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" $TOKYO_HOUR:00" +%H)
-        LOCAL_MINUTE=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" $TOKYO_HOUR:00" +%M)
-
-        if [ -z "$LOCAL_HOUR" ] || [ -z "$LOCAL_MINUTE" ]; then
-            echo "⚠️ 警告：时区自动计算失败，将使用服务器本地时间 04:00 作为备用方案。"
-            LOCAL_HOUR="4"
-            LOCAL_MINUTE="0"
-        fi
+        # 使用 Asia/Shanghai 作为中国标准时区的代表
+        LOCAL_HOUR=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Shanghai\" 07:00" +%H)
+        LOCAL_MINUTE=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Shanghai\" 07:00" +%M)
         ;;
 esac
+
+# 备用方案，防止时区计算失败
+if [ -z "$LOCAL_HOUR" ] || [ -z "$LOCAL_MINUTE" ]; then
+    echo "⚠️ 警告：时区自动计算失败，将使用服务器本地时间 04:00 作为备用方案。"
+    LOCAL_HOUR="4"
+    LOCAL_MINUTE="0"
+fi
+# ----------------- [修改区域结束] -----------------
 
 # 写入 Crontab
 (crontab -l 2>/dev/null | grep -v "$MAINTAIN_SCRIPT" || true; echo "$LOCAL_MINUTE $LOCAL_HOUR * * * $MAINTAIN_SCRIPT") | crontab -
