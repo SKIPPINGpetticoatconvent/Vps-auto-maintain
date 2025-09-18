@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------------
 # 一键部署 VPS 自动维护脚本
 #
-# 版本: 2.9 (最终版 - 增加自动清理旧版本功能，确保覆盖安装成功)
+# 版本: 3.0 (增强版 - 优化 Xray 状态判断，可识别规则文件更新成功状态)
 # -----------------------------------------------------------------------------
 
 set -e
@@ -169,13 +169,34 @@ TIME_NOW=$(date '+%Y-%m-%d %H:%M:%S')
 export DEBIAN_FRONTEND=noninteractive
 sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean
 
-XRAY_STATUS="*Xray*和规则文件: 未安装"
+# ----------------- [修改区域开始] -----------------
+XRAY_STATUS="*Xray*: 未安装"
 if command -v xray &> /dev/null; then
-    XRAY_OUTPUT=$(xray up 2>&1)
-    # 更新规则文件，并将输出重定向，避免干扰状态判断
-    xray up dat &>/dev/null
-    XRAY_STATUS=$(echo "$XRAY_OUTPUT" | grep -q "当前已经是最新版本" && echo "*Xray*和规则文件: ✅ 最新版本" || echo "*Xray*和规则文件: ⚠️ 已更新")
+    # 分别更新核心和规则文件，并捕获它们的输出
+    XRAY_CORE_OUTPUT=$(xray up 2>&1 || true)
+    XRAY_DAT_OUTPUT=$(xray up dat 2>&1 || true)
+
+    # 判断 Xray 核心的更新状态
+    if echo "$XRAY_CORE_OUTPUT" | grep -q "当前已经是最新版本"; then
+        XRAY_CORE_STATUS="✅ 核心最新"
+    else
+        # 任何其他输出都意味着执行了更新或出现错误，统一标记为“已更新”
+        XRAY_CORE_STATUS="⚠️ 核心已更新"
+    fi
+
+    # 判断规则文件的更新状态
+    if echo "$XRAY_DAT_OUTPUT" | grep -q "已经是最新版本"; then
+        XRAY_DAT_STATUS="✅ 规则最新"
+    elif echo "$XRAY_DAT_OUTPUT" | grep -q "更新 geoip.dat geosite.dat 成功"; then
+        XRAY_DAT_STATUS="⚠️ 规则已更新"
+    else
+        XRAY_DAT_STATUS="❌ 规则更新失败"
+    fi
+    
+    # 组合成最终的 Telegram 消息
+    XRAY_STATUS="*Xray*: $XRAY_CORE_STATUS, $XRAY_DAT_STATUS"
 fi
+# ----------------- [修改区域结束] -----------------
 
 SB_STATUS="*Sing-box*: 未安装"
 if command -v sb &> /dev/null; then
