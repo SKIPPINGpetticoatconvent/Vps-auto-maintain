@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------------
 # 一键部署 VPS 自动维护脚本
 #
-# 版本: 4.1 (修正版 - 修复 if-else 语法错误并汉化通知)
+# 版本: 4.2 (稳定版 - 使用 case 语句重构定时任务逻辑，彻底修复语法错误)
 # -----------------------------------------------------------------------------
 
 set -e
@@ -188,6 +188,7 @@ chmod +x "$RULES_MAINTAIN_SCRIPT"
 echo "✅ 规则文件更新脚本创建成功。"
 
 # --- 步骤 4: 设置两个独立的定时任务 ---
+# ----------------- [修改区域开始] -----------------
 print_message "步骤 4: 设置每日维护时间"
 echo "我们将为您设置两个独立的定时任务："
 echo "  - 任务 A (核心维护与重启): 默认在 东京时间 凌晨 4 点"
@@ -203,21 +204,26 @@ CORE_M=""
 RULES_H=""
 RULES_M=""
 
-if [[ "$TIME_CHOICE" == "2" ]]; then
-    echo "--> 设置任务 A (核心维护与重启) 的时间..."
-    read -p "请输入执行的小时 (0-23): " CORE_H
-    read -p "请输入执行的分钟 (0-59): " CORE_M
-    echo "--> 设置任务 B (规则文件更新) 的时间..."
-    read -p "请输入执行的小时 (0-23): " RULES_H
-    read -p "请输入执行的分钟 (0-59): " RULES_M
-else
-    echo "--> 正在为您计算默认时间..."
-    SYS_TZ=$(get_timezone)
-    CORE_H=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" 04:00" +%H)
-    CORE_M=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" 04:00" +%M)
-    RULES_H=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Shanghai\" 07:00" +%H)
-    RULES_M=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Shanghai\" 07:00" +%M)
-fi # <--- [修正] 在这里添加了缺失的 'fi'
+# 使用 case 语句重构，更加稳健
+case "$TIME_CHOICE" in
+    2)
+        echo "--> 设置任务 A (核心维护与重启) 的时间..."
+        read -p "请输入执行的小时 (0-23): " CORE_H
+        read -p "请输入执行的分钟 (0-59): " CORE_M
+        echo "--> 设置任务 B (规则文件更新) 的时间..."
+        read -p "请输入执行的小时 (0-23): " RULES_H
+        read -p "请输入执行的分钟 (0-59): " RULES_M
+        ;;
+    *) # 捕获选项 1 或直接回车
+        echo "--> 正在为您计算默认时间..."
+        SYS_TZ=$(get_timezone)
+        CORE_H=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" 04:00" +%H)
+        CORE_M=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" 04:00" +%M)
+        RULES_H=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Shanghai\" 07:00" +%H)
+        RULES_M=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Shanghai\" 07:00" +%M)
+        ;;
+esac
+# ----------------- [修改区域结束] -----------------
 
 # 写入 Crontab
 (crontab -l 2>/dev/null; \
