@@ -170,7 +170,7 @@ crontab -l
 ### 使用方法
 
 ```bash
-wget -qO- https://github.com/FTDRTD/Vps-auto-maintain/main/detect_ports_ultimate.sh | sudo bash
+wget -qO- https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/detect_ports_ultimate.sh | sudo bash
 ```
 
 ### 检测功能
