@@ -1,15 +1,14 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------------------
-# VPS 代理服务端口检测和防火墙配置脚本（终极一键安全交互版）
+# VPS 代理服务端口检测和防火墙配置脚本（终极安全交互流式版）
 #
 # 功能：
 # - 如果防火墙未启用，则自动安装并配置UFW或Firewalld
 # - 自动检测 Xray 和 Sing-box 的开放端口
 # - 自动检测 SSH 端口并强制保留
 # - 主动移除防火墙中所有其他未知端口，实现安全锁定
-# - 交互式输入 Telegram 配置，不再硬编码
+# - 支持交互式输入Telegram配置，兼容管道执行
 # - 修复所有已知 bug 和兼容性问题
-# - 支持 Telegram 通知
 # -----------------------------------------------------------------------------------------
 
 set -e
@@ -44,7 +43,6 @@ get_timezone() {
     echo "$tz"
 }
 
-# ... (get_process_ports, parse_config_ports, detect_firewall, setup_firewall, add_firewall_rule, remove_unused_rules 函数与您原脚本完全相同，此处省略以保持简洁) ...
 get_process_ports() {
     local process_name="$1"
     local ports=""
@@ -106,7 +104,7 @@ setup_firewall() {
             sudo ufw default allow outgoing >/dev/null
             sudo ufw enable >/dev/null
             echo "✅ UFW 安装并启用成功。"
-            echo "ufw" # 返回新防火墙类型
+            echo "ufw"
         elif [[ "$ID" == "centos" || "$ID" == "rhel" || "$ID" == "fedora" || "$ID" == "almalinux" || "$ID_LIKE" == "rhel" ]]; then
             echo "ℹ️ 检测到 RHEL/CentOS 系列系统，将安装 firewalld..."
             if command -v dnf &>/dev/null; then
@@ -116,7 +114,7 @@ setup_firewall() {
             fi
             sudo systemctl enable --now firewalld >/dev/null
             echo "✅ firewalld 安装并启用成功。"
-            echo "firewalld" # 返回新防火墙类型
+            echo "firewalld"
         else
             echo "❌ 不支持的操作系统: $ID。请手动安装防火墙。" >&2; echo "none"
         fi
@@ -136,7 +134,7 @@ add_firewall_rule() {
             fi
             set -e
             ;;
-        ufw) : ;; # UFW 在清理阶段统一重置和添加，此处无需操作
+        ufw) : ;;
     esac
 }
 
@@ -161,13 +159,15 @@ remove_unused_rules() {
     esac
 }
 
+
 main() {
     # ----------------- [修改区域开始] -----------------
-    print_message "步骤 1: Telegram 通知配置"
-    read -p "是否要配置 Telegram 通知? [y/N]: " setup_notify
+    print_message "步骤 1: Telegram 通知配置 (可选)"
+    # 关键修改：使用 </dev/tty 来确保即时通过管道执行也能接收用户输入
+    read -p "是否要配置 Telegram 通知? [y/N]: " setup_notify </dev/tty
     if [[ "$setup_notify" =~ ^[Yy]$ ]]; then
-        read -p "请输入你的 Telegram Bot Token: " input_token
-        read -p "请输入你的 Telegram Chat ID: " input_chat_id
+        read -p "请输入你的 Telegram Bot Token: " input_token </dev/tty
+        read -p "请输入你的 Telegram Chat ID: " input_chat_id </dev/tty
         
         if [ -n "$input_token" ] && [ -n "$input_chat_id" ]; then
             TG_TOKEN="$input_token"
@@ -184,7 +184,6 @@ main() {
     
     print_message "步骤 2: 开始一键式防火墙安全配置"
     
-    # ... (main 函数的其余部分与您原脚本完全相同) ...
     local firewall_type; firewall_type=$(detect_firewall)
     FIREWALL_CHANGED=false
 
@@ -211,7 +210,7 @@ main() {
     
     echo "ℹ️ 将要确保以下端口开启:$ports_to_keep"
     
-    if [ "$firewall_type" != "ufw" ]; then
+    if [ "$firewall_type" != "ufw" ]; 键，然后
         for port in $ports_to_keep; do
             add_firewall_rule "$port" "tcp" "$firewall_type"
             add_firewall_rule "$port" "udp" "$firewall_type"
@@ -228,6 +227,5 @@ main() {
     print_message "防火墙配置完成，仅允许必需端口的流量"
 }
 
-# (移除了旧的参数处理逻辑，因为现在是交互式的)
-
+# 移除了所有参数处理逻辑，完全依赖交互式输入
 main
