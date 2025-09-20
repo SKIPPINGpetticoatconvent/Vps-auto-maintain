@@ -1,12 +1,11 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------------------
-# 防火墙管理工具部署器 (v1.0 - 中文版)
+# 防火墙管理工具部署器 (v2.0 - 集成首次安装)
 #
 # 作者: FTDRTD
 #
-# 此脚本将为您的系统部署两个强大的中文防火墙管理工具：
-#   1. harden-firewall (安全加固): 一个非破坏性脚本，仅添加必需端口，可安全地用于自动化定时任务。
-#   2. lockdown-firewall (安全锁定): 一个高风险脚本，将移除所有未知端口，请谨慎手动使用。
+# 此脚本将为您的系统部署两个强大的中文防火墙管理工具，
+# 并在首次运行时自动安装和配置防火墙（如果需要）。
 # -----------------------------------------------------------------------------------------
 
 set -e
@@ -23,10 +22,41 @@ print_message() {
     echo "------------------------------------------------------------"
 }
 
-# --- 步骤 0: 清理旧版本 (确保幂等性) ---
+# 仅在部署器中使用的防火墙安装函数
+setup_initial_firewall() {
+    print_message "步骤 1.5: 防火墙初始化检查"
+    if systemctl is-active --quiet firewalld || (command -v ufw &>/dev/null && ufw status | grep -q "Status: active"); then
+        echo "--> ✅ 已检测到活跃的防火墙，无需安装。"
+        return
+    fi
+    
+    echo "--> ⚠️ 未检测到活跃防火墙，将为您自动安装一个。"
+    if [ -f /etc/os-release ]; then . /etc/os-release; fi
+    
+    if [[ "$ID" == "ubuntu" || "$ID" == "debian" || "$ID_LIKE" == "debian" ]]; then
+        echo "--> 检测到 Debian/Ubuntu 系统，正在安装 UFW..."
+        sudo apt-get update >/dev/null && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ufw >/dev/null
+        # 预先允许默认SSH端口，以防万一
+        sudo ufw allow 22/tcp >/dev/null
+        # 使用 echo "y" 自动应答SSH连接警告
+        echo "y" | sudo ufw enable >/dev/null
+        echo "--> ✅ UFW 安装并启用成功。"
+    elif [[ "$ID" == "centos" || "$ID" == "rhel" || "$ID" == "fedora" || "$ID" == "almalinux" || "$ID_LIKE" == "rhel" ]]; then
+        echo "--> 检测到 RHEL/CentOS 系列系统，正在安装 firewalld..."
+        if command -v dnf &>/dev/null; then sudo dnf install -y firewalld >/dev/null; else sudo yum install -y firewalld >/dev/null; fi
+        sudo systemctl enable --now firewalld >/dev/null
+        echo "--> ✅ firewalld 安装并启用成功。"
+    else
+        echo "--> ❌ 错误：不支持的操作系统: $ID。无法自动安装防火墙。" >&2; exit 1
+    fi
+}
+
+
+# --- 主程序开始 ---
+
+# --- 步骤 0: 清理旧版本 ---
 print_message "步骤 0: 清理旧版本（如果存在）..."
-sudo rm -f "$HARDEN_SCRIPT"
-sudo rm -f "$LOCKDOWN_SCRIPT"
+sudo rm -f "$HARDEN_SCRIPT" "$LOCKDOWN_SCRIPT"
 echo "--> ✅ 旧版本清理完成。"
 
 # --- 步骤 1: 用户输入 (可选的TG配置) ---
@@ -46,6 +76,9 @@ if [[ "$setup_notify" =~ ^[Yy]$ ]]; then
         echo "--> ⚠️  警告：输入不完整，生成的脚本中将禁用通知功能。"
     fi
 fi
+
+# --- 步骤 1.5: 防火墙初始化检查 (核心修复) ---
+setup_initial_firewall
 
 # --- 步骤 2: 创建 'harden-firewall' (安全加固) 脚本 ---
 print_message "步骤 2: 正在创建 'harden-firewall' (安全加固) 工具..."
@@ -90,6 +123,7 @@ echo "--- 防火墙安全加固检查完成 ---"
 EOF
 
 # --- 步骤 3: 创建 'lockdown-firewall' (安全锁定) 脚本 ---
+# (此部分与上一版本完全相同，无需修改)
 print_message "步骤 3: 正在创建 'lockdown-firewall' (安全锁定) 工具..."
 sudo tee "$LOCKDOWN_SCRIPT" > /dev/null <<'EOF'
 #!/bin/bash
@@ -126,7 +160,7 @@ elif [ "$FW_TYPE" = "ufw" ]; then
     echo "y" | sudo ufw reset >/dev/null
     sudo ufw default deny incoming >/dev/null && sudo ufw default allow outgoing >/dev/null
     for port in $ports_to_keep; do sudo ufw allow "$port" >/dev/null; echo "--> 已允许必需端口: $port"; done
-    sudo ufw enable >/dev/null
+    echo "y" | sudo ufw enable >/dev/null
 fi
 final_message="🔒 *防火墙安全锁定完成*
 > *服务器*: \`$(hostname)\`
@@ -136,18 +170,17 @@ print_message "防火墙安全锁定完成。仅保留必需端口。"
 if [ "$FW_TYPE" = "ufw" ]; then sudo ufw status; fi
 EOF
 
+
 # --- 步骤 4: 替换变量并设置权限 ---
 print_message "步骤 4: 正在完成脚本配置..."
-# 使用 sed 将用户输入的变量替换到子脚本的占位符中
 sudo sed -i "s|__TG_TOKEN__|$TG_TOKEN|g" "$HARDEN_SCRIPT" "$LOCKDOWN_SCRIPT"
 sudo sed -i "s|__TG_CHAT_ID__|$TG_CHAT_ID|g" "$HARDEN_SCRIPT" "$LOCKDOWN_SCRIPT"
 sudo sed -i "s|__NOTIFY__|$NOTIFY|g" "$HARDEN_SCRIPT" "$LOCKDOWN_SCRIPT"
-
-# 赋予执行权限
 sudo chmod +x "$HARDEN_SCRIPT" "$LOCKDOWN_SCRIPT"
 echo "--> ✅ 脚本权限设置完成。"
 
 # --- 步骤 5: 完成 ---
+# (此部分与上一版本完全相同，无需修改)
 print_message "部署完成！"
 echo "您的系统上现在有两个新的命令可用："
 echo ""
