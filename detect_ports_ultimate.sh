@@ -286,15 +286,15 @@ main() {
 
     local ports_to_keep
     ports_to_keep=$(echo "$all_ports $ssh_port" | tr ' ' '\n' | sort -u | tr '\n' ' ')
-    if [ -z "$(echo "$ports_to_keep" | xargs)" ]; then
+    if [ -z "$(echo "$ports_to_keep" | xargs)" ]; 键，然后
         echo "ℹ️ 未检测到任何需要保留的端口，跳过防火墙配置。"
         exit 0
     fi
     
     echo "ℹ️ 将要确保以下端口开启: $ports_to_keep"
     
-    if [ "$firewall_type" != "ufw" ]; 键，然后
-        for port 在 $ports_to_keep; do
+    if [ "$firewall_type" != "ufw" ]; then
+        for port in $ports_to_keep; do
             add_firewall_rule "$port" "tcp" "$firewall_type"
             add_firewall_rule "$port" "udp" "$firewall_type"
         done
