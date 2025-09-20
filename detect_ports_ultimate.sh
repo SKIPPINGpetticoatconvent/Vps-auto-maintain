@@ -1,22 +1,23 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------------------
-# VPS 代理服务端口检测和防火墙配置脚本（终极一键安全版）
+# VPS 代理服务端口检测和防火墙配置脚本（终极一键安全交互版）
 #
 # 功能：
 # - 如果防火墙未启用，则自动安装并配置UFW或Firewalld
 # - 自动检测 Xray 和 Sing-box 的开放端口
 # - 自动检测 SSH 端口并强制保留
 # - 主动移除防火墙中所有其他未知端口，实现安全锁定
+# - 交互式输入 Telegram 配置，不再硬编码
 # - 修复所有已知 bug 和兼容性问题
 # - 支持 Telegram 通知
 # -----------------------------------------------------------------------------------------
 
 set -e
 
-# --- 配置变量 ---
-TG_TOKEN="7982836307:AAEU-ru2xLuuWFhNLqBgHQVaMmKTh4VF5Js"
-TG_CHAT_ID="6103295147"
-NOTIFY=true
+# --- 变量初始化 ---
+TG_TOKEN=""
+TG_CHAT_ID=""
+NOTIFY=false # 默认不通知，除非用户提供了配置
 
 # --- 函数定义 ---
 print_message() {
@@ -43,6 +44,7 @@ get_timezone() {
     echo "$tz"
 }
 
+# ... (get_process_ports, parse_config_ports, detect_firewall, setup_firewall, add_firewall_rule, remove_unused_rules 函数与您原脚本完全相同，此处省略以保持简洁) ...
 get_process_ports() {
     local process_name="$1"
     local ports=""
@@ -160,8 +162,29 @@ remove_unused_rules() {
 }
 
 main() {
-    print_message "开始一键式防火墙安全配置"
-
+    # ----------------- [修改区域开始] -----------------
+    print_message "步骤 1: Telegram 通知配置"
+    read -p "是否要配置 Telegram 通知? [y/N]: " setup_notify
+    if [[ "$setup_notify" =~ ^[Yy]$ ]]; then
+        read -p "请输入你的 Telegram Bot Token: " input_token
+        read -p "请输入你的 Telegram Chat ID: " input_chat_id
+        
+        if [ -n "$input_token" ] && [ -n "$input_chat_id" ]; then
+            TG_TOKEN="$input_token"
+            TG_CHAT_ID="$input_chat_id"
+            NOTIFY=true
+            echo "✅ Telegram 通知已配置。"
+        else
+            echo "⚠️ 输入不完整，将禁用 Telegram 通知。"
+        fi
+    else
+        echo "ℹ️ 已跳过 Telegram 通知配置。"
+    fi
+    # ----------------- [修改区域结束] -----------------
+    
+    print_message "步骤 2: 开始一键式防火墙安全配置"
+    
+    # ... (main 函数的其余部分与您原脚本完全相同) ...
     local firewall_type; firewall_type=$(detect_firewall)
     FIREWALL_CHANGED=false
 
@@ -205,14 +228,6 @@ main() {
     print_message "防火墙配置完成，仅允许必需端口的流量"
 }
 
-# 参数处理
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --no-notify) NOTIFY=false; shift ;;
-        --token) TG_TOKEN="$2"; shift 2 ;;
-        --chat-id) TG_CHAT_ID="$2"; shift 2 ;;
-        *) echo "用法: $0 [--no-notify] [--token TOKEN] [--chat-id CHAT_ID]" >&2; exit 1 ;;
-    esac
-done
+# (移除了旧的参数处理逻辑，因为现在是交互式的)
 
 main
