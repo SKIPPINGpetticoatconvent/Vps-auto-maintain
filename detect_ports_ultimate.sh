@@ -1,13 +1,13 @@
-#!/bin/bash
+#!/bin-bash
 # -----------------------------------------------------------------------------------------
-# VPS 代理服务端口检测和防火墙配置脚本（终极安全交互流式版）
+# VPS 代理服务端口检测和防火墙配置脚本（终极安全交互版 v2.0）
 #
 # 功能：
 # - 如果防火墙未启用，则自动安装并配置UFW或Firewalld
 # - 自动检测 Xray 和 Sing-box 的开放端口
 # - 自动检测 SSH 端口并强制保留
 # - 主动移除防火墙中所有其他未知端口，实现安全锁定
-# - 支持交互式输入Telegram配置，兼容管道执行
+# - 支持交互式输入Telegram配置，兼容所有执行方式
 # - 修复所有已知 bug 和兼容性问题
 # -----------------------------------------------------------------------------------------
 
@@ -125,7 +125,7 @@ setup_firewall() {
 
 add_firewall_rule() {
     local port="$1"; local protocol="$2"; local firewall_type="$3"
-    case "$firewall_type" in
+    case "$firewalld_type" in
         firewalld)
             set +e
             if ! sudo firewall-cmd --permanent --query-port="$port/$protocol" > /dev/null 2>&1; then
@@ -144,6 +144,7 @@ remove_unused_rules() {
     case "$firewall_type" in
         firewalld)
             echo "ℹ️ 正在检查 firewalld 永久规则..."
+            FIREWALL_CHANGED=false
             local current_services; current_services=$(sudo firewall-cmd --permanent --list-services)
             local current_ports; current_ports=$(sudo firewall-cmd --permanent --list-ports)
             for service in $current_services; do if [[ "$service" != "ssh" && "$service" != "dhcpv6-client" ]]; then echo "➖ 正在移除服务: $service"; sudo firewall-cmd --permanent --remove-service="$service" > /dev/null 2>&1; FIREWALL_CHANGED=true; fi; done
@@ -159,15 +160,12 @@ remove_unused_rules() {
     esac
 }
 
-
 main() {
-    # ----------------- [修改区域开始] -----------------
     print_message "步骤 1: Telegram 通知配置 (可选)"
-    # 关键修改：使用 </dev/tty 来确保即时通过管道执行也能接收用户输入
-    read -p "是否要配置 Telegram 通知? [y/N]: " setup_notify </dev/tty
+    read -p "是否要配置 Telegram 通知? [y/N]: " setup_notify
     if [[ "$setup_notify" =~ ^[Yy]$ ]]; then
-        read -p "请输入你的 Telegram Bot Token: " input_token </dev/tty
-        read -p "请输入你的 Telegram Chat ID: " input_chat_id </dev/tty
+        read -p "请输入你的 Telegram Bot Token: " input_token
+        read -p "请输入你的 Telegram Chat ID: " input_chat_id
         
         if [ -n "$input_token" ] && [ -n "$input_chat_id" ]; then
             TG_TOKEN="$input_token"
@@ -180,13 +178,11 @@ main() {
     else
         echo "ℹ️ 已跳过 Telegram 通知配置。"
     fi
-    # ----------------- [修改区域结束] -----------------
     
     print_message "步骤 2: 开始一键式防火墙安全配置"
     
     local firewall_type; firewall_type=$(detect_firewall)
-    FIREWALL_CHANGED=false
-
+    
     if [ "$firewall_type" = "none" ]; then
         firewall_type=$(setup_firewall)
         if [ "$firewall_type" = "none" ]; then exit 1; fi
@@ -203,7 +199,7 @@ main() {
 
     local xray_ports=""; local sb_ports=""; local all_ports=""
     if command -v xray &> /dev/null && pgrep -f "xray" > /dev/null; then xray_ports=$(get_process_ports "xray"); if [ -n "$xray_ports" ]; then echo "✅ 检测到 Xray 运行端口: $xray_ports"; all_ports="$all_ports $xray_ports"; fi; fi
-    if command -v sb &> /dev/null || command -v sing-box &> /dev/null; then if pgrep -f "sing-box" > /dev/null; then sb_ports=$(get_process_ports "sing-box"); if [ -z "$sb_ports" ]; then local config_files=("/etc/sing-box/config.json" "/usr/local/etc/sing-box/config.json" /etc/sing-box/conf/*.json); local temp_sb_ports=""; for config_file in "${config_files[@]}"; do if [ -f "$config_file" ]; then local config_ports; config_ports=$(parse_config_ports "$config_file"); if [ -n "$config_ports" ]; then temp_sb_ports="$temp_sb_ports $config_ports"; fi; fi; done; sb_ports=$(echo "$temp_sb_ports" | tr ' ' '\n' | sort -u | tr '\n' ' '); fi; if [ -n "$sb_ports" ]; then echo "✅ 检测到 Sing-box 运行端口:$sb_ports"; all_ports="$all_ports $sb_ports"; fi; fi; fi
+    if command -v sb &> /dev/null || command -v sing-box &> /dev/null; then if pgrep -f "sing-box" > /dev/null; then sb_ports=$(get_process_ports "sing-box"); if [ -z "$sb_ports" ]; then local config_files=("/etc/sing-box/config.json" "/usr/local/etc/sing-box/config.json" "/etc/sing-box/conf/"*.json); local temp_sb_ports=""; for config_file in "${config_files[@]}"; do if [ -f "$config_file" ]; then local config_ports; config_ports=$(parse_config_ports "$config_file"); if [ -n "$config_ports" ]; then temp_sb_ports="$temp_sb_ports $config_ports"; fi; fi; done; sb_ports=$(echo "$temp_sb_ports" | tr ' ' '\n' | sort -u | tr '\n' ' '); fi; if [ -n "$sb_ports" ]; then echo "✅ 检测到 Sing-box 运行端口:$sb_ports"; all_ports="$all_ports $sb_ports"; fi; fi; fi
 
     local ports_to_keep; ports_to_keep=$(echo "$all_ports $ssh_port" | tr ' ' '\n' | sort -u | tr '\n' ' ')
     if [ -z "$(echo "$ports_to_keep" | xargs)" ]; then echo "ℹ️ 未检测到任何需要保留的端口，跳过防火墙配置。"; exit 0; fi
@@ -211,7 +207,7 @@ main() {
     echo "ℹ️ 将要确保以下端口开启:$ports_to_keep"
     
     if [ "$firewall_type" != "ufw" ]; 键，然后
-        for port in $ports_to_keep; do
+        for port 在 $ports_to_keep; do
             add_firewall_rule "$port" "tcp" "$firewall_type"
             add_firewall_rule "$port" "udp" "$firewall_type"
         done
@@ -227,5 +223,4 @@ main() {
     print_message "防火墙配置完成，仅允许必需端口的流量"
 }
 
-# 移除了所有参数处理逻辑，完全依赖交互式输入
 main
