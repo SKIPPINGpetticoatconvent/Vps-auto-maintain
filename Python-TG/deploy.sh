@@ -1,6 +1,6 @@
 #!/bin/bash
 # ---------------------------------------------------------------------------------
-# Telegram端口监控机器人部署脚本
+# Telegram端口监控机器人部署脚本 - VPS兼容版
 # 基于detect_ports_ultimate.sh的Python版本
 #
 # 功能：
@@ -36,11 +36,18 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# 检查是否为root用户
-check_root() {
+# 检测权限和设置命令
+setup_commands() {
     if [[ $EUID -eq 0 ]]; then
-        log_error "请勿使用root用户运行此脚本"
-        exit 1
+        # 运行在root用户下
+        SUDO_CMD=""
+        SYSTEMCTL_CMD="systemctl"
+        log_info "检测到root用户权限"
+    else
+        # 运行在普通用户下
+        SUDO_CMD="sudo"
+        SYSTEMCTL_CMD="sudo systemctl"
+        log_info "检测到普通用户权限，将使用sudo"
     fi
 }
 
@@ -49,11 +56,11 @@ detect_os() {
     if [[ -f /etc/os-release ]]; then
         . /etc/os-release
         OS=$ID
+        log_info "检测到操作系统: $OS"
     else
         log_error "无法检测操作系统"
         exit 1
     fi
-    log_info "检测到操作系统: $OS"
 }
 
 # 安装Python依赖
@@ -70,11 +77,12 @@ install_python_deps() {
     fi
 
     # 升级pip
-    $PIP_CMD install --upgrade pip
+    $PIP_CMD install --upgrade pip > /dev/null 2>&1
+    log_info "pip升级完成"
 
     # 安装依赖
     if [[ -f "requirements.txt" ]]; then
-        $PIP_CMD install -r requirements.txt
+        $PIP_CMD install -r requirements.txt > /dev/null 2>&1
         log_success "Python依赖安装完成"
     else
         log_error "未找到requirements.txt文件"
@@ -89,7 +97,7 @@ create_venv() {
     if [[ -d "venv" ]]; then
         log_warning "虚拟环境已存在，跳过创建"
     else
-        python3 -m venv venv
+        python3 -m venv venv > /dev/null 2>&1
         log_success "虚拟环境创建完成"
     fi
 }
@@ -99,7 +107,7 @@ setup_logging() {
     log_info "配置日志目录..."
 
     if [[ ! -d "logs" ]]; then
-        mkdir -p logs
+        mkdir -p logs > /dev/null 2>&1
         log_success "日志目录创建完成"
     else
         log_warning "日志目录已存在"
@@ -215,7 +223,7 @@ WantedBy=multi-user.target
 EOF
 
         # 重新加载systemd配置
-        sudo systemctl daemon-reload
+        $SYSTEMCTL_CMD daemon-reload > /dev/null 2>&1
         log_success "系统服务创建完成"
     else
         log_warning "系统服务已存在"
@@ -226,21 +234,23 @@ EOF
 start_service() {
     log_info "启动机器人服务..."
 
-    if systemctl is-active --quiet tg-port-monitor; then
+    # 停止现有服务（如果存在）
+    if $SYSTEMCTL_CMD is-active --quiet tg-port-monitor 2>/dev/null; then
         log_warning "服务已在运行，先停止现有服务"
-        sudo systemctl stop tg-port-monitor
+        $SYSTEMCTL_CMD stop tg-port-monitor > /dev/null 2>&1
     fi
 
-    sudo systemctl start tg-port-monitor
-    sudo systemctl enable tg-port-monitor
+    # 启动服务
+    $SYSTEMCTL_CMD start tg-port-monitor > /dev/null 2>&1
+    $SYSTEMCTL_CMD enable tg-port-monitor > /dev/null 2>&1
 
     # 检查服务状态
-    if systemctl is-active --quiet tg-port-monitor; then
+    if $SYSTEMCTL_CMD is-active --quiet tg-port-monitor; then
         log_success "机器人服务启动成功"
-        log_info "服务状态: $(sudo systemctl status tg-port-monitor --no-pager -l)"
+        log_info "服务状态: 正常运行"
     else
         log_error "服务启动失败"
-        log_info "查看日志: sudo journalctl -u tg-port-monitor -f"
+        log_info "查看日志: $SYSTEMCTL_CMD journalctl -u tg-port-monitor -f"
         exit 1
     fi
 }
@@ -249,7 +259,7 @@ start_service() {
 main() {
     log_info "开始部署Telegram端口监控机器人..."
 
-    check_root
+    setup_commands
     detect_os
     create_venv
     setup_logging
@@ -271,10 +281,10 @@ main() {
 
     log_success "部署完成！"
     log_info "使用方法:"
-    log_info "1. 查看状态: sudo systemctl status tg-port-monitor"
-    log_info "2. 查看日志: sudo journalctl -u tg-port-monitor -f"
-    log_info "3. 重启服务: sudo systemctl restart tg-port-monitor"
-    log_info "4. 停止服务: sudo systemctl stop tg-port-monitor"
+    log_info "1. 查看状态: $SYSTEMCTL_CMD status tg-port-monitor"
+    log_info "2. 查看日志: $SYSTEMCTL_CMD journalctl -u tg-port-monitor -f"
+    log_info "3. 重启服务: $SYSTEMCTL_CMD restart tg-port-monitor"
+    log_info "4. 停止服务: $SYSTEMCTL_CMD stop tg-port-monitor"
 }
 
 # 参数处理
@@ -292,22 +302,27 @@ case "$1" in
         exit 0
         ;;
     --start)
-        sudo systemctl start tg-port-monitor
+        setup_commands
+        $SYSTEMCTL_CMD start tg-port-monitor
         echo "服务已启动"
         ;;
     --stop)
-        sudo systemctl stop tg-port-monitor
+        setup_commands
+        $SYSTEMCTL_CMD stop tg-port-monitor
         echo "服务已停止"
         ;;
     --restart)
-        sudo systemctl restart tg-port-monitor
+        setup_commands
+        $SYSTEMCTL_CMD restart tg-port-monitor
         echo "服务已重启"
         ;;
     --status)
-        sudo systemctl status tg-port-monitor --no-pager
+        setup_commands
+        $SYSTEMCTL_CMD status tg-port-monitor --no-pager
         ;;
     --log)
-        sudo journalctl -u tg-port-monitor -f
+        setup_commands
+        $SYSTEMCTL_CMD journalctl -u tg-port-monitor -f
         ;;
     *)
         main
