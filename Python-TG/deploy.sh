@@ -100,6 +100,19 @@ create_venv() {
         python3 -m venv venv > /dev/null 2>&1
         log_success "虚拟环境创建完成"
     fi
+
+    # 验证虚拟环境是否正确创建
+    if [[ ! -f "venv/bin/activate" ]] && [[ ! -f "venv/Scripts/activate" ]]; then
+        log_warning "虚拟环境激活脚本未找到，尝试重新创建..."
+        rm -rf venv
+        python3 -m venv venv > /dev/null 2>&1
+
+        if [[ ! -f "venv/bin/activate" ]] && [[ ! -f "venv/Scripts/activate" ]]; then
+            log_error "虚拟环境创建失败，请检查Python是否正确安装"
+            exit 1
+        fi
+        log_success "虚拟环境重新创建成功"
+    fi
 }
 
 # 配置日志目录
@@ -264,8 +277,17 @@ main() {
     create_venv
     setup_logging
 
-    # 激活虚拟环境
-    source venv/bin/activate
+    # 激活虚拟环境 - 改进的激活逻辑
+    if [[ -f "venv/bin/activate" ]]; then
+        source venv/bin/activate
+        log_info "虚拟环境激活成功"
+    elif [[ -f "venv/Scripts/activate" ]]; then
+        source venv/Scripts/activate
+        log_info "虚拟环境激活成功 (Windows路径)"
+    else
+        log_error "虚拟环境激活脚本未找到"
+        exit 1
+    fi
 
     install_python_deps
 

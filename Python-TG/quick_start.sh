@@ -13,7 +13,16 @@ fi
 
 # 激活虚拟环境
 echo "🔧 激活虚拟环境..."
-source venv/bin/activate
+if [ -f "venv/bin/activate" ]; then
+    source venv/bin/activate
+    echo "✅ 虚拟环境激活成功"
+elif [ -f "venv/Scripts/activate" ]; then
+    source venv/Scripts/activate
+    echo "✅ 虚拟环境激活成功 (Windows路径)"
+else
+    echo "❌ 虚拟环境激活脚本未找到"
+    exit 1
+fi
 
 # 安装依赖
 echo "📦 安装依赖..."
@@ -27,8 +36,14 @@ fi
 
 # 检查配置文件
 if [ ! -f "config.json" ]; then
-    echo "⚠️ 未找到配置文件，请先配置config.json"
+    echo "❌ 未找到配置文件，请先配置config.json"
     echo "请编辑config.json文件，设置Telegram机器人令牌和聊天ID"
+    exit 1
+fi
+
+# 检查配置
+if grep -q "YOUR_BOT_TOKEN_HERE\|YOUR_CHAT_ID_HERE" config.json; then
+    echo "❌ 配置文件中包含默认占位符，请先配置正确的Telegram令牌和聊天ID"
     exit 1
 fi
 
