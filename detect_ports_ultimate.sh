@@ -90,43 +90,36 @@ detect_firewall() {
     fi
 }
 
-# --- [已修正的函数] ---
 setup_firewall() {
     print_message "未检测到活跃防火墙，将自动安装并配置"
     
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         if [[ "$ID" == "ubuntu" || "$ID" == "debian" || "$ID_LIKE" == "debian" ]]; then
-            # 将提示信息输出到 stderr (>&2)，这样它们就不会被变量捕获
-            echo "ℹ️ 检测到 Debian/Ubuntu 系统，将安装 UFW..." >&2
+            echo "ℹ️ 检测到 Debian/Ubuntu 系统，将安装 UFW..."
             sudo apt-get update >/dev/null
             sudo apt-get install -y ufw >/dev/null
             echo "y" | sudo ufw reset >/dev/null
             sudo ufw default deny incoming >/dev/null
             sudo ufw default allow outgoing >/dev/null
             sudo ufw enable >/dev/null
-            echo "✅ UFW 安装并启用成功。" >&2
-            
-            # 将唯一的返回值 "ufw" 输出到 stdout，以便被正确捕获
-            echo "ufw"
-            
+            echo "✅ UFW 安装并启用成功。"
+            echo "ufw" # 返回新防火墙类型
         elif [[ "$ID" == "centos" || "$ID" == "rhel" || "$ID" == "fedora" || "$ID" == "almalinux" || "$ID_LIKE" == "rhel" ]]; then
-            echo "ℹ️ 检测到 RHEL/CentOS 系列系统，将安装 firewalld..." >&2
+            echo "ℹ️ 检测到 RHEL/CentOS 系列系统，将安装 firewalld..."
             if command -v dnf &>/dev/null; then
                 sudo dnf install -y firewalld >/dev/null
             else
                 sudo yum install -y firewalld >/dev/null
             fi
             sudo systemctl enable --now firewalld >/dev/null
-            echo "✅ firewalld 安装并启用成功。" >&2
-            echo "firewalld"
+            echo "✅ firewalld 安装并启用成功。"
+            echo "firewalld" # 返回新防火墙类型
         else
-            echo "❌ 不支持的操作系统: $ID。请手动安装防火墙。" >&2
-            echo "none"
+            echo "❌ 不支持的操作系统: $ID。请手动安装防火墙。" >&2; echo "none"
         fi
     else
-        echo "❌ 无法确定操作系统类型。请手动安装防火墙。" >&2
-        echo "none"
+        echo "❌ 无法确定操作系统类型。请手动安装防火墙。" >&2; echo "none"
     fi
 }
 
