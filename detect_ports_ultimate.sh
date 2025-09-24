@@ -197,11 +197,14 @@ main() {
     
     remove_unused_rules "$ports_to_keep" "$firewall_type"
 
+    # --- 关键修复点：将消息定义移动到此处 ---
+    # 确保所有变量（特别是 firewall_type）都已获得最终值
     local message="🔒 *防火墙安全锁定完成*
 > *服务器*: \`$(hostname)\`
 > *保留端口*: \`$ports_to_keep\`
 > *防火墙类型*: \`$firewall_type\`"
     send_telegram "$message"
+    
     print_message "防火墙配置完成，仅允许必需端口的流量"
 }
 
