@@ -19,11 +19,14 @@ TG_CHAT_ID="6103295147"
 NOTIFY=true
 
 # --- 函数定义 ---
+# 修复：将提示信息默认输出到 stderr，避免污染返回值
 print_message() {
-    echo ""
-    echo "------------------------------------------------------------"
-    echo "$1"
-    echo "------------------------------------------------------------"
+    {
+        echo ""
+        echo "------------------------------------------------------------"
+        echo "$1"
+        echo "------------------------------------------------------------"
+    } >&2
 }
 
 send_telegram() {
@@ -49,7 +52,7 @@ get_process_ports() {
     if pgrep -f "$process_name" > /dev/null; then
         if command -v ss &> /dev/null; then
             ports=$(ss -tlnp | grep "$process_name" | awk '{print $4}' | awk -F: '{print $NF}' | sort -u | tr '\n' ' ')
-        elif command -v netstat &> /dev/null; then
+        elif command -v netstat &> /dev/null;
             ports=$(netstat -tlnp | grep "$process_name" | awk '{print $4}' | awk -F: '{print $NF}' | sort -u | tr '\n' ' ')
         fi
     fi
@@ -90,31 +93,32 @@ detect_firewall() {
     fi
 }
 
+# 修复：将所有 informational echo 重定向到 stderr (>&2)
 setup_firewall() {
     print_message "未检测到活跃防火墙，将自动安装并配置"
     
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         if [[ "$ID" == "ubuntu" || "$ID" == "debian" || "$ID_LIKE" == "debian" ]]; then
-            echo "ℹ️ 检测到 Debian/Ubuntu 系统，将安装 UFW..."
+            echo "ℹ️ 检测到 Debian/Ubuntu 系统，将安装 UFW..." >&2
             sudo apt-get update >/dev/null
             sudo apt-get install -y ufw >/dev/null
             echo "y" | sudo ufw reset >/dev/null
             sudo ufw default deny incoming >/dev/null
             sudo ufw default allow outgoing >/dev/null
             sudo ufw enable >/dev/null
-            echo "✅ UFW 安装并启用成功。"
-            echo "ufw" # 返回新防火墙类型
+            echo "✅ UFW 安装并启用成功。" >&2
+            echo "ufw" # 只有这个返回值会进入 stdout
         elif [[ "$ID" == "centos" || "$ID" == "rhel" || "$ID" == "fedora" || "$ID" == "almalinux" || "$ID_LIKE" == "rhel" ]]; then
-            echo "ℹ️ 检测到 RHEL/CentOS 系列系统，将安装 firewalld..."
+            echo "ℹ️ 检测到 RHEL/CentOS 系列系统，将安装 firewalld..." >&2
             if command -v dnf &>/dev/null; then
                 sudo dnf install -y firewalld >/dev/null
             else
                 sudo yum install -y firewalld >/dev/null
             fi
             sudo systemctl enable --now firewalld >/dev/null
-            echo "✅ firewalld 安装并启用成功。"
-            echo "firewalld" # 返回新防火墙类型
+            echo "✅ firewalld 安装并启用成功。" >&2
+            echo "firewalld" # 只有这个返回值会进入 stdout
         else
             echo "❌ 不支持的操作系统: $ID。请手动安装防火墙。" >&2; echo "none"
         fi
@@ -143,18 +147,18 @@ remove_unused_rules() {
     print_message "开始清理防火墙中未使用的端口"
     case "$firewall_type" in
         firewalld)
-            echo "ℹ️ 正在检查 firewalld 永久规则..."
+            echo "ℹ️ 正在检查 firewalld 永久规则..." >&2
             local current_services; current_services=$(sudo firewall-cmd --permanent --list-services)
             local current_ports; current_ports=$(sudo firewall-cmd --permanent --list-ports)
-            for service in $current_services; do if [[ "$service" != "ssh" && "$service" != "dhcpv6-client" ]]; then echo "➖ 正在移除服务: $service"; sudo firewall-cmd --permanent --remove-service="$service" > /dev/null 2>&1; FIREWALL_CHANGED=true; fi; done
-            for port_rule in $current_ports; do local port_num; port_num=$(echo "$port_rule" | cut -d'/' -f1); if ! echo " $ports_to_keep " | grep -q " $port_num "; then echo "➖ 正在移除端口规则: $port_rule"; sudo firewall-cmd --permanent --remove-port="$port_rule" > /dev/null 2>&1; FIREWALL_CHANGED=true; fi; done
-            if [ "$FIREWALL_CHANGED" = true ]; then echo "🔄 正在重载防火墙以应用更改..."; sudo firewall-cmd --reload > /dev/null 2>&1; else echo "✅ 无需清理，所有规则均为必需规则。"; fi
+            for service in $current_services; do if [[ "$service" != "ssh" && "$service" != "dhcpv6-client" ]]; then echo "➖ 正在移除服务: $service" >&2; sudo firewall-cmd --permanent --remove-service="$service" > /dev/null 2>&1; FIREWALL_CHANGED=true; fi; done
+            for port_rule in $current_ports; do local port_num; port_num=$(echo "$port_rule" | cut -d'/' -f1); if ! echo " $ports_to_keep " | grep -q " $port_num "; then echo "➖ 正在移除端口规则: $port_rule" >&2; sudo firewall-cmd --permanent --remove-port="$port_rule" > /dev/null 2>&1; FIREWALL_CHANGED=true; fi; done
+            if [ "$FIREWALL_CHANGED" = true ]; then echo "🔄 正在重载防火墙以应用更改..." >&2; sudo firewall-cmd --reload > /dev/null 2>&1; else echo "✅ 无需清理，所有规则均为必需规则。" >&2; fi
             ;;
         ufw)
-            echo "⚠️ UFW 将被重置，仅保留必需端口！"; echo "   操作将在 5 秒后继续，按 Ctrl+C 取消。"; sleep 5
-            echo "🔄 正在重置 UFW..."; echo "y" | sudo ufw reset > /dev/null 2>&1; sudo ufw default deny incoming > /dev/null 2>&1; sudo ufw default allow outgoing > /dev/null 2>&1
-            echo "➕ 正在重新应用必要的规则..."; for port in $ports_to_keep; do sudo ufw allow "$port" > /dev/null 2>&1; echo "   允许端口: $port"; done
-            sudo ufw enable > /dev/null 2>&1; echo "✅ UFW 已重置并配置完毕。"; sudo ufw status
+            echo "⚠️ UFW 将被重置，仅保留必需端口！" >&2; echo "   操作将在 5 秒后继续，按 Ctrl+C 取消。" >&2; sleep 5
+            echo "🔄 正在重置 UFW..." >&2; echo "y" | sudo ufw reset > /dev/null 2>&1; sudo ufw default deny incoming > /dev/null 2>&1; sudo ufw default allow outgoing > /dev/null 2>&1
+            echo "➕ 正在重新应用必要的规则..." >&2; for port in $ports_to_keep; do sudo ufw allow "$port" > /dev/null 2>&1; echo "   允许端口: $port" >&2; done
+            sudo ufw enable > /dev/null 2>&1; echo "✅ UFW 已重置并配置完毕。" >&2; sudo ufw status >&2
             ;;
     esac
 }
@@ -170,23 +174,24 @@ main() {
         if [ "$firewall_type" = "none" ]; then exit 1; fi
     fi
 
-    echo "🔍 检测防火墙类型: $firewall_type"
+    # 优化：将此行移动到 firewall_type 被最终确定之后
+    echo "🔍 检测防火墙类型: $firewall_type" >&2
     local timezone; timezone=$(get_timezone)
     local time_now; time_now=$(date '+%Y-%m-%d %H:%M:%S')
-    echo "🕒 系统时区: $timezone"
-    echo "🕐 当前时间: $time_now"
+    echo "🕒 系统时区: $timezone" >&2
+    echo "🕐 当前时间: $time_now" >&2
 
     local ssh_port; ssh_port=$(grep -i '^Port ' /etc/ssh/sshd_config | awk '{print $2}' | head -n1); [ -z "$ssh_port" ] && ssh_port=22
-    echo "🛡️ 检测到 SSH 端口为: $ssh_port (此端口将被强制保留)"
+    echo "🛡️ 检测到 SSH 端口为: $ssh_port (此端口将被强制保留)" >&2
 
     local xray_ports=""; local sb_ports=""; local all_ports=""
-    if command -v xray &> /dev/null && pgrep -f "xray" > /dev/null; then xray_ports=$(get_process_ports "xray"); if [ -n "$xray_ports" ]; then echo "✅ 检测到 Xray 运行端口: $xray_ports"; all_ports="$all_ports $xray_ports"; fi; fi
-    if command -v sb &> /dev/null || command -v sing-box &> /dev/null; then if pgrep -f "sing-box" > /dev/null; then sb_ports=$(get_process_ports "sing-box"); if [ -z "$sb_ports" ]; then local config_files=("/etc/sing-box/config.json" "/usr/local/etc/sing-box/config.json" /etc/sing-box/conf/*.json); local temp_sb_ports=""; for config_file in "${config_files[@]}"; do if [ -f "$config_file" ]; then local config_ports; config_ports=$(parse_config_ports "$config_file"); if [ -n "$config_ports" ]; then temp_sb_ports="$temp_sb_ports $config_ports"; fi; fi; done; sb_ports=$(echo "$temp_sb_ports" | tr ' ' '\n' | sort -u | tr '\n' ' '); fi; if [ -n "$sb_ports" ]; then echo "✅ 检测到 Sing-box 运行端口:$sb_ports"; all_ports="$all_ports $sb_ports"; fi; fi; fi
+    if command -v xray &> /dev/null && pgrep -f "xray" > /dev/null; then xray_ports=$(get_process_ports "xray"); if [ -n "$xray_ports" ]; then echo "✅ 检测到 Xray 运行端口: $xray_ports" >&2; all_ports="$all_ports $xray_ports"; fi; fi
+    if command -v sb &> /dev/null || command -v sing-box &> /dev/null; then if pgrep -f "sing-box" > /dev/null; then sb_ports=$(get_process_ports "sing-box"); if [ -z "$sb_ports" ]; then local config_files=("/etc/sing-box/config.json" "/usr/local/etc/sing-box/config.json" /etc/sing-box/conf/*.json); local temp_sb_ports=""; for config_file in "${config_files[@]}"; do if [ -f "$config_file" ]; then local config_ports; config_ports=$(parse_config_ports "$config_file"); if [ -n "$config_ports" ]; then temp_sb_ports="$temp_sb_ports $config_ports"; fi; fi; done; sb_ports=$(echo "$temp_sb_ports" | tr ' ' '\n' | sort -u | tr '\n' ' '); fi; if [ -n "$sb_ports" ]; then echo "✅ 检测到 Sing-box 运行端口: $sb_ports" >&2; all_ports="$all_ports $sb_ports"; fi; fi; fi
 
     local ports_to_keep; ports_to_keep=$(echo "$all_ports $ssh_port" | tr ' ' '\n' | sort -u | tr '\n' ' ')
-    if [ -z "$(echo "$ports_to_keep" | xargs)" ]; then echo "ℹ️ 未检测到任何需要保留的端口，跳过防火墙配置。"; exit 0; fi
+    if [ -z "$(echo "$ports_to_keep" | xargs)" ]; then echo "ℹ️ 未检测到任何需要保留的端口，跳过防火墙配置。" >&2; exit 0; fi
     
-    echo "ℹ️ 将要确保以下端口开启:$ports_to_keep"
+    echo "ℹ️ 将要确保以下端口开启: $ports_to_keep" >&2
     
     if [ "$firewall_type" != "ufw" ]; then
         for port in $ports_to_keep; do
@@ -197,8 +202,6 @@ main() {
     
     remove_unused_rules "$ports_to_keep" "$firewall_type"
 
-    # --- 关键修复点：将消息定义移动到此处 ---
-    # 确保所有变量（特别是 firewall_type）都已获得最终值
     local message="🔒 *防火墙安全锁定完成*
 > *服务器*: \`$(hostname)\`
 > *保留端口*: \`$ports_to_keep\`
