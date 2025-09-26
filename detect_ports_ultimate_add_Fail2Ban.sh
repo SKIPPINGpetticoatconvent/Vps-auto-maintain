@@ -105,7 +105,7 @@ setup_firewall() {
             sudo ufw default allow outgoing >/dev/null 2>&1
             sudo ufw --force enable >/dev/null 2>&1
             echo "✅ UFW 安装并启用成功。" >&2
-            echo "ufw" # 只输出返回值到 stdout
+            echo "ufw"
         elif [[ "$ID" == "centos" || "$ID" == "rhel" || "$ID" == "fedora" || "$ID" == "almalinux" || "$ID_LIKE" == *"rhel"* ]]; then
             echo "ℹ️ 检测到 RHEL/CentOS 系列系统，将安装 firewalld..." >&2
             if command -v dnf &>/dev/null; then
@@ -115,7 +115,7 @@ setup_firewall() {
             fi
             sudo systemctl enable --now firewalld >/dev/null 2>&1
             echo "✅ firewalld 安装并启用成功。" >&2
-            echo "firewalld" # 只输出返回值到 stdout
+            echo "firewalld"
         else
             echo "❌ 不支持的操作系统: $ID。请手动安装防火墙。" >&2
             echo "none"
@@ -126,7 +126,6 @@ setup_firewall() {
     fi
 }
 
-# --- 新增 Fail2Ban 函数 --- # <-- 新增
 setup_fail2ban() {
     print_message "开始安装和配置 Fail2Ban (动态防御)"
     
@@ -180,7 +179,7 @@ add_firewall_rule() {
     local protocol="$2"
     local firewall_type="$3"
     
-    case "$fireval_type" in
+    case "$firewall_type" in
         firewalld)
             set +e
             if ! sudo firewall-cmd --permanent --query-port="$port/$protocol" > /dev/null 2>&1; then
@@ -256,12 +255,12 @@ remove_unused_rules() {
 }
 
 main() {
-    print_message "开始一键式防火墙安全配置 V2 (集成 Fail2Ban)" # <-- 修改
+    print_message "开始一键式防火墙安全配置 V2 (集成 Fail2Ban)"
     
-    # --- 新增：调用 Fail2Ban 配置函数 --- # <-- 新增
+    # 调用 Fail2Ban 配置函数
     setup_fail2ban
 
-    print_message "开始配置防火墙 (静态防御)" # <-- 新增
+    print_message "开始配置防火墙 (静态防御)"
     local firewall_type
     firewall_type=$(detect_firewall)
     FIREWALL_CHANGED=false
@@ -321,11 +320,11 @@ main() {
                             temp_sb_ports="$temp_sb_ports $config_ports"
                         fi
                     fi
-                fi
+                done
                 sb_ports=$(echo "$temp_sb_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
             fi
             if [ -n "$sb_ports" ]; then
-                echo "✅ 检测到 Sing-box 运行端口:$sb_ports" >&2
+                echo "✅ 检测到 Sing-box 运行端口: $sb_ports" >&2
                 all_ports="$all_ports $sb_ports"
             fi
         fi
@@ -347,7 +346,7 @@ main() {
         exit 0
     fi
     
-    echo "ℹ️ 将要确保以下端口开启:$ports_to_keep" >&2
+    echo "ℹ️ 将要确保以下端口开启: $ports_to_keep" >&2
     
     # 添加防火墙规则（UFW除外，因为它会在清理阶段统一处理）
     if [ "$firewall_type" != "ufw" ]; then
@@ -361,7 +360,7 @@ main() {
     remove_unused_rules "$ports_to_keep" "$firewall_type"
 
     # 发送 Telegram 通知
-    local message="🔒 *服务器安全加固完成* # <-- 修改
+    local message="🔒 *服务器安全加固完成*
 > *服务器*: \`$(hostname)\`
 > *保留端口*: \`$ports_to_keep\`
 > *防火墙 (静态)*: \`$firewall_type\`
@@ -369,7 +368,7 @@ main() {
     
     send_telegram "$message"
     
-    print_message "防火墙和 Fail2Ban 配置完成，服务器安全已加固" # <-- 修改
+    print_message "防火墙和 Fail2Ban 配置完成，服务器安全已加固"
 }
 
 # 参数处理
