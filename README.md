@@ -1,288 +1,263 @@
-# VPS 自动维护脚本 (Vps-auto-maintain)
+# VPS 自动维护脚本集合
 
-## 项目简介
+一套完整的 VPS 服务器自动化维护和安全加固脚本，专为运行代理服务（Xray、Sing-box）的服务器设计。
 
-这是一个用于 Linux VPS 的自动化维护脚本，能够自动更新系统包、检查和更新网络工具（如 Xray 和 Sing-box），并在维护完成后通过 Telegram Bot 发送通知。脚本支持自动重启，并在重启后再次发送通知，确保 VPS 的稳定运行和及时更新。
+## 🚀 功能特色
 
-项目基于 Bash 脚本开发，兼容多种 Linux 发行版，无需 systemd 支持即可运行。
+### 核心功能
+- **智能端口检测**: 自动识别 Xray 和 Sing-box 服务端口
+- **防火墙自动配置**: 支持 UFW 和 Firewalld，自动安装和配置
+- **SSH 端口保护**: 智能检测并强制保留 SSH 端口
+- **安全端口锁定**: 移除所有未使用的端口规则，实现最小化攻击面
+- **Fail2Ban 集成**: 提供动态防御，自动封禁暴力破解 IP
+- **Telegram 通知**: 实时推送维护状态和安全事件
+- **自动化维护**: 定时更新系统、代理核心和规则文件
 
-## 功能特性
+### 安全特性
+- **双重防护**: 静态防火墙 + 动态 Fail2Ban
+- **零配置安装**: 自动检测系统类型并安装所需组件
+- **智能规则清理**: 仅保留必要端口，清理所有冗余规则
+- **多系统支持**: 兼容 Ubuntu、Debian、CentOS、RHEL、Fedora 等
 
-- **自动化系统维护**：自动更新系统包并清理垃圾
-- **网络工具更新**：支持检测和更新 Xray 和 Sing-box
-- **端口检测和防火墙配置**：自动检测代理服务端口并配置防火墙规则，支持 Sing-box 和 Xray
-- **Telegram 通知**：维护前、重启后分阶段发送通知，包括系统时区和当前时间
-- **定时任务**：使用 Cron 设置每日自动执行（默认东京时区凌晨 4:00）
-- **时区兼容**：智能检测系统时区，支持多种时区配置
-- **容错机制**：内置重试机制和错误处理
-- **兼容性**：适用于有无 systemd 的环境
-- **一键部署**：`deploy.sh` 脚本实现快速安装和配置
-- **内存日志记录**：支持将维护日志存储在内存中，提高性能并减少磁盘写入
+## 📁 脚本说明
 
-## 系统要求
+| 脚本文件 | 功能描述 |
+|---------|---------|
+| `detect_ports_ultimate.sh` | 基础版端口检测和防火墙配置 |
+| `detect_ports_ultimate_add_Fail2Ban.sh` | 增强版，集成 Fail2Ban 动态防御 |
+| `deploy.sh` | 一键部署自动化维护系统 |
 
-- Linux 操作系统（支持 Debian/Ubuntu/CentOS 等）
-- 网络连接（用于 Telegram API 和软件包下载）
-- Bash Shell
-- curl 命令（通常预装）
+## 🛠️ 快速开始
 
-## 安装和设置
-
-### 步骤 1: 准备 Telegram Bot
-
-1. 在 Telegram 中联系 @BotFather 创建新 Bot
-2. 获取 Bot Token（例如：`1234567890:ABCdefGHijkLMNopQRstuVWxyz`）
-3. 与您的 Bot 发送一条消息，然后访问 `https://api.telegram.org/bot<token>/getUpdates` 获取 Chat ID
-
-## 快速一键安装（推荐）
-
-如果您想跳过克隆仓库的步骤，可以直接在线执行部署脚本：
-
-### 使用 wget（推荐）
+### ⚡ 一键命令速查表
 
 ```bash
-bash <(wget -qO- -o- https://github.com/FTDRTD/Vps-auto-maintain/raw/main/deploy.sh)
-```
+# 🔒 安全加固增强版（推荐）
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/detect_ports_ultimate_add_Fail2Ban.sh)
+# 或
+bash <(wget -qO- -o- https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/detect_ports_ultimate_add_Fail2Ban.sh)
 
-### 使用 curl
-
-```bash
-bash <(curl -sL https://github.com/FTDRTD/Vps-auto-maintain/raw/main/deploy.sh)
-```
-
-### 执行步骤
-
-1. 运行上述任意一条命令
-2. 按提示输入您的 Telegram Bot Token 和 Chat ID
-3. 脚本将自动完成部署并首次执行维护
-
-> **注意**：确保您信任此代码源。一键命令会直接从互联网下载并执行脚本，请确定网络环境安全。
-
-### 步骤 2: 部署脚本
-
-1. 下载或克隆此仓库到您的 VPS：
-
-```bash
-git clone <repository-url>
-cd <project-directory>
-```
-
-2. 运行部署脚本：
-
-```bash
-chmod +x deploy.sh
-sudo ./deploy.sh
-```
-
-3. 输入您的 Telegram Bot Token 和 Chat ID
-4. 脚本将自动：
-
-   - 创建维护脚本 (`/usr/local/bin/vps-maintain.sh`)
-   - 创建重启通知脚本 (`/usr/local/bin/vps-reboot-notify.sh`)
-   - 设置每日定时任务
-   - 执行首次维护和重启
-
-## 使用方法
-
-### 手动执行维护
-
-```bash
-sudo /usr/local/bin/vps-maintain.sh
-```
-
-### 查看定时任务
-
-```bash
-crontab -l
-```
-
-### 修改配置
-
-如果需要修改 Telegram 配置，直接编辑脚本中的相应变量。
-
-## 配置选项
-
-### 定时任务设置
-
-默认情况下，脚本设置为东京时区凌晨 4:00 执行维护。您可以在 `deploy.sh` 的步骤 4 中修改以下变量：
-
-- `TOKYO_HOUR=4`：设置执行小时（东京时区）
-- 修改为其他时区或其他时间
-
-### Telegram 通知内容
-
-通知信息包括：
-
-- 系统时区
-- 当前时间
-- Xray 状态（最新/已更新/未安装）
-- Sing-box 状态（最新/已更新/未安装）
-
-## 端口检测和防火墙配置
-
-项目包含端口检测脚本，用于自动检测代理服务端口并配置防火墙规则：
-
-### 脚本文件详情
-
-项目包含以下脚本文件：
-
-#### 1. `deploy.sh` - VPS自动维护部署脚本 ⭐主脚本
-
-- **版本**: 2.7 (最终版)
-- **功能**: 一键部署VPS自动维护系统
-- **特点**:
-  - 自动创建维护和重启通知脚本
-  - 支持自定义维护时间（默认东京时区凌晨4:00）
-  - 配置内存日志存储以提升性能
-  - 支持Telegram Bot通知
-  - 兼容无systemd环境
-
-#### 2. `detect_ports_fixed.sh` - 端口检测和防火墙配置脚本 ⭐推荐
-
-- **版本**: 修复版
-- **功能**: 自动检测代理服务端口并配置防火墙安全策略
-- **特点**:
-  - 自动检测Xray和Sing-box进程端口
-  - 支持进程监听检测和配置文件解析
-  - 智能防火墙配置（firewalld/ufw）
-  - 主动移除未使用端口实现安全锁定
-  - 修复所有已知bug和兼容性问题
-
-#### 3. `detect_ports_ultimate.sh` - 一键式端口检测脚本 ⭐终极版
-
-- **版本**: 终极版
-- **功能**: 完全自动化的防火墙安全配置
-- **特点**:
-  - 继承所有 `detect_ports_fixed.sh`功能
-  - **自动安装防火墙**: 如果系统未安装防火墙，会自动安装UFW或firewalld
-  - 支持多种Linux发行版（Ubuntu/Debian/CentOS/RHEL等）
-  - 一键式安全配置，无需手动干预
-
-### 推荐使用方案
-
-| 场景         | 推荐脚本                                     | 说明                             |
-| ------------ | -------------------------------------------- | -------------------------------- |
-| 首次使用     | `deploy.sh` + `detect_ports_ultimate.sh` | 先部署维护系统，再配置防火墙安全 |
-| 已有维护系统 | `detect_ports_ultimate.sh`                 | 仅需配置防火墙安全策略           |
-| 最小化配置   | `detect_ports_fixed.sh`                    | 适用于已有防火墙的环境           |
-| 手动配置     | 逐个脚本单独运行                             | 根据需要选择性使用               |
-
-### 使用方法
-
-```bash
+# 🛡️ 基础防火墙配置
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/detect_ports_ultimate.sh)
+# 或
 wget -qO- https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/detect_ports_ultimate.sh | sudo bash
+
+# 🚀 自动化维护部署  
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/deploy.sh)
+# 或
+bash <(wget -qO- -o- https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/deploy.sh)
+
+# 📡 自定义 Telegram 通知
+curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/detect_ports_ultimate_add_Fail2Ban.sh | bash -s -- --token "YOUR_BOT_TOKEN" --chat-id "YOUR_CHAT_ID"
 ```
 
-### 检测功能
+### 🚀 一键执行（推荐）
 
-- **进程端口检测**：检查 `sing-box` 进程正在监听的端口
-- **配置文件解析**：从 `/etc/sing-box/config.json` 等配置文件读取端口
-- **智能扫描**：扫描所有监听端口，精确识别代理服务进程
-- **防火墙配置**：自动为检测到的端口配置 TCP/UDP 规则（支持 firewalld/ufw/iptables）
+#### 方式一：安全加固增强版（推荐）
+```bash
+# 使用 curl 一键执行
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/detect_ports_ultimate_add_Fail2Ban.sh)
 
-### 参数选项
+# 或使用 wget 一键执行
+bash <(wget -qO- -o- https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/detect_ports_ultimate_add_Fail2Ban.sh)
+```
 
-- `--no-notify`: 禁用 Telegram 通知
-- `--token TOKEN`: Telegram Bot Token
-- `--chat-id ID`: Telegram Chat ID
+#### 方式二：基础防火墙配置
+```bash
+# 使用 wget 管道执行
+wget -qO- https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/detect_ports_ultimate.sh | sudo bash
 
-### 系统要求
+# 或使用 curl 一键执行
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/detect_ports_ultimate.sh)
+```
 
-- `ss` 或 `netstat` 命令
-- `jq` 命令（用于解析JSON配置）
-- `curl` 命令（用于 Telegram 通知）
+#### 方式三：自动化维护部署
+```bash
+# 使用 curl 一键部署
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/deploy.sh)
 
-## 注意事项
+# 或使用 wget 一键部署
+bash <(wget -qO- -o- https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/deploy.sh)
 
-⚠️ **重要警告**：
 
-- 此脚本会在维护完成后自动重启服务器！
-- 请确保所有重要数据已备份
-- 首次运行后，服务器将立即重启
-- 如果在生产环境中使用，确保不会影响关键服务
+```
 
-⚠️ **网络要求**：
+### 📥 传统下载方式
 
-- 脚本需要访问 Telegram API，某些网络环境可能需要代理
-- 确保 VPS 能够访问软件包源和 Xray/Sing-box 更新源
+如果你倾向于先下载再执行：
 
-⚠️ **权限要求**：
+#### 安全加固增强版
+```bash
+curl -O https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/detect_ports_ultimate_add_Fail2Ban.sh
+chmod +x detect_ports_ultimate_add_Fail2Ban.sh
+./detect_ports_ultimate_add_Fail2Ban.sh
+```
 
-- 部署时需要 sudo 权限
-- 确保用户有足够权限访问 `/usr/local/bin/` 和 Crontab
+#### 基础防火墙配置
+```bash
+curl -O https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/detect_ports_ultimate.sh
+chmod +x detect_ports_ultimate.sh
+./detect_ports_ultimate.sh
+```
 
-## 故障排除
+#### 自动化维护部署
+```bash
+# 主部署脚本
+curl -O https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/deploy.sh
+chmod +x deploy.sh
+./deploy.sh
+
+
+```
+
+## ⚙️ 配置选项
+
+### Telegram 通知配置
+脚本支持自定义 Telegram 通知，可通过参数配置：
+
+```bash
+# 使用自定义 Telegram 配置（下载方式）
+./detect_ports_ultimate_add_Fail2Ban.sh --token "YOUR_BOT_TOKEN" --chat-id "YOUR_CHAT_ID"
+
+# 使用自定义 Telegram 配置（一键执行方式）
+curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/detect_ports_ultimate_add_Fail2Ban.sh | bash -s -- --token "YOUR_BOT_TOKEN" --chat-id "YOUR_CHAT_ID"
+
+# 禁用 Telegram 通知
+./detect_ports_ultimate_add_Fail2Ban.sh --no-notify
+```
+
+> ⚠️ **安全提醒**: 一键执行脚本虽然方便，但存在安全风险。建议在生产环境中先下载脚本，检查内容后再执行。
+
+### 自动维护时间设置
+部署脚本支持两种定时任务：
+- **核心维护**: 系统更新 + 代理核心更新 + 自动重启
+- **规则更新**: 仅更新 Xray 规则文件（geoip.dat、geosite.dat）
+
+默认执行时间：
+- 核心维护：东京时间 凌晨 4:00
+- 规则更新：北京时间 早上 7:00
+
+## 🔧 支持的服务
+
+### 代理服务
+- **Xray**: 自动检测进程端口和配置文件端口
+- **Sing-box**: 支持多种配置文件路径检测
+
+### 系统组件
+- **防火墙**: UFW (Debian/Ubuntu) 或 Firewalld (RHEL/CentOS)
+- **入侵防护**: Fail2Ban SSH 保护
+- **系统更新**: apt/dnf/yum 自动更新
+
+## 🛡️ 安全机制
+
+### 端口管理
+1. **智能检测**: 扫描运行中的代理服务端口
+2. **配置解析**: 解析 JSON 配置文件获取监听端口
+3. **SSH 保护**: 强制保留 SSH 端口，防止锁定
+4. **规则清理**: 移除所有未识别的端口规则
+
+### Fail2Ban 配置
+- **SSH 保护**: 10分钟内失败5次封禁1小时
+- **自动启动**: 开机自动启动服务
+- **日志监控**: 实时监控 SSH 登录尝试
+
+## 📊 执行流程
+
+```mermaid
+graph TD
+    A[开始执行] --> B[检测防火墙状态]
+    B --> C{防火墙已安装?}
+    C -->|否| D[自动安装防火墙]
+    C -->|是| E[检测代理服务]
+    D --> E
+    E --> F[解析配置端口]
+    F --> G[检测SSH端口]
+    G --> H[配置防火墙规则]
+    H --> I[清理冗余规则]
+    I --> J{集成版本?}
+    J -->|是| K[安装配置Fail2Ban]
+    J -->|否| L[发送通知]
+    K --> L
+    L --> M[完成]
+```
+
+## 📋 系统要求
+
+### 最小要求
+- **操作系统**: Linux (Ubuntu/Debian/CentOS/RHEL/Fedora)
+- **权限**: sudo 或 root 权限
+- **网络**: 能够访问软件源和 Telegram API
+
+### 推荐配置
+- **内存**: ≥ 512MB
+- **存储**: ≥ 1GB 可用空间
+- **代理服务**: Xray 或 Sing-box 已安装
+
+## 🔍 故障排除
 
 ### 常见问题
 
-1. **Telegram 通知不发送**
-
-   - 检查 Bot Token 和 Chat ID 是否正确
-   - 确认网络能够访问 Telegram API
-2. **脚本执行失败**
-
-   - 检查是否所有依赖已安装
-   - 查看系统日志：`journalctl -u cron` 或 `/var/log/cron`
-3. **时区设置错误**
-
-   - 脚本会自动检测时区，如有问题会在日志中显示
-   - 手动检查：`date` 和 `/etc/timezone`
-4. **Cron 任务不执行**
-
-   - 确认 Cron 服务正在运行
-   - 检查脚本权限是否正确
-
-### 调试模式
-
-如果需要调试，可以临时修改脚本，添加更多日志输出：
-
+**Q: 防火墙安装失败**
 ```bash
-echo "Debug: $(date)" >> /var/log/vps-maintain.log
+# 手动更新软件源
+sudo apt update  # Ubuntu/Debian
+sudo yum update  # CentOS/RHEL
 ```
 
-## 卸载说明
-
-要卸载此脚本：
-
+**Q: Telegram 通知不工作**
 ```bash
-# 删除脚本文件
-sudo rm /usr/local/bin/vps-maintain.sh /usr/local/bin/vps-reboot-notify.sh
-
-# 删除定时任务
-crontab -r  # 注意：这会删除所有定时任务，请慎用
-
-# 或者手动编辑 crontab：
-crontab -e
-# 删除包含 vps-maintain.sh 的行
+# 测试 Telegram API 连接
+curl -X POST "https://api.telegram.org/bot<TOKEN>/sendMessage" \
+     -d chat_id="<CHAT_ID>" -d text="测试消息"
 ```
 
-## 版本信息
+**Q: 代理服务端口未检测到**
+```bash
+# 检查服务运行状态
+sudo systemctl status xray
+sudo systemctl status sing-box
 
-当前版本：2.7
+# 检查端口占用
+sudo ss -tlnp | grep -E "(xray|sing-box)"
+```
 
-- 新增端口检测和防火墙配置功能
-- 支持自动检测 Sing-box 和 Xray 端口
-- 智能防火墙规则配置（firewalld/ufw/iptables）
-- 兼容无 systemd 环境
-- 修复时区获取问题
-- 增强容错机制
+### 日志查看
+```bash
+# 系统日志
+sudo journalctl -u firewalld -f  # Firewalld
+sudo ufw status verbose          # UFW
 
-## 许可证
+# Fail2Ban 日志
+sudo journalctl -u fail2ban -f
+sudo fail2ban-client status sshd
+```
 
-此项目采用 MIT 许可证，详见 LICENSE 文件。
-
-## 贡献
+## 🤝 贡献指南
 
 欢迎提交 Issue 和 Pull Request！
 
-## 联系支持
+### 开发环境
+```bash
+git clone https://github.com/FTDRTD/Vps-auto-maintain.git
+cd Vps-auto-maintain
+```
 
-如果您在使用过程中遇到问题，请：
+### 测试脚本
+请在测试环境中验证脚本功能，确保不会影响生产环境。
 
-1. 检查上述故障排除指南
-2. 在 GitHub Issues 中详细描述问题
-3. 提供相关日志信息（注意去除敏感信息）
+## 📄 许可证
+
+本项目采用 [MIT 许可证](LICENSE)，允许自由使用、修改和分发。
+
+## 🆘 支持
+
+如果您在使用过程中遇到问题：
+
+1. 查看 [常见问题](#故障排除)
+2. 搜索现有 [Issues](https://github.com/FTDRTD/Vps-auto-maintain/issues)
+3. 创建新的 Issue 描述问题
+4. 通过 Telegram 获取实时支持（如果配置了通知）
 
 ---
 
-**最后更新**: 2025-09-16
+**注意**: 这些脚本会修改系统防火墙配置，请在生产环境使用前充分测试。建议先在测试环境验证功能正常。

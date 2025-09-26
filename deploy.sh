@@ -2,10 +2,15 @@
 # -----------------------------------------------------------------------------
 # 一键部署 VPS 自动维护脚本
 #
-# 版本: 2.7 (最终版 - 支持自定义维护时间，并修复所有已知问题)
+# 版本: 4.2 (稳定版 - 使用 case 语句重构定时任务逻辑，彻底修复语法错误)
 # -----------------------------------------------------------------------------
 
 set -e
+
+# --- 变量定义 ---
+CORE_MAINTAIN_SCRIPT="/usr/local/bin/vps-maintain-core.sh"
+RULES_MAINTAIN_SCRIPT="/usr/local/bin/vps-maintain-rules.sh"
+REBOOT_NOTIFY_SCRIPT="/usr/local/bin/vps-reboot-notify.sh"
 
 # --- 函数定义 ---
 print_message() {
@@ -15,23 +20,28 @@ print_message() {
     echo "------------------------------------------------------------"
 }
 
-# 健壮的时区获取函数，兼容无 systemd 的环境
 get_timezone() {
     local tz
-    # 优先尝试 systemd 的命令
     if command -v timedatectl &> /dev/null; then
         tz=$(timedatectl | grep "Time zone" | awk '{print $3}')
     fi
-    # 如果失败，尝试读取传统文件
     if [ -z "$tz" ] && [ -f /etc/timezone ]; then
         tz=$(cat /etc/timezone)
     fi
-    # 如果还失败，使用 UTC 作为默认值
     if [ -z "$tz" ]; then
         tz="Etc/UTC"
     fi
     echo "$tz"
 }
+
+# --- 步骤 0: 清理旧版本 ---
+print_message "步骤 0: 清理旧的脚本和定时任务（如果存在）"
+rm -f "$CORE_MAINTAIN_SCRIPT"
+rm -f "$RULES_MAINTAIN_SCRIPT"
+rm -f "$REBOOT_NOTIFY_SCRIPT"
+rm -f "/usr/local/bin/vps-maintain.sh" # 清理旧的单文件脚本
+(crontab -l 2>/dev/null | grep -v "vps-maintain" || true) | crontab -
+echo "✅ 旧版本清理完成。"
 
 
 # --- 步骤 1: 用户输入 ---
@@ -44,124 +54,70 @@ if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT_ID" ]; then
     exit 1
 fi
 
-MAINTAIN_SCRIPT="/usr/local/bin/vps-maintain.sh"
-REBOOT_NOTIFY_SCRIPT="/usr/local/bin/vps-reboot-notify.sh"
-
 # --- 步骤 2: 创建重启后通知脚本 ---
-print_message "步骤 2: 创建重启后通知脚本 ($REBOOT_NOTIFY_SCRIPT)"
+print_message "步骤 2: 创建重启后通知脚本"
 cat > "$REBOOT_NOTIFY_SCRIPT" <<'EOF'
 #!/bin/bash
 sleep 20
-
-# 嵌入健壮的时区获取函数
 get_timezone() {
     local tz
-    if command -v timedatectl &> /dev/null; then
-        tz=$(timedatectl | grep "Time zone" | awk '{print $3}')
-    fi
-    if [ -z "$tz" ] && [ -f /etc/timezone ]; then
-        tz=$(cat /etc/timezone)
-    fi
-    if [ -z "$tz" ]; then
-        tz="Etc/UTC"
-    fi
+    if command -v timedatectl &> /dev/null; then tz=$(timedatectl | grep "Time zone" | awk '{print $3}'); fi
+    if [ -z "$tz" ] && [ -f /etc/timezone ]; then tz=$(cat /etc/timezone); fi
+    if [ -z "$tz" ]; then tz="Etc/UTC"; fi
     echo "$tz"
 }
-
 TG_TOKEN="__TG_TOKEN__"
 TG_CHAT_ID="__TG_CHAT_ID__"
-
 TIMEZONE=$(get_timezone)
 TIME_NOW=$(date '+%Y-%m-%d %H:%M:%S')
-
 curl --connect-timeout 10 --retry 5 -s -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
     -d chat_id="$TG_CHAT_ID" \
     -d text="🔄 *VPS 已重启完成*
 > *系统时区*: \`$TIMEZONE\`
 > *当前时间*: \`$TIME_NOW\`" \
     -d parse_mode="Markdown" > /dev/null
-
 (crontab -l | grep -v "__REBOOT_NOTIFY_SCRIPT_PATH__" || true) | crontab -
 EOF
-
 sed -i "s|__TG_TOKEN__|$TG_TOKEN|g" "$REBOOT_NOTIFY_SCRIPT"
 sed -i "s|__TG_CHAT_ID__|$TG_CHAT_ID|g" "$REBOOT_NOTIFY_SCRIPT"
 sed -i "s|__REBOOT_NOTIFY_SCRIPT_PATH__|$REBOOT_NOTIFY_SCRIPT|g" "$REBOOT_NOTIFY_SCRIPT"
 chmod +x "$REBOOT_NOTIFY_SCRIPT"
 echo "✅ 重启后通知脚本创建成功。"
 
-# --- 步骤 2.5: 配置日志存储到内存 ---
-print_message "步骤 2.5: 配置日志存储到内存"
 
-if systemctl is-active --quiet systemd-journald; then
-    echo "检测到 systemd-journald 正在运行，正在配置日志存储到内存..."
-    # 备份配置文件
-    sudo cp /etc/systemd/journald.conf /etc/systemd/journald.conf.backup
-    # 修改或添加 Storage=volatile
-    if grep -q '^#Storage=' /etc/systemd/journald.conf; then
-        sudo sed -i 's/^#Storage=.*/Storage=volatile/' /etc/systemd/journald.conf
-    elif grep -q '^Storage=' /etc/systemd/journald.conf; then
-        sudo sed -i 's/^Storage=.*/Storage=volatile/' /etc/systemd/journald.conf
-    else
-        echo "Storage=volatile" | sudo tee -a /etc/systemd/journald.conf
-    fi
-    # 重启服务
-    sudo systemctl restart systemd-journald
-    echo "✅ 日志配置已更新，存储到内存。"
-    # 验证配置
-    if grep -q '^Storage=volatile' /etc/systemd/journald.conf; then
-        echo "✅ 验证成功：日志存储已配置为内存。"
-    else
-        echo "❌ 验证失败：日志存储配置未正确应用。"
-    fi
-else
-    echo "systemd-journald 未运行，跳过日志配置。"
-fi
+# --- 步骤 3: 创建两个独立的维护脚本 ---
 
-# --- 步骤 3: 创建核心维护脚本 ---
-print_message "步骤 3: 创建核心维护脚本 ($MAINTAIN_SCRIPT)"
-cat > "$MAINTAIN_SCRIPT" <<'EOF'
+# 3.1 创建核心更新脚本
+print_message "步骤 3.1: 创建核心更新脚本 ($CORE_MAINTAIN_SCRIPT)"
+cat > "$CORE_MAINTAIN_SCRIPT" <<'EOF'
 #!/bin/bash
 set -e
-
-# 嵌入健壮的时区获取函数
 get_timezone() {
     local tz
-    if command -v timedatectl &> /dev/null; then
-        tz=$(timedatectl | grep "Time zone" | awk '{print $3}')
-    fi
-    if [ -z "$tz" ] && [ -f /etc/timezone ]; then
-        tz=$(cat /etc/timezone)
-    fi
-    if [ -z "$tz" ]; then
-        tz="Etc/UTC"
-    fi
+    if command -v timedatectl &> /dev/null; then tz=$(timedatectl | grep "Time zone" | awk '{print $3}'); fi
+    if [ -z "$tz" ] && [ -f /etc/timezone ]; then tz=$(cat /etc/timezone); fi
+    if [ -z "$tz" ]; then tz="Etc/UTC"; fi
     echo "$tz"
 }
-
 TG_TOKEN="__TG_TOKEN__"
 TG_CHAT_ID="__TG_CHAT_ID__"
 REBOOT_NOTIFY_SCRIPT="__REBOOT_NOTIFY_SCRIPT_PATH__"
-
 send_telegram() {
     local message="$1"
     sleep 5
     curl --connect-timeout 10 --retry 3 -s -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
-        -d chat_id="$TG_CHAT_ID" \
-        -d text="$message" \
-        -d parse_mode="Markdown" > /dev/null
+        -d chat_id="$TG_CHAT_ID" -d text="$message" -d parse_mode="Markdown" > /dev/null
 }
-
 TIMEZONE=$(get_timezone)
 TIME_NOW=$(date '+%Y-%m-%d %H:%M:%S')
 
 export DEBIAN_FRONTEND=noninteractive
-sudo apt update && sudo apt upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean
+sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean
 
-XRAY_STATUS="*Xray*: 未安装"
+XRAY_STATUS="*Xray 核心*: 未安装"
 if command -v xray &> /dev/null; then
-    XRAY_OUTPUT=$(xray up 2>&1)
-    XRAY_STATUS=$(echo "$XRAY_OUTPUT" | grep -q "当前已经是最新版本" && echo "*Xray*: ✅ 最新版本" || echo "*Xray*: ⚠️ 已更新")
+    XRAY_CORE_OUTPUT=$(xray up 2>&1 || true)
+    XRAY_STATUS=$(echo "$XRAY_CORE_OUTPUT" | grep -q "当前已经是最新版本" && echo "*Xray 核心*: ✅ 最新版本" || echo "*Xray 核心*: ⚠️ 已更新")
 fi
 
 SB_STATUS="*Sing-box*: 未安装"
@@ -170,80 +126,117 @@ if command -v sb &> /dev/null; then
     SB_STATUS=$(echo "$SB_OUTPUT" | grep -q "当前已经是最新版本" && echo "*Sing-box*: ✅ 最新版本" || echo "*Sing-box*: ⚠️ 已更新")
 fi
 
-send_telegram "🛠 *VPS 维护完成 (即将重启)*
+send_telegram "🛠️ *VPS 核心维护完成 (即将重启)*
 > *系统时区*: \`$TIMEZONE\`
 > *当前时间*: \`$TIME_NOW\`
 >
 > $XRAY_STATUS
 > $SB_STATUS"
-
 (crontab -l 2>/dev/null | grep -v "$REBOOT_NOTIFY_SCRIPT" || true; echo "@reboot $REBOOT_NOTIFY_SCRIPT") | crontab -
-
 sleep 3
 /sbin/reboot
 EOF
+sed -i "s|__TG_TOKEN__|$TG_TOKEN|g" "$CORE_MAINTAIN_SCRIPT"
+sed -i "s|__TG_CHAT_ID__|$TG_CHAT_ID|g" "$CORE_MAINTAIN_SCRIPT"
+sed -i "s|__REBOOT_NOTIFY_SCRIPT_PATH__|$REBOOT_NOTIFY_SCRIPT|g" "$CORE_MAINTAIN_SCRIPT"
+chmod +x "$CORE_MAINTAIN_SCRIPT"
+echo "✅ 核心更新脚本创建成功。"
 
-sed -i "s|__TG_TOKEN__|$TG_TOKEN|g" "$MAINTAIN_SCRIPT"
-sed -i "s|__TG_CHAT_ID__|$TG_CHAT_ID|g" "$MAINTAIN_SCRIPT"
-sed -i "s|__REBOOT_NOTIFY_SCRIPT_PATH__|$REBOOT_NOTIFY_SCRIPT|g" "$MAINTAIN_SCRIPT"
-chmod +x "$MAINTAIN_SCRIPT"
-echo "✅ 核心维护脚本创建成功。"
+# 3.2 创建规则更新脚本
+print_message "步骤 3.2: 创建规则文件更新脚本 ($RULES_MAINTAIN_SCRIPT)"
+cat > "$RULES_MAINTAIN_SCRIPT" <<'EOF'
+#!/bin/bash
+set -e
+get_timezone() {
+    local tz
+    if command -v timedatectl &> /dev/null; then tz=$(timedatectl | grep "Time zone" | awk '{print $3}'); fi
+    if [ -z "$tz" ] && [ -f /etc/timezone ]; then tz=$(cat /etc/timezone); fi
+    if [ -z "$tz" ]; then tz="Etc/UTC"; fi
+    echo "$tz"
+}
+TG_TOKEN="__TG_TOKEN__"
+TG_CHAT_ID="__TG_CHAT_ID__"
+send_telegram() {
+    local message="$1"
+    curl --connect-timeout 10 --retry 3 -s -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
+        -d chat_id="$TG_CHAT_ID" -d text="$message" -d parse_mode="Markdown" > /dev/null
+}
 
-# --- 步骤 4: 设置每日定时任务 ---
+if ! command -v xray &> /dev/null; then
+    exit 0
+fi
+
+XRAY_DAT_OUTPUT=$(xray up dat 2>&1 || true)
+if echo "$XRAY_DAT_OUTPUT" | grep -q "已经是最新版本"; then
+    exit 0
+elif echo "$XRAY_DAT_OUTPUT" | grep -q "更新 geoip.dat geosite.dat 成功"; then
+    XRAY_DAT_STATUS="⚠️ 已更新成功"
+else
+    XRAY_DAT_STATUS="❌ 更新失败"
+fi
+
+TIMEZONE=$(get_timezone)
+TIME_NOW=$(date '+%Y-%m-%d %H:%M:%S')
+
+send_telegram "📜 *Xray 规则文件维护*
+> *状态*: $XRAY_DAT_STATUS
+> *时间*: \`$TIME_NOW ($TIMEZONE)\`"
+EOF
+sed -i "s|__TG_TOKEN__|$TG_TOKEN|g" "$RULES_MAINTAIN_SCRIPT"
+sed -i "s|__TG_CHAT_ID__|$TG_CHAT_ID|g" "$RULES_MAINTAIN_SCRIPT"
+chmod +x "$RULES_MAINTAIN_SCRIPT"
+echo "✅ 规则文件更新脚本创建成功。"
+
+# --- 步骤 4: 设置两个独立的定时任务 ---
+# ----------------- [修改区域开始] -----------------
 print_message "步骤 4: 设置每日维护时间"
-echo "请选择维护执行时间："
-echo "  [1] 默认时间: 每天东京时间凌晨 4 点 (推荐)"
-echo "  [2] 自定义时间: 手动输入服务器本地时间的小时和分钟"
+echo "我们将为您设置两个独立的定时任务："
+echo "  - 任务 A (核心维护与重启): 默认在 东京时间 凌晨 4 点"
+echo "  - 任务 B (规则文件更新):   默认在 北京时间 早上 7 点"
+echo ""
+echo "请选择："
+echo "  [1] 使用以上默认时间 (推荐)"
+echo "  [2] 手动为两个任务分别自定义时间"
 read -p "请输入选项 [1-2]，直接回车默认为 1: " TIME_CHOICE
 
-LOCAL_HOUR=""
-LOCAL_MINUTE=""
+CORE_H=""
+CORE_M=""
+RULES_H=""
+RULES_M=""
 
+# 使用 case 语句重构，更加稳健
 case "$TIME_CHOICE" in
     2)
-        echo "--> 您选择了自定义时间。"
-        # 循环输入小时，直到格式正确
-        while true; do
-            read -p "请输入执行的小时 (0-23): " CUSTOM_HOUR
-            if [[ "$CUSTOM_HOUR" =~ ^([0-9]|1[0-9]|2[0-3])$ ]]; then
-                LOCAL_HOUR=$CUSTOM_HOUR
-                break
-            else
-                echo "❌ 格式错误，请输入 0 到 23 之间的数字。"
-            fi
-        done
-        # 循环输入分钟，直到格式正确
-        while true; do
-            read -p "请输入执行的分钟 (0-59): " CUSTOM_MINUTE
-            if [[ "$CUSTOM_MINUTE" =~ ^([0-9]|[1-5][0-9])$ ]]; then
-                LOCAL_MINUTE=$CUSTOM_MINUTE
-                break
-            else
-                echo "❌ 格式错误，请输入 0 到 59 之间的数字。"
-            fi
-        done
+        echo "--> 设置任务 A (核心维护与重启) 的时间..."
+        read -p "请输入执行的小时 (0-23): " CORE_H
+        read -p "请输入执行的分钟 (0-59): " CORE_M
+        echo "--> 设置任务 B (规则文件更新) 的时间..."
+        read -p "请输入执行的小时 (0-23): " RULES_H
+        read -p "请输入执行的分钟 (0-59): " RULES_M
         ;;
-    *)
-        echo "--> 您选择了默认时间 (东京时间 4:00)。"
+    *) # 捕获选项 1 或直接回车
+        echo "--> 正在为您计算默认时间..."
         SYS_TZ=$(get_timezone)
-        TOKYO_HOUR=4
-        LOCAL_HOUR=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" $TOKYO_HOUR:00" +%H)
-        LOCAL_MINUTE=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" $TOKYO_HOUR:00" +%M)
-
-        if [ -z "$LOCAL_HOUR" ] || [ -z "$LOCAL_MINUTE" ]; then
-            echo "⚠️ 警告：时区自动计算失败，将使用服务器本地时间 04:00 作为备用方案。"
-            LOCAL_HOUR="4"
-            LOCAL_MINUTE="0"
-        fi
+        CORE_H=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" 04:00" +%H)
+        CORE_M=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" 04:00" +%M)
+        RULES_H=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Shanghai\" 07:00" +%H)
+        RULES_M=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Shanghai\" 07:00" +%M)
         ;;
 esac
+# ----------------- [修改区域结束] -----------------
 
 # 写入 Crontab
-(crontab -l 2>/dev/null | grep -v "$MAINTAIN_SCRIPT" || true; echo "$LOCAL_MINUTE $LOCAL_HOUR * * * $MAINTAIN_SCRIPT") | crontab -
-echo "✅ Cron 设置完成: VPS 将在服务器本地时间 $LOCAL_HOUR:$LOCAL_MINUTE 自动执行维护。"
+(crontab -l 2>/dev/null; \
+ echo "$CORE_M $CORE_H * * * $CORE_MAINTAIN_SCRIPT"; \
+ echo "$RULES_M $RULES_H * * * $RULES_MAINTAIN_SCRIPT"; \
+) | crontab -
 
-# --- 步骤 5: 立即执行一次 ---
-print_message "步骤 5: 准备首次执行维护与重启"
-read -p "    所有设置已完成，按 Enter 键立即执行一次，或按 Ctrl+C 取消..."
+echo "✅ Cron 设置完成:"
+echo "   - 核心维护与重启: 服务器本地时间 $CORE_H:$CORE_M"
+echo "   - 规则文件更新:   服务器本地时间 $RULES_H:$RULES_M"
 
-"$MAINTAIN_SCRIPT"
+# --- 步骤 5: 立即执行一次核心维护 ---
+print_message "步骤 5: 准备首次执行核心维护与重启"
+read -p "    所有设置已完成，按 Enter 键立即执行一次核心维护，或按 Ctrl+C 取消..."
+
+"$CORE_MAINTAIN_SCRIPT"
