@@ -41,6 +41,44 @@ rm -f "$RULES_MAINTAIN_SCRIPT"
 rm -f "$REBOOT_NOTIFY_SCRIPT"
 rm -f "/usr/local/bin/vps-maintain.sh" # 清理旧的单文件脚本
 (crontab -l 2>/dev/null | grep -v "vps-maintain" || true) | crontab -
+# --- 步骤 0.5: 配置系统日志内存化 ---
+print_message "步骤 0.5: 配置系统日志使用内存存储"
+
+# 配置 systemd journald 使用内存存储
+if [ -d /etc/systemd/journald.conf.d ]; then
+    mkdir -p /etc/systemd/journald.conf.d
+fi
+
+cat > /etc/systemd/journald.conf.d/memory.conf <<'EOF'
+[Journal]
+# 使用内存存储日志，避免写入磁盘
+Storage=volatile
+# 设置内存日志大小限制 (10MB)
+RuntimeMaxUse=10M
+# 压缩日志
+Compress=yes
+EOF
+
+# 重启 journald 服务
+systemctl restart systemd-journald 2>/dev/null || true
+
+# 配置 rsyslog 使用内存缓冲（如果安装了 rsyslog）
+if command -v rsyslogd &> /dev/null; then
+    # 创建 rsyslog 内存配置
+    cat > /etc/rsyslog.d/memory.conf <<'EOF'
+# 使用内存缓冲区存储日志
+$SystemLogRateLimitInterval 0
+$SystemLogRateLimitBurst 0
+
+# 将所有日志输出到内存缓冲区
+*.* :ommem:;RSYSLOG_MemoryBuffer
+EOF
+
+    # 重启 rsyslog 服务
+    systemctl restart rsyslog 2>/dev/null || service rsyslog restart 2>/dev/null || true
+fi
+
+echo "✅ 系统日志已配置为内存存储模式。"
 echo "✅ 旧版本清理完成。"
 
 
