@@ -247,6 +247,22 @@ main() {
             all_ports="$all_ports $xray_ports"
         fi
     fi
+
+    # 检测 X-Panel
+    if [ -x "/usr/local/x-ui/x-ui" ]; then
+        echo "ℹ️ 检测到 X-Panel 管理面板" >&2
+        # 获取面板监听端口
+        if panel_port=$(/usr/local/x-ui/x-ui setting -show true 2>/dev/null | grep -Eo 'port（端口号）: .+' | awk '{print $2}'); then
+            if [ -n "$panel_port" ] && [ "$panel_port" != "0" ]; then
+                echo "✅ 检测到 X-Panel 管理面板端口: $panel_port" >&2
+                all_ports="$all_ports $panel_port"
+            else
+                echo "ℹ️ X-Panel 面板端口未配置或为默认值" >&2
+            fi
+        else
+            echo "⚠️ 无法获取 X-Panel 面板端口信息" >&2
+        fi
+    fi
     
     # 检测 Sing-box
     if command -v sb &> /dev/null || command -v sing-box &> /dev/null; then

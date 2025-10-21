@@ -142,11 +142,16 @@ curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/detect_
 ### 代理服务
 - **Xray**: 自动检测进程端口和配置文件端口
 - **Sing-box**: 支持多种配置文件路径检测
+- **X-Panel**: 自动检测管理面板监听端口
 
 ### 系统组件
 - **防火墙**: UFW (Debian/Ubuntu) 或 Firewalld (RHEL/CentOS)
 - **入侵防护**: Fail2Ban SSH 保护
 - **系统更新**: apt/dnf/yum 自动更新
+
+### 注意事项
+- **X-Panel 支持**: 脚本会自动检测 X-Panel 管理面板的监听端口并将其加入防火墙白名单
+- **兼容性**: 支持 X-Panel v1.0.0+ 版本的管理面板
 
 ## 🛡️ 安全机制
 
@@ -216,9 +221,13 @@ curl -X POST "https://api.telegram.org/bot<TOKEN>/sendMessage" \
 # 检查服务运行状态
 sudo systemctl status xray
 sudo systemctl status sing-box
+sudo systemctl status x-ui  # X-Panel
 
 # 检查端口占用
-sudo ss -tlnp | grep -E "(xray|sing-box)"
+sudo ss -tlnp | grep -E "(xray|sing-box|x-ui)"
+
+# 检查 X-Panel 配置
+/usr/local/x-ui/x-ui setting -show true
 ```
 
 ### 日志查看
