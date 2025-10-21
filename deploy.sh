@@ -189,10 +189,10 @@ echo "✅ 规则文件更新脚本创建成功。"
 
 # --- 步骤 4: 设置两个独立的定时任务 ---
 # ----------------- [修改区域开始] -----------------
-print_message "步骤 4: 设置每日维护时间"
+print_message "步骤 4: 设置维护时间"
 echo "我们将为您设置两个独立的定时任务："
-echo "  - 任务 A (核心维护与重启): 默认在 东京时间 凌晨 4 点"
-echo "  - 任务 B (规则文件更新):   默认在 北京时间 早上 7 点"
+echo "  - 任务 A (核心维护与重启): 每日 默认在 东京时间 凌晨 4 点"
+echo "  - 任务 B (规则文件更新): 每周 默认在 北京时间 早上 7 点"
 echo ""
 echo "请选择："
 echo "  [1] 使用以上默认时间 (推荐)"
@@ -228,7 +228,7 @@ esac
 # 写入 Crontab
 (crontab -l 2>/dev/null; \
  echo "$CORE_M $CORE_H * * * $CORE_MAINTAIN_SCRIPT"; \
- echo "$RULES_M $RULES_H * * * $RULES_MAINTAIN_SCRIPT"; \
+ echo "$RULES_M $RULES_H * * 0 $RULES_MAINTAIN_SCRIPT"; \
 ) | crontab -
 
 echo "✅ Cron 设置完成:"
