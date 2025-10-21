@@ -290,8 +290,9 @@ main() {
     # 检测代理服务端口
     local xray_ports=""
     local sb_ports=""
+    local xpanel_ports=""
     local all_ports=""
-    
+
     # 检测 Xray
     if command -v xray &> /dev/null && pgrep -f "xray" > /dev/null; then
         xray_ports=$(get_process_ports "xray")
@@ -300,7 +301,7 @@ main() {
             all_ports="$all_ports $xray_ports"
         fi
     fi
-    
+
     # 检测 Sing-box
     if command -v sb &> /dev/null || command -v sing-box &> /dev/null; then
         if pgrep -f "sing-box" > /dev/null; then
@@ -326,6 +327,51 @@ main() {
             if [ -n "$sb_ports" ]; then
                 echo "✅ 检测到 Sing-box 运行端口: $sb_ports" >&2
                 all_ports="$all_ports $sb_ports"
+            fi
+        fi
+    fi
+
+    # 检测 X-Panel
+    if command -v x-ui &> /dev/null; then
+        if pgrep -f "x-ui" > /dev/null; then
+            xpanel_ports=$(get_process_ports "x-ui")
+            if [ -z "$xpanel_ports" ]; then
+                # X-Panel 通常使用 15208 端口，但也检查配置文件
+                local xpanel_config_files=(
+                    "/etc/x-ui/x-ui.db"
+                    "/usr/local/x-ui/bin/config.json"
+                )
+                local temp_xpanel_ports=""
+                for config_file in "${xpanel_config_files[@]}"; do
+                    if [ -f "$config_file" ]; then
+                        if [[ "$config_file" == *.db ]]; then
+                            # 从 SQLite 数据库中提取端口信息
+                            if command -v sqlite3 &> /dev/null; then
+                                local db_ports
+                                db_ports=$(sqlite3 "$config_file" "SELECT port FROM inbounds;" 2>/dev/null | grep -E '^[0-9]+$' | sort -u | tr '\n' ' ')
+                                if [ -n "$db_ports" ]; then
+                                    temp_xpanel_ports="$temp_xpanel_ports $db_ports"
+                                fi
+                            fi
+                        else
+                            # 从 JSON 配置文件解析
+                            local config_ports
+                            config_ports=$(parse_config_ports "$config_file")
+                            if [ -n "$config_ports" ]; then
+                                temp_xpanel_ports="$temp_xpanel_ports $config_ports"
+                            fi
+                        fi
+                    fi
+                done
+                # 如果配置文件中没有找到端口，默认添加管理面板端口 15208
+                if [ -z "$temp_xpanel_ports" ]; then
+                    temp_xpanel_ports="15208"
+                fi
+                xpanel_ports=$(echo "$temp_xpanel_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+            fi
+            if [ -n "$xpanel_ports" ]; then
+                echo "✅ 检测到 X-Panel 运行端口: $xpanel_ports" >&2
+                all_ports="$all_ports $xpanel_ports"
             fi
         fi
     fi
