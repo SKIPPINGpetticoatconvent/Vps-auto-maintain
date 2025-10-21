@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------------
 # 一键部署 VPS 自动维护脚本
 #
-# 版本: 4.2 (稳定版 - 使用 case 语句重构定时任务逻辑，彻底修复语法错误)
+# 版本: 4.3 (稳定版 - 修复时区计算逻辑，增强兼容性)
 # -----------------------------------------------------------------------------
 
 set -e
@@ -32,19 +32,6 @@ get_timezone() {
         tz="Etc/UTC"
     fi
     echo "$tz"
-}
-
-get_offset_hours() {
-    local tz="$1"
-    local offset_str=$(TZ="$tz" date +%z 2>/dev/null || echo "+0000")
-    local sign=$(echo "$offset_str" | cut -c1)
-    local hours=$(echo "$offset_str" | cut -c2-3 | sed 's/^0*//' | grep -o '[0-9]*' | head -1)
-    if [ -z "$hours" ]; then hours=0; fi
-    if [ "$sign" = "+" ]; then
-        echo "$hours"
-    else
-        echo "-$hours"
-    fi
 }
 
 # --- 步骤 0: 清理旧版本 ---
@@ -257,7 +244,30 @@ chmod +x "$RULES_MAINTAIN_SCRIPT"
 echo "✅ 规则文件更新脚本创建成功。"
 
 # --- 步骤 4: 设置两个独立的定时任务 ---
-# ----------------- [修改区域开始] -----------------
+# ----------------- [修改区域开始] - 已修复 -----------------
+get_offset_hours() {
+    local tz="$1"
+    # 尝试获取时区偏移字符串, 如: +0900, -0400
+    local offset_str
+    offset_str=$(TZ="$tz" date +%z 2>/dev/null)
+
+    # 如果命令失败或返回格式不正确，则默认为 UTC (+0000)
+    if [[ ! "$offset_str" =~ ^[+-][0-9]{4}$ ]]; then
+        offset_str="+0000"
+    fi
+
+    # 提取符号和小时部分
+    local sign="${offset_str:0:1}"
+    # 使用 bash 的 10# 语法强制按十进制处理，避免 08, 09 被当成无效的八进制数
+    local hours=$((10#${offset_str:1:2}))
+
+    if [ "$sign" = "+" ]; then
+        echo "$hours"
+    else
+        echo "-$hours"
+    fi
+}
+
 print_message "步骤 4: 设置维护时间"
 echo "我们将为您设置两个独立的定时任务："
 echo "  - 任务 A (核心维护与重启): 每日 默认在 东京时间 凌晨 4 点"
@@ -314,25 +324,24 @@ case "$TIME_CHOICE" in
     *) # 捕获选项 1 或直接回车
         echo "--> 正在为您计算默认时间..."
         SYS_TZ=$(get_timezone)
+        LOCAL_OFFSET=$(get_offset_hours "$SYS_TZ")
 
         # 计算东京时间 04:00 对应的本地时间
         TOKYO_OFFSET=$(get_offset_hours "Asia/Tokyo")
-        LOCAL_OFFSET=$(get_offset_hours "$SYS_TZ")
-        OFFSET_DIFF=$((TOKYO_OFFSET - LOCAL_OFFSET))
-        CORE_H=$((4 + OFFSET_DIFF))
+        # 正确的计算公式: 本地小时 = 目标小时 - (目标时区偏移 - 本地时区偏移)
+        OFFSET_DIFF_CORE=$((TOKYO_OFFSET - LOCAL_OFFSET))
+        CORE_H=$((4 - OFFSET_DIFF_CORE))
         CORE_M=0
-        # 确保小时在 0-23 范围内
-        if [ "$CORE_H" -lt 0 ]; then CORE_H=$((CORE_H + 24)); fi
-        if [ "$CORE_H" -ge 24 ]; then CORE_H=$((CORE_H - 24)); fi
+        # 标准化小时数，确保其在 0-23 范围内 (优雅处理负数)
+        CORE_H=$(( (CORE_H % 24 + 24) % 24 ))
 
         # 计算北京时间 07:00 对应的本地时间
         SHANGHAI_OFFSET=$(get_offset_hours "Asia/Shanghai")
-        OFFSET_DIFF=$((SHANGHAI_OFFSET - LOCAL_OFFSET))
-        RULES_H=$((7 + OFFSET_DIFF))
+        OFFSET_DIFF_RULES=$((SHANGHAI_OFFSET - LOCAL_OFFSET))
+        RULES_H=$((7 - OFFSET_DIFF_RULES))
         RULES_M=0
-        # 确保小时在 0-23 范围内
-        if [ "$RULES_H" -lt 0 ]; then RULES_H=$((RULES_H + 24)); fi
-        if [ "$RULES_H" -ge 24 ]; then RULES_H=$((RULES_H - 24)); fi
+        # 标准化小时数
+        RULES_H=$(( (RULES_H % 24 + 24) % 24 ))
         ;;
 esac
 # ----------------- [修改区域结束] -----------------
