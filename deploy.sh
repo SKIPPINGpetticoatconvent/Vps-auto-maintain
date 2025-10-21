@@ -76,7 +76,8 @@ curl --connect-timeout 10 --retry 5 -s -X POST "https://api.telegram.org/bot$TG_
 > *系统时区*: \`$TIMEZONE\`
 > *当前时间*: \`$TIME_NOW\`" \
     -d parse_mode="Markdown" > /dev/null
-(crontab -l | grep -v "__REBOOT_NOTIFY_SCRIPT_PATH__" || true) | crontab -
+# 清理 @reboot 任务（使用更安全的方式）
+(crontab -l 2>/dev/null | sed "/$REBOOT_NOTIFY_SCRIPT/d" || true) | crontab -
 EOF
 sed -i "s|__TG_TOKEN__|$TG_TOKEN|g" "$REBOOT_NOTIFY_SCRIPT"
 sed -i "s|__TG_CHAT_ID__|$TG_CHAT_ID|g" "$REBOOT_NOTIFY_SCRIPT"
@@ -112,18 +113,37 @@ TIMEZONE=$(get_timezone)
 TIME_NOW=$(date '+%Y-%m-%d %H:%M:%S')
 
 export DEBIAN_FRONTEND=noninteractive
-sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean
+# 检查 sudo 是否需要密码
+if sudo -n true 2>/dev/null; then
+    echo "✅ sudo 无需密码，继续执行..."
+    sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean
+else
+    echo "❌ 警告：sudo 需要密码。系统更新可能失败。请考虑配置无密码 sudo 或手动运行："
+    echo "    sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean"
+    # 尝试执行，如果失败则发送错误通知
+    if ! sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean; then
+        send_telegram "❌ *系统更新失败*
+> *原因*: sudo 需要密码
+> *建议*: 配置无密码 sudo 或手动更新系统"
+    fi
+fi
 
 XRAY_STATUS="*Xray 核心*: 未安装"
 if command -v xray &> /dev/null; then
-    XRAY_CORE_OUTPUT=$(xray up 2>&1 || true)
-    XRAY_STATUS=$(echo "$XRAY_CORE_OUTPUT" | grep -q "当前已经是最新版本" && echo "*Xray 核心*: ✅ 最新版本" || echo "*Xray 核心*: ⚠️ 已更新")
+    if xray up 2>&1; then
+        XRAY_STATUS="*Xray 核心*: ✅ 更新成功或已是最新版本"
+    else
+        XRAY_STATUS="*Xray 核心*: ❌ 更新失败"
+    fi
 fi
 
 SB_STATUS="*Sing-box*: 未安装"
 if command -v sb &> /dev/null; then
-    SB_OUTPUT=$(sb up 2>&1)
-    SB_STATUS=$(echo "$SB_OUTPUT" | grep -q "当前已经是最新版本" && echo "*Sing-box*: ✅ 最新版本" || echo "*Sing-box*: ⚠️ 已更新")
+    if sb up 2>&1; then
+        SB_STATUS="*Sing-box*: ✅ 更新成功或已是最新版本"
+    else
+        SB_STATUS="*Sing-box*: ❌ 更新失败"
+    fi
 fi
 
 send_telegram "🛠️ *VPS 核心维护完成 (即将重启)*
@@ -166,13 +186,13 @@ if ! command -v xray &> /dev/null; then
     exit 0
 fi
 
-XRAY_DAT_OUTPUT=$(xray up dat 2>&1 || true)
-if echo "$XRAY_DAT_OUTPUT" | grep -q "已经是最新版本"; then
-    exit 0
-elif echo "$XRAY_DAT_OUTPUT" | grep -q "更新 geoip.dat geosite.dat 成功"; then
-    XRAY_DAT_STATUS="⚠️ 已更新成功"
-else
+if ! xray up dat 2>&1; then
     XRAY_DAT_STATUS="❌ 更新失败"
+    send_telegram "❌ *Xray 规则文件更新失败*
+> *时间*: \`$TIME_NOW ($TIMEZONE)\`"
+    exit 1
+else
+    XRAY_DAT_STATUS="✅ 更新成功"
 fi
 
 TIMEZONE=$(get_timezone)
@@ -208,19 +228,58 @@ RULES_M=""
 case "$TIME_CHOICE" in
     2)
         echo "--> 设置任务 A (核心维护与重启) 的时间..."
-        read -p "请输入执行的小时 (0-23): " CORE_H
-        read -p "请输入执行的分钟 (0-59): " CORE_M
+        while true; do
+            read -p "请输入执行的小时 (0-23): " CORE_H
+            if [[ "$CORE_H" =~ ^[0-9]+$ ]] && [ "$CORE_H" -ge 0 ] && [ "$CORE_H" -le 23 ]; then
+                break
+            else
+                echo "❌ 错误：小时必须是 0-23 之间的整数。"
+            fi
+        done
+        while true; do
+            read -p "请输入执行的分钟 (0-59): " CORE_M
+            if [[ "$CORE_M" =~ ^[0-9]+$ ]] && [ "$CORE_M" -ge 0 ] && [ "$CORE_M" -le 59 ]; then
+                break
+            else
+                echo "❌ 错误：分钟必须是 0-59 之间的整数。"
+            fi
+        done
         echo "--> 设置任务 B (规则文件更新) 的时间..."
-        read -p "请输入执行的小时 (0-23): " RULES_H
-        read -p "请输入执行的分钟 (0-59): " RULES_M
+        while true; do
+            read -p "请输入执行的小时 (0-23): " RULES_H
+            if [[ "$RULES_H" =~ ^[0-9]+$ ]] && [ "$RULES_H" -ge 0 ] && [ "$RULES_H" -le 23 ]; then
+                break
+            else
+                echo "❌ 错误：小时必须是 0-23 之间的整数。"
+            fi
+        done
+        while true; do
+            read -p "请输入执行的分钟 (0-59): " RULES_M
+            if [[ "$RULES_M" =~ ^[0-9]+$ ]] && [ "$RULES_M" -ge 0 ] && [ "$RULES_M" -le 59 ]; then
+                break
+            else
+                echo "❌ 错误：分钟必须是 0-59 之间的整数。"
+            fi
+        done
         ;;
     *) # 捕获选项 1 或直接回车
         echo "--> 正在为您计算默认时间..."
         SYS_TZ=$(get_timezone)
-        CORE_H=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" 04:00" +%H)
-        CORE_M=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Tokyo\" 04:00" +%M)
-        RULES_H=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Shanghai\" 07:00" +%H)
-        RULES_M=$(TZ="$SYS_TZ" date -d "TZ=\"Asia/Shanghai\" 07:00" +%M)
+        # 计算东京时间 04:00 在当前时区的小时和分钟
+        CORE_H=$(TZ=Asia/Tokyo date -d '04:00 today' +%H)
+        CORE_M=$(TZ=Asia/Tokyo date -d '04:00 today' +%M)
+        # 转换为系统本地时间
+        CORE_H=$((CORE_H + ($(TZ=Asia/Tokyo date +%Z | grep -o '[+-][0-9]*' | head -1) - $(date +%Z | grep -o '[+-][0-9]*' | head -1)) % 24))
+        if [ "$CORE_H" -lt 0 ]; then CORE_H=$((CORE_H + 24)); fi
+        if [ "$CORE_H" -ge 24 ]; then CORE_H=$((CORE_H - 24)); fi
+
+        # 计算北京时间 07:00 在当前时区的小时和分钟
+        RULES_H=$(TZ=Asia/Shanghai date -d '07:00 today' +%H)
+        RULES_M=$(TZ=Asia/Shanghai date -d '07:00 today' +%M)
+        # 转换为系统本地时间
+        RULES_H=$((RULES_H + ($(TZ=Asia/Shanghai date +%Z | grep -o '[+-][0-9]*' | head -1) - $(date +%Z | grep -o '[+-][0-9]*' | head -1)) % 24))
+        if [ "$RULES_H" -lt 0 ]; then RULES_H=$((RULES_H + 24)); fi
+        if [ "$RULES_H" -ge 24 ]; then RULES_H=$((RULES_H - 24)); fi
         ;;
 esac
 # ----------------- [修改区域结束] -----------------
