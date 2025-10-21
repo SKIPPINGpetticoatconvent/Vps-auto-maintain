@@ -45,9 +45,7 @@ rm -f "/usr/local/bin/vps-maintain.sh" # 清理旧的单文件脚本
 print_message "步骤 0.5: 配置系统日志使用内存存储"
 
 # 配置 systemd journald 使用内存存储
-if [ -d /etc/systemd/journald.conf.d ]; then
-    mkdir -p /etc/systemd/journald.conf.d
-fi
+mkdir -p /etc/systemd/journald.conf.d
 
 cat > /etc/systemd/journald.conf.d/memory.conf <<'EOF'
 [Journal]
