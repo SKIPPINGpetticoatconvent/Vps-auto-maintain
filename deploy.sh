@@ -34,6 +34,19 @@ get_timezone() {
     echo "$tz"
 }
 
+get_offset_hours() {
+    local tz="$1"
+    local offset_str=$(TZ="$tz" date +%z 2>/dev/null || echo "+0000")
+    local sign=$(echo "$offset_str" | cut -c1)
+    local hours=$(echo "$offset_str" | cut -c2-3 | sed 's/^0*//' | grep -o '[0-9]*' | head -1)
+    if [ -z "$hours" ]; then hours=0; fi
+    if [ "$sign" = "+" ]; then
+        echo "$hours"
+    else
+        echo "-$hours"
+    fi
+}
+
 # --- 步骤 0: 清理旧版本 ---
 print_message "步骤 0: 清理旧的脚本和定时任务（如果存在）"
 rm -f "$CORE_MAINTAIN_SCRIPT"
@@ -301,19 +314,23 @@ case "$TIME_CHOICE" in
     *) # 捕获选项 1 或直接回车
         echo "--> 正在为您计算默认时间..."
         SYS_TZ=$(get_timezone)
-        # 计算东京时间 04:00 在当前时区的小时和分钟
-        CORE_H=$(TZ=Asia/Tokyo date -d '04:00 today' +%H)
-        CORE_M=$(TZ=Asia/Tokyo date -d '04:00 today' +%M)
-        # 转换为系统本地时间
-        CORE_H=$((CORE_H + ($(TZ=Asia/Tokyo date +%Z | grep -o '[+-][0-9]*' | head -1) - $(date +%Z | grep -o '[+-][0-9]*' | head -1)) % 24))
+
+        # 计算东京时间 04:00 对应的本地时间
+        TOKYO_OFFSET=$(get_offset_hours "Asia/Tokyo")
+        LOCAL_OFFSET=$(get_offset_hours "$SYS_TZ")
+        OFFSET_DIFF=$((TOKYO_OFFSET - LOCAL_OFFSET))
+        CORE_H=$((4 + OFFSET_DIFF))
+        CORE_M=0
+        # 确保小时在 0-23 范围内
         if [ "$CORE_H" -lt 0 ]; then CORE_H=$((CORE_H + 24)); fi
         if [ "$CORE_H" -ge 24 ]; then CORE_H=$((CORE_H - 24)); fi
 
-        # 计算北京时间 07:00 在当前时区的小时和分钟
-        RULES_H=$(TZ=Asia/Shanghai date -d '07:00 today' +%H)
-        RULES_M=$(TZ=Asia/Shanghai date -d '07:00 today' +%M)
-        # 转换为系统本地时间
-        RULES_H=$((RULES_H + ($(TZ=Asia/Shanghai date +%Z | grep -o '[+-][0-9]*' | head -1) - $(date +%Z | grep -o '[+-][0-9]*' | head -1)) % 24))
+        # 计算北京时间 07:00 对应的本地时间
+        SHANGHAI_OFFSET=$(get_offset_hours "Asia/Shanghai")
+        OFFSET_DIFF=$((SHANGHAI_OFFSET - LOCAL_OFFSET))
+        RULES_H=$((7 + OFFSET_DIFF))
+        RULES_M=0
+        # 确保小时在 0-23 范围内
         if [ "$RULES_H" -lt 0 ]; then RULES_H=$((RULES_H + 24)); fi
         if [ "$RULES_H" -ge 24 ]; then RULES_H=$((RULES_H - 24)); fi
         ;;
