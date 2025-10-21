@@ -221,15 +221,18 @@ sudo systemctl status sing-box
 sudo ss -tlnp | grep -E "(xray|sing-box)"
 ```
 
-### 日志查看
+### 系统状态检查
 ```bash
-# 系统日志
-sudo journalctl -u firewalld -f  # Firewalld
+# 检查防火墙状态
 sudo ufw status verbose          # UFW
+sudo firewall-cmd --list-all     # Firewalld
 
-# Fail2Ban 日志
-sudo journalctl -u fail2ban -f
+# 检查 Fail2Ban 状态
 sudo fail2ban-client status sshd
+sudo systemctl status fail2ban
+
+# 检查定时任务
+crontab -l
 ```
 
 ## 🤝 贡献指南

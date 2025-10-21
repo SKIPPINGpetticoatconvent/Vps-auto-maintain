@@ -29,11 +29,11 @@ print_message() {
 send_telegram() {
     if [ "$NOTIFY" = true ] && [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT_ID" ]; then
         local message="$1"
-        # 使用 curl 发送消息，增加超时和重试
+        # 使用 curl 发送消息，增加超时和重试，失败时不写入本地日志
         curl --connect-timeout 10 --retry 3 -s -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
             -d chat_id="$TG_CHAT_ID" \
             -d text="$message" \
-            -d parse_mode="Markdown" > /dev/null 2>&1
+            -d parse_mode="Markdown" > /dev/null
     fi
 }
 

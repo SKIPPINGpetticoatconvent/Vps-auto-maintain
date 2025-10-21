@@ -217,15 +217,18 @@ sudo systemctl status sing-box
 sudo ss -tlnp | grep -E "(xray|sing-box)"
 ```
 
-### Log Viewing
+### System Status Check
 ```bash
-# System logs
-sudo journalctl -u firewalld -f  # Firewalld
+# Check firewall status
 sudo ufw status verbose          # UFW
+sudo firewall-cmd --list-all     # Firewalld
 
-# Fail2Ban logs
-sudo journalctl -u fail2ban -f
+# Check Fail2Ban status
 sudo fail2ban-client status sshd
+sudo systemctl status fail2ban
+
+# Check scheduled tasks
+crontab -l
 ```
 
 ## 🤝 Contributing
