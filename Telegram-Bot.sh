@@ -59,7 +59,16 @@ fi
 
 # 安装 Python 依赖
 echo "📦 安装 Python 依赖库..."
-pip3 install python-telegram-bot==13.15 APScheduler requests -q
+# 方案1: 使用系统包管理器安装（推荐）
+if apt-cache show python3-telegram-bot &> /dev/null; then
+    apt-get install -y python3-telegram-bot python3-apscheduler python3-requests python3-tz
+    echo "✅ 使用系统包安装依赖"
+else
+    # 方案2: 使用 --break-system-packages（如果系统包不可用）
+    echo "⚠️  系统包不可用，使用 pip 安装..."
+    pip3 install --break-system-packages python-telegram-bot==13.15 APScheduler requests pytz -q
+    echo "✅ 使用 pip 安装依赖"
+fi
 
 # 清理旧版本
 print_message "清理旧版本文件"
