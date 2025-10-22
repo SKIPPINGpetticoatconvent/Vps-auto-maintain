@@ -229,7 +229,6 @@ echo "📦 添加所有 Python 依赖并锁定兼容版本..."
 "$UV_BIN" add \
     "python-telegram-bot==13.15" \
     "urllib3<2.0" \
-    "APScheduler==3.10.4" \
     "tzlocal<3.0" \
     "requests" \
     "pytz" \
