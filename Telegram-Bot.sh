@@ -479,6 +479,18 @@ def run_full_maintain(query, context):
 
 def schedule_menu(query, context):
     """定时设置菜单"""
+    jobs = scheduler.get_jobs()
+    
+    # 获取当前定时任务状态
+    core_status = "未设置"
+    rules_status = "未设置"
+    
+    for job in jobs:
+        if job.id == 'core_maintain':
+            core_status = f"每日执行（含重启）\n    时间: {job.trigger}"
+        elif job.id == 'rules_maintain':
+            rules_status = f"每周执行\n    时间: {job.trigger}"
+    
     keyboard = [
         [InlineKeyboardButton("⏰ 设置核心维护", callback_data='schedule_core')],
         [InlineKeyboardButton("📅 设置规则更新", callback_data='schedule_rules')],
@@ -489,51 +501,92 @@ def schedule_menu(query, context):
     
     query.edit_message_text(
         "⚙️ *定时任务设置*\n\n"
-        "当前支持的定时任务：\n"
-        "• 核心维护：每日执行（含重启）\n"
-        "• 规则更新：每周执行",
+        f"• 核心维护: {core_status}\n"
+        f"• 规则更新: {rules_status}",
         reply_markup=reply_markup,
         parse_mode=ParseMode.MARKDOWN
     )
 
 def handle_schedule(query, context, data):
     """处理定时设置"""
+    keyboard = [[InlineKeyboardButton("🔙 返回定时设置", callback_data='schedule_menu')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
     if data == 'schedule_core':
         # 默认每日凌晨 4 点（本地时间）
-        scheduler.add_job(
-            scheduled_core_maintain,
-            CronTrigger(hour=4, minute=0),
-            id='core_maintain',
-            replace_existing=True,
-            name='核心维护'
-        )
-        query.edit_message_text(
-            "✅ 已设置核心维护定时任务\n"
-            "执行时间：每日 04:00（本地时间）"
-        )
+        try:
+            scheduler.add_job(
+                scheduled_core_maintain,
+                CronTrigger(hour=4, minute=0),
+                id='core_maintain',
+                replace_existing=True,
+                name='核心维护'
+            )
+            query.edit_message_text(
+                "✅ *核心维护定时任务已设置*\n\n"
+                "📅 执行频率: 每日\n"
+                "⏰ 执行时间: 04:00（服务器本地时间）\n"
+                "🔄 执行内容:\n"
+                "  • 系统更新\n"
+                "  • Xray 核心更新\n"
+                "  • Sing-box 更新\n"
+                "  • VPS 重启",
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            query.edit_message_text(
+                f"❌ 设置失败: {str(e)}",
+                reply_markup=reply_markup
+            )
     
     elif data == 'schedule_rules':
         # 默认每周日早上 7 点
-        scheduler.add_job(
-            scheduled_rules_maintain,
-            CronTrigger(day_of_week='sun', hour=7, minute=0),
-            id='rules_maintain',
-            replace_existing=True,
-            name='规则更新'
-        )
-        query.edit_message_text(
-            "✅ 已设置规则更新定时任务\n"
-            "执行时间：每周日 07:00（本地时间）"
-        )
+        try:
+            scheduler.add_job(
+                scheduled_rules_maintain,
+                CronTrigger(day_of_week='sun', hour=7, minute=0),
+                id='rules_maintain',
+                replace_existing=True,
+                name='规则更新'
+            )
+            query.edit_message_text(
+                "✅ *规则更新定时任务已设置*\n\n"
+                "📅 执行频率: 每周日\n"
+                "⏰ 执行时间: 07:00（服务器本地时间）\n"
+                "📜 执行内容:\n"
+                "  • Xray 规则文件更新\n"
+                "  • 不会重启系统",
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            query.edit_message_text(
+                f"❌ 设置失败: {str(e)}",
+                reply_markup=reply_markup
+            )
     
     elif data == 'schedule_clear':
-        scheduler.remove_all_jobs()
-        query.edit_message_text("✅ 已清除所有定时任务")
+        try:
+            job_count = len(scheduler.get_jobs())
+            scheduler.remove_all_jobs()
+            query.edit_message_text(
+                f"✅ *已清除所有定时任务*\n\n"
+                f"共清除 {job_count} 个任务",
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            query.edit_message_text(
+                f"❌ 清除失败: {str(e)}",
+                reply_markup=reply_markup
+            )
 
 def scheduled_core_maintain():
     """定时执行核心维护"""
+    logger.info("开始执行定时核心维护")
     try:
-        subprocess.run([CORE_SCRIPT], check=True)
+        subprocess.run([CORE_SCRIPT], check=True, timeout=300)
         time.sleep(2)
         
         result = ""
@@ -541,16 +594,24 @@ def scheduled_core_maintain():
             with open('/tmp/vps_maintain_result.txt', 'r') as f:
                 result = f.read()
         
-        send_message(f"🔧 *定时核心维护完成*\n\n```\n{result}\n```")
+        send_message(
+            f"🔧 *定时核心维护完成*\n\n```\n{result}\n```\n\n"
+            f"⚠️ 系统将在 5 秒后重启"
+        )
         time.sleep(5)
         subprocess.run(['/sbin/reboot'])
+    except subprocess.TimeoutExpired:
+        send_message("❌ 定时维护超时（超过5分钟）")
+        logger.error("定时核心维护超时")
     except Exception as e:
         send_message(f"❌ 定时维护失败: {str(e)}")
+        logger.error(f"定时核心维护失败: {e}")
 
 def scheduled_rules_maintain():
     """定时执行规则更新"""
+    logger.info("开始执行定时规则更新")
     try:
-        subprocess.run([RULES_SCRIPT], check=True)
+        subprocess.run([RULES_SCRIPT], check=True, timeout=120)
         
         result = ""
         if os.path.exists('/tmp/vps_rules_result.txt'):
@@ -558,8 +619,12 @@ def scheduled_rules_maintain():
                 result = f.read()
         
         send_message(f"📜 *定时规则更新完成*\n\n```\n{result}\n```")
+    except subprocess.TimeoutExpired:
+        send_message("❌ 定时规则更新超时（超过2分钟）")
+        logger.error("定时规则更新超时")
     except Exception as e:
         send_message(f"❌ 定时更新失败: {str(e)}")
+        logger.error(f"定时规则更新失败: {e}")
 
 def view_logs(query, context):
     """查看系统日志"""
