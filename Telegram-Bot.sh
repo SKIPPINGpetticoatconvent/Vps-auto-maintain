@@ -239,12 +239,13 @@ cd "$BOT_DIR"
 echo "📦 初始化 uv 项目..."
 "$UV_BIN" init --no-readme --name vps-tg-bot
 
-# 添加依赖
+# 添加依赖（固定兼容版本）
 echo "📦 添加 Python 依赖..."
-"$UV_BIN" add python-telegram-bot==13.15
-"$UV_BIN" add APScheduler
-"$UV_BIN" add requests
-"$UV_BIN" add pytz
+"$UV_BIN" add "python-telegram-bot==13.15"
+"$UV_BIN" add "urllib3<2.0"
+"$UV_BIN" add "APScheduler"
+"$UV_BIN" add "requests"
+"$UV_BIN" add "pytz"
 
 echo "✅ Python 环境配置完成"
 
@@ -681,9 +682,71 @@ systemctl daemon-reload
 systemctl enable vps-tg-bot
 systemctl start vps-tg-bot
 
+# 等待服务启动
+sleep 3
+
+# 检查服务状态
+if systemctl is-active --quiet vps-tg-bot; then
+    echo "✅ 系统服务启动成功"
+else
+    echo "⚠️  服务启动失败，正在检查错误..."
+    
+    # 检查是否是 urllib3 兼容性问题
+    if journalctl -u vps-tg-bot -n 20 | grep -q "urllib3.contrib"; then
+        echo "🔧 检测到 urllib3 兼容性问题，正在修复..."
+        
+        # 停止服务
+        systemctl stop vps-tg-bot
+        
+        # 降级 urllib3
+        cd "$BOT_DIR"
+        "$UV_BIN" add "urllib3<2.0" --force
+        
+        # 重新启动
+        systemctl start vps-tg-bot
+        sleep 3
+        
+        if systemctl is-active --quiet vps-tg-bot; then
+            echo "✅ 修复成功，服务已正常启动"
+        else
+            echo "❌ 修复失败，请查看日志: journalctl -u vps-tg-bot -n 50"
+        fi
+    else
+        echo "❌ 服务启动失败，请查看日志: journalctl -u vps-tg-bot -n 50"
+    fi
+fi
+
 echo "✅ 系统服务配置完成"
 
-# --- 步骤 7: 完成部署 ---
+# --- 步骤 7: 验证部署 ---
+print_message "步骤 7: 验证部署状态"
+
+echo "🔍 正在检查 Bot 运行状态..."
+sleep 2
+
+if systemctl is-active --quiet vps-tg-bot; then
+    echo "✅ Bot 服务运行正常"
+    
+    # 检查日志中是否有启动成功的消息
+    if journalctl -u vps-tg-bot -n 20 | grep -q "Bot 启动成功"; then
+        echo "✅ Bot 已成功连接到 Telegram"
+    else
+        echo "⚠️  Bot 正在启动中，请稍后使用以下命令查看日志："
+        echo "   journalctl -u vps-tg-bot -f"
+    fi
+else
+    echo "❌ Bot 服务未正常运行"
+    echo ""
+    echo "📋 最近的错误日志："
+    journalctl -u vps-tg-bot -n 30 --no-pager
+    echo ""
+    echo "💡 常见问题排查："
+    echo "   1. 检查 Token 是否正确"
+    echo "   2. 检查网络连接: curl -I https://api.telegram.org"
+    echo "   3. 手动测试: cd $BOT_DIR && $UV_BIN run $BOT_SCRIPT"
+fi
+
+# --- 步骤 8: 完成部署 ---
 print_message "🎉 部署完成！"
 
 echo ""
