@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------------
 # VPS Telegram Bot 管理系统 - 一键部署脚本 (使用 uv)
 #
-# 版本: 5.1 (uv 环境管理版)
+# 版本: 5.2 (持久化定时任务版)
 # 功能: 通过 Telegram Bot 交互式管理 VPS 维护任务
 # -----------------------------------------------------------------------------
 
@@ -243,10 +243,10 @@ echo "📦 初始化 uv 项目..."
 echo "📦 添加 Python 依赖..."
 "$UV_BIN" add "python-telegram-bot==13.15"
 "$UV_BIN" add "urllib3<2.0"
-# "$UV_BIN" add "APScheduler==3.10.4"
 "$UV_BIN" add "tzlocal<3.0"
 "$UV_BIN" add "requests"
 "$UV_BIN" add "pytz"
+"$UV_BIN" add "SQLAlchemy" # <-- 新增：添加 SQLAlchemy 用于任务持久化
 
 echo "✅ Python 环境配置完成"
 
@@ -270,6 +270,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMo
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore # <-- 新增：导入 SQLAlchemyJobStore
 import pytz
 
 # 配置日志
@@ -297,12 +298,18 @@ def get_system_timezone_name():
     except:
         return 'UTC'
 
+# <-- 新增：定义任务持久化存储 -->
+# 任务将被保存在工作目录下的 jobs.sqlite 文件中
+jobstores = {
+    'default': SQLAlchemyJobStore(url='sqlite:///jobs.sqlite')
+}
+
 # 初始化调度器时使用字符串时区名称
 SYSTEM_TZ_NAME = get_system_timezone_name()
 SYSTEM_TZ = pytz.timezone(SYSTEM_TZ_NAME)
 
-# 定时任务调度器 - 使用 pytz 时区
-scheduler = BackgroundScheduler(timezone=SYSTEM_TZ)
+# <-- 修改：定时任务调度器增加 jobstores 配置以实现持久化 -->
+scheduler = BackgroundScheduler(jobstores=jobstores, timezone=SYSTEM_TZ)
 
 logger.info(f"系统时区: {SYSTEM_TZ_NAME}")
 
@@ -855,9 +862,11 @@ print_message "🎉 部署完成！"
 
 echo ""
 echo "✅ VPS Telegram Bot 管理系统已成功部署"
+echo "   (已集成定时任务持久化功能)"
 echo ""
 echo "📁 项目目录: $BOT_DIR"
 echo "🔧 使用 uv 管理 Python 环境: $UV_BIN"
+echo "💾 定时任务数据文件: $BOT_DIR/jobs.sqlite"
 echo ""
 echo "📱 使用方法："
 echo "   1. 在 Telegram 中打开你的 Bot"
@@ -879,7 +888,7 @@ echo ""
 echo "⚙️ Bot 功能："
 echo "   • 📊 实时查看系统状态"
 echo "   • 🔧 一键执行维护任务"
-echo "   • ⏰ 设置定时维护计划"
+echo "   • ⏰ 设置定时维护计划 (重启后不丢失)"
 echo "   • 🔄 远程重启 VPS"
 echo "   • 📋 查看运行日志"
 echo ""
