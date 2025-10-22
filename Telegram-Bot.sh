@@ -243,7 +243,8 @@ echo "📦 初始化 uv 项目..."
 echo "📦 添加 Python 依赖..."
 "$UV_BIN" add "python-telegram-bot==13.15"
 "$UV_BIN" add "urllib3<2.0"
-"$UV_BIN" add "APScheduler"
+"$UV_BIN" add "APScheduler==3.10.4"
+"$UV_BIN" add "tzlocal<3.0"
 "$UV_BIN" add "requests"
 "$UV_BIN" add "pytz"
 
@@ -284,37 +285,41 @@ ADMIN_CHAT_ID = '__TG_CHAT_ID__'
 CORE_SCRIPT = '/usr/local/bin/vps-maintain-core.sh'
 RULES_SCRIPT = '/usr/local/bin/vps-maintain-rules.sh'
 
-# 定时任务调度器 - 使用 pytz 时区对象
-scheduler = BackgroundScheduler(timezone=pytz.timezone('UTC'))
+# 获取系统时区
+def get_system_timezone_name():
+    """获取系统时区名称"""
+    try:
+        tz_name = subprocess.check_output(
+            "timedatectl show -p Timezone --value 2>/dev/null || cat /etc/timezone 2>/dev/null || echo UTC",
+            shell=True
+        ).decode().strip()
+        return tz_name if tz_name else 'UTC'
+    except:
+        return 'UTC'
+
+# 初始化调度器时使用字符串时区名称
+SYSTEM_TZ_NAME = get_system_timezone_name()
+SYSTEM_TZ = pytz.timezone(SYSTEM_TZ_NAME)
+
+# 定时任务调度器 - 使用 pytz 时区
+scheduler = BackgroundScheduler(timezone=SYSTEM_TZ)
+
+logger.info(f"系统时区: {SYSTEM_TZ_NAME}")
 
 def get_local_timezone():
     """获取服务器本地时区（pytz 格式）"""
-    try:
-        # 尝试从系统获取时区
-        tz_name = subprocess.check_output(
-            "timedatectl | grep 'Time zone' | awk '{print $3}'",
-            shell=True
-        ).decode().strip()
-        
-        # 验证时区是否有效
-        try:
-            return pytz.timezone(tz_name)
-        except:
-            return pytz.UTC
-    except:
-        return pytz.UTC
+    return SYSTEM_TZ
 
 def get_system_info():
     """获取系统信息"""
-    local_tz = get_local_timezone()
-    current_time = datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S')
+    current_time = datetime.now(SYSTEM_TZ).strftime('%Y-%m-%d %H:%M:%S')
     
     # 检查已安装的工具
     xray_installed = os.path.exists('/usr/local/bin/xray')
     sb_installed = os.path.exists('/usr/local/bin/sb')
     
     return {
-        'timezone': str(local_tz),
+        'timezone': SYSTEM_TZ_NAME,
         'time': current_time,
         'xray': xray_installed,
         'singbox': sb_installed
@@ -388,9 +393,15 @@ def show_status(query, context):
     jobs = scheduler.get_jobs()
     schedule_info = "未设置定时任务"
     if jobs:
-        schedule_info = "\n".join([
-            f"• {job.name}: {job.trigger}" for job in jobs
-        ])
+        schedule_lines = []
+        for job in jobs:
+            if job.id == 'core_maintain':
+                schedule_lines.append("• 核心维护: 每日 04:00 执行")
+            elif job.id == 'rules_maintain':
+                schedule_lines.append("• 规则更新: 每周日 07:00 执行")
+            else:
+                schedule_lines.append(f"• {job.name}: {job.trigger}")
+        schedule_info = "\n".join(schedule_lines)
     
     status_text = (
         f"📊 *系统状态*\n\n"
@@ -492,14 +503,14 @@ def schedule_menu(query, context):
     jobs = scheduler.get_jobs()
     
     # 获取当前定时任务状态
-    core_status = "未设置"
-    rules_status = "未设置"
+    core_status = "❌ 未设置"
+    rules_status = "❌ 未设置"
     
     for job in jobs:
         if job.id == 'core_maintain':
-            core_status = f"每日执行（含重启）\n    时间: {job.trigger}"
+            core_status = "✅ 每日 04:00"
         elif job.id == 'rules_maintain':
-            rules_status = f"每周执行\n    时间: {job.trigger}"
+            rules_status = "✅ 每周日 07:00"
     
     keyboard = [
         [InlineKeyboardButton("⏰ 设置核心维护", callback_data='schedule_core')],
@@ -511,8 +522,9 @@ def schedule_menu(query, context):
     
     query.edit_message_text(
         "⚙️ *定时任务设置*\n\n"
-        f"• 核心维护: {core_status}\n"
-        f"• 规则更新: {rules_status}",
+        f"📍 当前时区: `{SYSTEM_TZ_NAME}`\n\n"
+        f"🔧 核心维护: {core_status}\n"
+        f"📜 规则更新: {rules_status}",
         reply_markup=reply_markup,
         parse_mode=ParseMode.MARKDOWN
     )
@@ -522,22 +534,20 @@ def handle_schedule(query, context, data):
     keyboard = [[InlineKeyboardButton("🔙 返回定时设置", callback_data='schedule_menu')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # 获取本地时区
-    local_tz = get_local_timezone()
-    
     if data == 'schedule_core':
         # 默认每日凌晨 4 点（本地时间）
         try:
+            # 直接使用字符串时区名称或不指定（使用 scheduler 的默认时区）
             scheduler.add_job(
                 scheduled_core_maintain,
-                CronTrigger(hour=4, minute=0, timezone=local_tz),
+                CronTrigger(hour=4, minute=0),
                 id='core_maintain',
                 replace_existing=True,
                 name='核心维护'
             )
             query.edit_message_text(
                 "✅ *核心维护定时任务已设置*\n\n"
-                f"🌍 时区: `{local_tz}`\n"
+                f"🌍 时区: `{SYSTEM_TZ_NAME}`\n"
                 "📅 执行频率: 每日\n"
                 "⏰ 执行时间: 04:00（服务器本地时间）\n"
                 "🔄 执行内容:\n"
@@ -548,13 +558,14 @@ def handle_schedule(query, context, data):
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.MARKDOWN
             )
-            logger.info(f"核心维护定时任务已设置: 每日 04:00 {local_tz}")
+            logger.info(f"核心维护定时任务已设置: 每日 04:00 {SYSTEM_TZ_NAME}")
         except Exception as e:
-            logger.error(f"设置核心维护定时任务失败: {e}")
+            logger.error(f"设置核心维护定时任务失败: {e}", exc_info=True)
             query.edit_message_text(
                 f"❌ 设置失败\n\n"
                 f"错误信息: `{str(e)}`\n\n"
-                f"请检查系统日志: journalctl -u vps-tg-bot -n 20",
+                f"请检查系统日志:\n"
+                f"`journalctl -u vps-tg-bot -n 30`",
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.MARKDOWN
             )
@@ -564,14 +575,14 @@ def handle_schedule(query, context, data):
         try:
             scheduler.add_job(
                 scheduled_rules_maintain,
-                CronTrigger(day_of_week='sun', hour=7, minute=0, timezone=local_tz),
+                CronTrigger(day_of_week='sun', hour=7, minute=0),
                 id='rules_maintain',
                 replace_existing=True,
                 name='规则更新'
             )
             query.edit_message_text(
                 "✅ *规则更新定时任务已设置*\n\n"
-                f"🌍 时区: `{local_tz}`\n"
+                f"🌍 时区: `{SYSTEM_TZ_NAME}`\n"
                 "📅 执行频率: 每周日\n"
                 "⏰ 执行时间: 07:00（服务器本地时间）\n"
                 "📜 执行内容:\n"
@@ -580,13 +591,14 @@ def handle_schedule(query, context, data):
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.MARKDOWN
             )
-            logger.info(f"规则更新定时任务已设置: 每周日 07:00 {local_tz}")
+            logger.info(f"规则更新定时任务已设置: 每周日 07:00 {SYSTEM_TZ_NAME}")
         except Exception as e:
-            logger.error(f"设置规则更新定时任务失败: {e}")
+            logger.error(f"设置规则更新定时任务失败: {e}", exc_info=True)
             query.edit_message_text(
                 f"❌ 设置失败\n\n"
                 f"错误信息: `{str(e)}`\n\n"
-                f"请检查系统日志: journalctl -u vps-tg-bot -n 20",
+                f"请检查系统日志:\n"
+                f"`journalctl -u vps-tg-bot -n 30`",
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.MARKDOWN
             )
