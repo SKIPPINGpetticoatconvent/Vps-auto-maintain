@@ -225,14 +225,15 @@ echo "📦 初始化 uv 项目..."
 "$UV_BIN" init --no-readme --name vps-tg-bot
 
 # 添加依赖（固定兼容版本）
-echo "📦 添加 Python 依赖..."
-"$UV_BIN" add "python-telegram-bot==13.15"
-"$UV_BIN" add "urllib3<2.0"
-"$UV_BIN" add "APScheduler==3.10.4"      # <-- 修复：明确添加并固定版本
-"$UV_BIN" add "tzlocal<3.0"
-"$UV_BIN" add "requests"
-"$UV_BIN" add "pytz"
-"$UV_BIN" add "SQLAlchemy<2.0"           # <-- 修复：强制使用与 APScheduler 兼容的旧版本
+echo "📦 添加所有 Python 依赖并锁定兼容版本..."
+"$UV_BIN" add \
+    "python-telegram-bot==13.15" \
+    "urllib3<2.0" \
+    "APScheduler==3.10.4" \
+    "tzlocal<3.0" \
+    "requests" \
+    "pytz" \
+    "SQLAlchemy<2.0"
 
 echo "✅ Python 环境配置完成"
 
