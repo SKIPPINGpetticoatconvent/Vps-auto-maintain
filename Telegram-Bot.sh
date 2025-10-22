@@ -284,27 +284,37 @@ ADMIN_CHAT_ID = '__TG_CHAT_ID__'
 CORE_SCRIPT = '/usr/local/bin/vps-maintain-core.sh'
 RULES_SCRIPT = '/usr/local/bin/vps-maintain-rules.sh'
 
-# 定时任务调度器
-scheduler = BackgroundScheduler(timezone=pytz.UTC)
+# 定时任务调度器 - 使用 pytz 时区对象
+scheduler = BackgroundScheduler(timezone=pytz.timezone('UTC'))
 
-def get_system_info():
-    """获取系统信息"""
+def get_local_timezone():
+    """获取服务器本地时区（pytz 格式）"""
     try:
-        timezone = subprocess.check_output(
+        # 尝试从系统获取时区
+        tz_name = subprocess.check_output(
             "timedatectl | grep 'Time zone' | awk '{print $3}'",
             shell=True
         ).decode().strip()
+        
+        # 验证时区是否有效
+        try:
+            return pytz.timezone(tz_name)
+        except:
+            return pytz.UTC
     except:
-        timezone = "UTC"
-    
-    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        return pytz.UTC
+
+def get_system_info():
+    """获取系统信息"""
+    local_tz = get_local_timezone()
+    current_time = datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S')
     
     # 检查已安装的工具
     xray_installed = os.path.exists('/usr/local/bin/xray')
     sb_installed = os.path.exists('/usr/local/bin/sb')
     
     return {
-        'timezone': timezone,
+        'timezone': str(local_tz),
         'time': current_time,
         'xray': xray_installed,
         'singbox': sb_installed
@@ -512,18 +522,22 @@ def handle_schedule(query, context, data):
     keyboard = [[InlineKeyboardButton("🔙 返回定时设置", callback_data='schedule_menu')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    # 获取本地时区
+    local_tz = get_local_timezone()
+    
     if data == 'schedule_core':
         # 默认每日凌晨 4 点（本地时间）
         try:
             scheduler.add_job(
                 scheduled_core_maintain,
-                CronTrigger(hour=4, minute=0),
+                CronTrigger(hour=4, minute=0, timezone=local_tz),
                 id='core_maintain',
                 replace_existing=True,
                 name='核心维护'
             )
             query.edit_message_text(
                 "✅ *核心维护定时任务已设置*\n\n"
+                f"🌍 时区: `{local_tz}`\n"
                 "📅 执行频率: 每日\n"
                 "⏰ 执行时间: 04:00（服务器本地时间）\n"
                 "🔄 执行内容:\n"
@@ -534,10 +548,15 @@ def handle_schedule(query, context, data):
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.MARKDOWN
             )
+            logger.info(f"核心维护定时任务已设置: 每日 04:00 {local_tz}")
         except Exception as e:
+            logger.error(f"设置核心维护定时任务失败: {e}")
             query.edit_message_text(
-                f"❌ 设置失败: {str(e)}",
-                reply_markup=reply_markup
+                f"❌ 设置失败\n\n"
+                f"错误信息: `{str(e)}`\n\n"
+                f"请检查系统日志: journalctl -u vps-tg-bot -n 20",
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.MARKDOWN
             )
     
     elif data == 'schedule_rules':
@@ -545,13 +564,14 @@ def handle_schedule(query, context, data):
         try:
             scheduler.add_job(
                 scheduled_rules_maintain,
-                CronTrigger(day_of_week='sun', hour=7, minute=0),
+                CronTrigger(day_of_week='sun', hour=7, minute=0, timezone=local_tz),
                 id='rules_maintain',
                 replace_existing=True,
                 name='规则更新'
             )
             query.edit_message_text(
                 "✅ *规则更新定时任务已设置*\n\n"
+                f"🌍 时区: `{local_tz}`\n"
                 "📅 执行频率: 每周日\n"
                 "⏰ 执行时间: 07:00（服务器本地时间）\n"
                 "📜 执行内容:\n"
@@ -560,10 +580,15 @@ def handle_schedule(query, context, data):
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.MARKDOWN
             )
+            logger.info(f"规则更新定时任务已设置: 每周日 07:00 {local_tz}")
         except Exception as e:
+            logger.error(f"设置规则更新定时任务失败: {e}")
             query.edit_message_text(
-                f"❌ 设置失败: {str(e)}",
-                reply_markup=reply_markup
+                f"❌ 设置失败\n\n"
+                f"错误信息: `{str(e)}`\n\n"
+                f"请检查系统日志: journalctl -u vps-tg-bot -n 20",
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.MARKDOWN
             )
     
     elif data == 'schedule_clear':
@@ -576,7 +601,9 @@ def handle_schedule(query, context, data):
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.MARKDOWN
             )
+            logger.info(f"已清除 {job_count} 个定时任务")
         except Exception as e:
+            logger.error(f"清除定时任务失败: {e}")
             query.edit_message_text(
                 f"❌ 清除失败: {str(e)}",
                 reply_markup=reply_markup
