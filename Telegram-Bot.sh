@@ -51,16 +51,28 @@ echo "📦 检查 uv 包管理器..."
 if ! command -v uv &> /dev/null; then
     echo "正在安装 uv..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.cargo/bin:$PATH"
     
-    # 添加到系统 PATH
-    if ! grep -q 'cargo/bin' /root/.bashrc; then
-        echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> /root/.bashrc
+    # 立即加载 uv 到当前 shell
+    if [ -f "$HOME/.local/bin/uv" ]; then
+        export PATH="$HOME/.local/bin:$PATH"
+        UV_BIN="$HOME/.local/bin/uv"
+    elif [ -f "$HOME/.cargo/bin/uv" ]; then
+        export PATH="$HOME/.cargo/bin:$PATH"
+        UV_BIN="$HOME/.cargo/bin/uv"
+    else
+        echo "❌ uv 安装失败，未找到可执行文件"
+        exit 1
     fi
     
-    echo "✅ uv 安装完成"
+    # 添加到系统 PATH（持久化）
+    if ! grep -q '.local/bin' /root/.bashrc 2>/dev/null; then
+        echo 'export PATH="$HOME/.local/bin:$PATH"' >> /root/.bashrc
+    fi
+    
+    echo "✅ uv 安装完成: $UV_BIN"
 else
-    echo "✅ uv 已安装"
+    UV_BIN=$(command -v uv)
+    echo "✅ uv 已安装: $UV_BIN"
 fi
 
 # 清理旧版本
@@ -225,14 +237,14 @@ cd "$BOT_DIR"
 
 # 初始化 uv 项目
 echo "📦 初始化 uv 项目..."
-uv init --no-readme --name vps-tg-bot
+"$UV_BIN" init --no-readme --name vps-tg-bot
 
 # 添加依赖
 echo "📦 添加 Python 依赖..."
-uv add python-telegram-bot==13.15
-uv add APScheduler
-uv add requests
-uv add pytz
+"$UV_BIN" add python-telegram-bot==13.15
+"$UV_BIN" add APScheduler
+"$UV_BIN" add requests
+"$UV_BIN" add pytz
 
 echo "✅ Python 环境配置完成"
 
@@ -655,10 +667,10 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=$BOT_DIR
-ExecStart=/root/.cargo/bin/uv run $BOT_SCRIPT
+ExecStart=$UV_BIN run $BOT_SCRIPT
 Restart=always
 RestartSec=10
-Environment="PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="PATH=$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 [Install]
 WantedBy=multi-user.target
@@ -678,7 +690,7 @@ echo ""
 echo "✅ VPS Telegram Bot 管理系统已成功部署"
 echo ""
 echo "📁 项目目录: $BOT_DIR"
-echo "🔧 使用 uv 管理 Python 环境"
+echo "🔧 使用 uv 管理 Python 环境: $UV_BIN"
 echo ""
 echo "📱 使用方法："
 echo "   1. 在 Telegram 中打开你的 Bot"
@@ -690,12 +702,12 @@ echo "   • 查看服务状态: systemctl status vps-tg-bot"
 echo "   • 重启服务:     systemctl restart vps-tg-bot"
 echo "   • 查看日志:     journalctl -u vps-tg-bot -f"
 echo "   • 进入项目目录: cd $BOT_DIR"
-echo "   • 手动运行:     uv run $BOT_SCRIPT"
+echo "   • 手动运行:     $UV_BIN run $BOT_SCRIPT"
 echo ""
 echo "📦 uv 常用命令："
-echo "   • 添加依赖:     cd $BOT_DIR && uv add <package>"
-echo "   • 更新依赖:     cd $BOT_DIR && uv sync"
-echo "   • 查看依赖:     cd $BOT_DIR && uv pip list"
+echo "   • 添加依赖:     cd $BOT_DIR && $UV_BIN add <package>"
+echo "   • 更新依赖:     cd $BOT_DIR && $UV_BIN sync"
+echo "   • 查看依赖:     cd $BOT_DIR && $UV_BIN pip list"
 echo ""
 echo "⚙️ Bot 功能："
 echo "   • 📊 实时查看系统状态"
