@@ -1,15 +1,16 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------
-# VPS Telegram Bot 管理系统 - 一键部署脚本
+# VPS Telegram Bot 管理系统 - 一键部署脚本 (使用 uv)
 #
-# 版本: 5.0 (Bot 交互版)
+# 版本: 5.1 (uv 环境管理版)
 # 功能: 通过 Telegram Bot 交互式管理 VPS 维护任务
 # -----------------------------------------------------------------------------
 
 set -e
 
 # --- 变量定义 ---
-BOT_SCRIPT="/usr/local/bin/vps-tg-bot.py"
+BOT_DIR="/opt/vps-tg-bot"
+BOT_SCRIPT="$BOT_DIR/vps-tg-bot.py"
 BOT_SERVICE="/etc/systemd/system/vps-tg-bot.service"
 CORE_MAINTAIN_SCRIPT="/usr/local/bin/vps-maintain-core.sh"
 RULES_MAINTAIN_SCRIPT="/usr/local/bin/vps-maintain-rules.sh"
@@ -45,40 +46,33 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# 检查并安装必要组件
-echo "📦 检查必要组件..."
-if ! command -v python3 &> /dev/null; then
-    echo "正在安装 Python3..."
-    apt-get update && apt-get install -y python3 python3-pip
-fi
-
-if ! command -v pip3 &> /dev/null; then
-    echo "正在安装 pip3..."
-    apt-get install -y python3-pip
-fi
-
-# 安装 Python 依赖
-echo "📦 安装 Python 依赖库..."
-# 方案1: 使用系统包管理器安装（推荐）
-if apt-cache show python3-telegram-bot &> /dev/null; then
-    apt-get install -y python3-telegram-bot python3-apscheduler python3-requests python3-tz
-    echo "✅ 使用系统包安装依赖"
+# 安装 uv（如果未安装）
+echo "📦 检查 uv 包管理器..."
+if ! command -v uv &> /dev/null; then
+    echo "正在安装 uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.cargo/bin:$PATH"
+    
+    # 添加到系统 PATH
+    if ! grep -q 'cargo/bin' /root/.bashrc; then
+        echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> /root/.bashrc
+    fi
+    
+    echo "✅ uv 安装完成"
 else
-    # 方案2: 使用 --break-system-packages（如果系统包不可用）
-    echo "⚠️  系统包不可用，使用 pip 安装..."
-    pip3 install --break-system-packages python-telegram-bot==13.15 APScheduler requests pytz -q
-    echo "✅ 使用 pip 安装依赖"
+    echo "✅ uv 已安装"
 fi
 
 # 清理旧版本
 print_message "清理旧版本文件"
-rm -f "$BOT_SCRIPT" "$BOT_SERVICE"
+systemctl stop vps-tg-bot 2>/dev/null || true
+systemctl disable vps-tg-bot 2>/dev/null || true
+rm -rf "$BOT_DIR"
+rm -f "$BOT_SERVICE"
 rm -f "$CORE_MAINTAIN_SCRIPT" "$RULES_MAINTAIN_SCRIPT"
 rm -f "/usr/local/bin/vps-maintain.sh"
 rm -f "/usr/local/bin/vps-reboot-notify.sh"
 (crontab -l 2>/dev/null | grep -v "vps-maintain" || true) | crontab -
-systemctl stop vps-tg-bot 2>/dev/null || true
-systemctl disable vps-tg-bot 2>/dev/null || true
 
 echo "✅ 环境准备完成"
 
@@ -223,8 +217,27 @@ chmod +x "$RULES_MAINTAIN_SCRIPT"
 
 echo "✅ 维护脚本创建完成"
 
-# --- 步骤 4: 创建 Telegram Bot 主程序 ---
-print_message "步骤 4: 创建 Telegram Bot 主程序"
+# --- 步骤 4: 使用 uv 创建项目 ---
+print_message "步骤 4: 使用 uv 创建 Python 项目"
+
+mkdir -p "$BOT_DIR"
+cd "$BOT_DIR"
+
+# 初始化 uv 项目
+echo "📦 初始化 uv 项目..."
+uv init --no-readme --name vps-tg-bot
+
+# 添加依赖
+echo "📦 添加 Python 依赖..."
+uv add python-telegram-bot==13.15
+uv add APScheduler
+uv add requests
+uv add pytz
+
+echo "✅ Python 环境配置完成"
+
+# --- 步骤 5: 创建 Telegram Bot 主程序 ---
+print_message "步骤 5: 创建 Telegram Bot 主程序"
 
 cat > "$BOT_SCRIPT" <<'BOTPY_EOF'
 #!/usr/bin/env python3
@@ -238,7 +251,7 @@ import logging
 import subprocess
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -630,8 +643,8 @@ chmod +x "$BOT_SCRIPT"
 
 echo "✅ Bot 主程序创建完成"
 
-# --- 步骤 5: 创建 systemd 服务 ---
-print_message "步骤 5: 配置系统服务"
+# --- 步骤 6: 创建 systemd 服务 ---
+print_message "步骤 6: 配置系统服务"
 
 cat > "$BOT_SERVICE" <<EOF
 [Unit]
@@ -641,10 +654,11 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/usr/local/bin
-ExecStart=/usr/bin/python3 $BOT_SCRIPT
+WorkingDirectory=$BOT_DIR
+ExecStart=/root/.cargo/bin/uv run $BOT_SCRIPT
 Restart=always
 RestartSec=10
+Environment="PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 [Install]
 WantedBy=multi-user.target
@@ -657,11 +671,14 @@ systemctl start vps-tg-bot
 
 echo "✅ 系统服务配置完成"
 
-# --- 步骤 6: 完成部署 ---
+# --- 步骤 7: 完成部署 ---
 print_message "🎉 部署完成！"
 
 echo ""
 echo "✅ VPS Telegram Bot 管理系统已成功部署"
+echo ""
+echo "📁 项目目录: $BOT_DIR"
+echo "🔧 使用 uv 管理 Python 环境"
 echo ""
 echo "📱 使用方法："
 echo "   1. 在 Telegram 中打开你的 Bot"
@@ -672,6 +689,13 @@ echo "🔧 管理命令："
 echo "   • 查看服务状态: systemctl status vps-tg-bot"
 echo "   • 重启服务:     systemctl restart vps-tg-bot"
 echo "   • 查看日志:     journalctl -u vps-tg-bot -f"
+echo "   • 进入项目目录: cd $BOT_DIR"
+echo "   • 手动运行:     uv run $BOT_SCRIPT"
+echo ""
+echo "📦 uv 常用命令："
+echo "   • 添加依赖:     cd $BOT_DIR && uv add <package>"
+echo "   • 更新依赖:     cd $BOT_DIR && uv sync"
+echo "   • 查看依赖:     cd $BOT_DIR && uv pip list"
 echo ""
 echo "⚙️ Bot 功能："
 echo "   • 📊 实时查看系统状态"
