@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------------
 # 一键部署 VPS 自动维护脚本
 #
-# 版本: 4.3 (稳定版 - 修复时区计算逻辑，增强兼容性)
+# 版本: 4.4 (稳定版 - 智能检测，按需配置)
 # -----------------------------------------------------------------------------
 
 set -e
@@ -90,6 +90,24 @@ if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT_ID" ]; then
     exit 1
 fi
 
+# --- 步骤 1.5: 检测 Xray/Sing-box 安装情况 ---
+# ----------------- [新增区域开始] -----------------
+print_message "步骤 1.5: 检测 Xray/Sing-box 安装情况"
+XRAY_INSTALLED=false
+if command -v xray &> /dev/null; then
+    XRAY_INSTALLED=true
+    echo "✅ 检测到 Xray 已安装。"
+else
+    echo "ℹ️ 未检测到 Xray。"
+fi
+if command -v sb &> /dev/null; then
+    echo "✅ 检测到 Sing-box 已安装。"
+else
+    echo "ℹ️ 未检测到 Sing-box。"
+fi
+# ----------------- [新增区域结束] -----------------
+
+
 # --- 步骤 2: 创建重启后通知脚本 ---
 print_message "步骤 2: 创建重启后通知脚本"
 cat > "$REBOOT_NOTIFY_SCRIPT" <<'EOF'
@@ -124,7 +142,7 @@ echo "✅ 重启后通知脚本创建成功。"
 
 # --- 步骤 3: 创建两个独立的维护脚本 ---
 
-# 3.1 创建核心更新脚本
+# 3.1 创建核心更新脚本 (此脚本总是创建，其内部逻辑会自行判断是否更新 xray/sb)
 print_message "步骤 3.1: 创建核心更新脚本 ($CORE_MAINTAIN_SCRIPT)"
 cat > "$CORE_MAINTAIN_SCRIPT" <<'EOF'
 #!/bin/bash
@@ -198,9 +216,11 @@ sed -i "s|__REBOOT_NOTIFY_SCRIPT_PATH__|$REBOOT_NOTIFY_SCRIPT|g" "$CORE_MAINTAIN
 chmod +x "$CORE_MAINTAIN_SCRIPT"
 echo "✅ 核心更新脚本创建成功。"
 
-# 3.2 创建规则更新脚本
-print_message "步骤 3.2: 创建规则文件更新脚本 ($RULES_MAINTAIN_SCRIPT)"
-cat > "$RULES_MAINTAIN_SCRIPT" <<'EOF'
+# 3.2 创建规则更新脚本 (仅在 Xray 安装时创建)
+# ----------------- [修改区域开始] -----------------
+if [ "$XRAY_INSTALLED" = true ]; then
+    print_message "步骤 3.2: 创建规则文件更新脚本 ($RULES_MAINTAIN_SCRIPT)"
+    cat > "$RULES_MAINTAIN_SCRIPT" <<'EOF'
 #!/bin/bash
 set -e
 get_timezone() {
@@ -238,29 +258,26 @@ send_telegram "📜 *Xray 规则文件维护*
 > *状态*: $XRAY_DAT_STATUS
 > *时间*: \`$TIME_NOW ($TIMEZONE)\`"
 EOF
-sed -i "s|__TG_TOKEN__|$TG_TOKEN|g" "$RULES_MAINTAIN_SCRIPT"
-sed -i "s|__TG_CHAT_ID__|$TG_CHAT_ID|g" "$RULES_MAINTAIN_SCRIPT"
-chmod +x "$RULES_MAINTAIN_SCRIPT"
-echo "✅ 规则文件更新脚本创建成功。"
+    sed -i "s|__TG_TOKEN__|$TG_TOKEN|g" "$RULES_MAINTAIN_SCRIPT"
+    sed -i "s|__TG_CHAT_ID__|$TG_CHAT_ID|g" "$RULES_MAINTAIN_SCRIPT"
+    chmod +x "$RULES_MAINTAIN_SCRIPT"
+    echo "✅ 规则文件更新脚本创建成功。"
+else
+    print_message "步骤 3.2: 跳过规则文件更新脚本"
+    echo "未检测到 Xray, 无需创建规则文件更新脚本。"
+fi
+# ----------------- [修改区域结束] -----------------
 
-# --- 步骤 4: 设置两个独立的定时任务 ---
-# ----------------- [修改区域开始] - 已修复 -----------------
+# --- 步骤 4: 设置定时任务 (根据是否安装 Xray 进行调整) ---
 get_offset_hours() {
     local tz="$1"
-    # 尝试获取时区偏移字符串, 如: +0900, -0400
     local offset_str
     offset_str=$(TZ="$tz" date +%z 2>/dev/null)
-
-    # 如果命令失败或返回格式不正确，则默认为 UTC (+0000)
     if [[ ! "$offset_str" =~ ^[+-][0-9]{4}$ ]]; then
         offset_str="+0000"
     fi
-
-    # 提取符号和小时部分
     local sign="${offset_str:0:1}"
-    # 使用 bash 的 10# 语法强制按十进制处理，避免 08, 09 被当成无效的八进制数
     local hours=$((10#${offset_str:1:2}))
-
     if [ "$sign" = "+" ]; then
         echo "$hours"
     else
@@ -269,92 +286,85 @@ get_offset_hours() {
 }
 
 print_message "步骤 4: 设置维护时间"
-echo "我们将为您设置两个独立的定时任务："
-echo "  - 任务 A (核心维护与重启): 每日 默认在 东京时间 凌晨 4 点"
-echo "  - 任务 B (规则文件更新): 每周 默认在 北京时间 早上 7 点"
-echo ""
-echo "请选择："
-echo "  [1] 使用以上默认时间 (推荐)"
-echo "  [2] 手动为两个任务分别自定义时间"
-read -p "请输入选项 [1-2]，直接回车默认为 1: " TIME_CHOICE
 
+# 初始化时间变量
 CORE_H=""
 CORE_M=""
 RULES_H=""
 RULES_M=""
 
-# 使用 case 语句重构，更加稳健
-case "$TIME_CHOICE" in
-    2)
-        echo "--> 设置任务 A (核心维护与重启) 的时间..."
-        while true; do
-            read -p "请输入执行的小时 (0-23): " CORE_H
-            if [[ "$CORE_H" =~ ^[0-9]+$ ]] && [ "$CORE_H" -ge 0 ] && [ "$CORE_H" -le 23 ]; then
-                break
-            else
-                echo "❌ 错误：小时必须是 0-23 之间的整数。"
-            fi
-        done
-        while true; do
-            read -p "请输入执行的分钟 (0-59): " CORE_M
-            if [[ "$CORE_M" =~ ^[0-9]+$ ]] && [ "$CORE_M" -ge 0 ] && [ "$CORE_M" -le 59 ]; then
-                break
-            else
-                echo "❌ 错误：分钟必须是 0-59 之间的整数。"
-            fi
-        done
-        echo "--> 设置任务 B (规则文件更新) 的时间..."
-        while true; do
-            read -p "请输入执行的小时 (0-23): " RULES_H
-            if [[ "$RULES_H" =~ ^[0-9]+$ ]] && [ "$RULES_H" -ge 0 ] && [ "$RULES_H" -le 23 ]; then
-                break
-            else
-                echo "❌ 错误：小时必须是 0-23 之间的整数。"
-            fi
-        done
-        while true; do
-            read -p "请输入执行的分钟 (0-59): " RULES_M
-            if [[ "$RULES_M" =~ ^[0-9]+$ ]] && [ "$RULES_M" -ge 0 ] && [ "$RULES_M" -le 59 ]; then
-                break
-            else
-                echo "❌ 错误：分钟必须是 0-59 之间的整数。"
-            fi
-        done
-        ;;
-    *) # 捕获选项 1 或直接回车
-        echo "--> 正在为您计算默认时间..."
-        SYS_TZ=$(get_timezone)
-        LOCAL_OFFSET=$(get_offset_hours "$SYS_TZ")
+# ----------------- [修改区域开始] -----------------
+if [ "$XRAY_INSTALLED" = true ]; then
+    # --- 场景一：安装了 Xray，设置两个任务 ---
+    echo "检测到 Xray, 将为您设置两个独立的定时任务："
+    echo "  - 任务 A (核心维护与重启): 每日 默认在 东京时间 凌晨 4 点"
+    echo "  - 任务 B (规则文件更新): 每周 默认在 北京时间 早上 7 点"
+    echo ""
+    echo "请选择："
+    echo "  [1] 使用以上默认时间 (推荐)"
+    echo "  [2] 手动为两个任务分别自定义时间"
+    read -p "请输入选项 [1-2]，直接回车默认为 1: " TIME_CHOICE
 
-        # 计算东京时间 04:00 对应的本地时间
-        TOKYO_OFFSET=$(get_offset_hours "Asia/Tokyo")
-        # 正确的计算公式: 本地小时 = 目标小时 - (目标时区偏移 - 本地时区偏移)
-        OFFSET_DIFF_CORE=$((TOKYO_OFFSET - LOCAL_OFFSET))
-        CORE_H=$((4 - OFFSET_DIFF_CORE))
-        CORE_M=0
-        # 标准化小时数，确保其在 0-23 范围内 (优雅处理负数)
-        CORE_H=$(( (CORE_H % 24 + 24) % 24 ))
+    case "$TIME_CHOICE" in
+        2)
+            echo "--> 设置任务 A (核心维护与重启) 的时间..."
+            while true; do read -p "请输入执行的小时 (0-23): " CORE_H; if [[ "$CORE_H" =~ ^[0-9]+$ ]] && [ "$CORE_H" -ge 0 ] && [ "$CORE_H" -le 23 ]; then break; else echo "❌ 错误：小时必须是 0-23 之间的整数。"; fi; done
+            while true; do read -p "请输入执行的分钟 (0-59): " CORE_M; if [[ "$CORE_M" =~ ^[0-9]+$ ]] && [ "$CORE_M" -ge 0 ] && [ "$CORE_M" -le 59 ]; then break; else echo "❌ 错误：分钟必须是 0-59 之间的整数。"; fi; done
+            echo "--> 设置任务 B (规则文件更新) 的时间..."
+            while true; do read -p "请输入执行的小时 (0-23): " RULES_H; if [[ "$RULES_H" =~ ^[0-9]+$ ]] && [ "$RULES_H" -ge 0 ] && [ "$RULES_H" -le 23 ]; then break; else echo "❌ 错误：小时必须是 0-23 之间的整数。"; fi; done
+            while true; do read -p "请输入执行的分钟 (0-59): " RULES_M; if [[ "$RULES_M" =~ ^[0-9]+$ ]] && [ "$RULES_M" -ge 0 ] && [ "$RULES_M" -le 59 ]; then break; else echo "❌ 错误：分钟必须是 0-59 之间的整数。"; fi; done
+            ;;
+        *)
+            echo "--> 正在为您计算默认时间..."
+            SYS_TZ=$(get_timezone); LOCAL_OFFSET=$(get_offset_hours "$SYS_TZ")
+            TOKYO_OFFSET=$(get_offset_hours "Asia/Tokyo"); OFFSET_DIFF_CORE=$((TOKYO_OFFSET - LOCAL_OFFSET)); CORE_H=$(( (4 - OFFSET_DIFF_CORE % 24 + 24) % 24 )); CORE_M=0
+            SHANGHAI_OFFSET=$(get_offset_hours "Asia/Shanghai"); OFFSET_DIFF_RULES=$((SHANGHAI_OFFSET - LOCAL_OFFSET)); RULES_H=$(( (7 - OFFSET_DIFF_RULES % 24 + 24) % 24 )); RULES_M=0
+            ;;
+    esac
 
-        # 计算北京时间 07:00 对应的本地时间
-        SHANGHAI_OFFSET=$(get_offset_hours "Asia/Shanghai")
-        OFFSET_DIFF_RULES=$((SHANGHAI_OFFSET - LOCAL_OFFSET))
-        RULES_H=$((7 - OFFSET_DIFF_RULES))
-        RULES_M=0
-        # 标准化小时数
-        RULES_H=$(( (RULES_H % 24 + 24) % 24 ))
-        ;;
-esac
+    # 写入两个 Crontab 任务
+    (crontab -l 2>/dev/null; \
+    echo "$CORE_M $CORE_H * * * $CORE_MAINTAIN_SCRIPT"; \
+    echo "$RULES_M $RULES_H * * 0 $RULES_MAINTAIN_SCRIPT"; \
+    ) | crontab -
+
+    echo "✅ Cron 设置完成:"
+    echo "   - 核心维护与重启: 服务器本地时间 $CORE_H:$CORE_M"
+    echo "   - 规则文件更新:   服务器本地时间 $RULES_H:$RULES_M (每周日)"
+
+else
+    # --- 场景二：未安装 Xray，只设置一个任务 ---
+    echo "未检测到 Xray, 将仅设置核心系统维护定时任务。"
+    echo "  - 任务 (核心维护与重启): 每日 默认在 东京时间 凌晨 4 点"
+    echo ""
+    echo "请选择："
+    echo "  [1] 使用以上默认时间 (推荐)"
+    echo "  [2] 手动自定义时间"
+    read -p "请输入选项 [1-2]，直接回车默认为 1: " TIME_CHOICE
+
+    case "$TIME_CHOICE" 在
+        2)
+            echo "--> 设置核心维护与重启的时间..."
+            while true; do read -p "请输入执行的小时 (0-23): " CORE_H; if [[ "$CORE_H" =~ ^[0-9]+$ ]] && [ "$CORE_H" -ge 0 ] && [ "$CORE_H" -le 23 ]; then break; else echo "❌ 错误：小时必须是 0-23 之间的整数。"; fi; done
+            while true; do read -p "请输入执行的分钟 (0-59): " CORE_M; if [[ "$CORE_M" =~ ^[0-9]+$ ]] && [ "$CORE_M" -ge 0 ] && [ "$CORE_M" -le 59 ]; then break; else echo "❌ 错误：分钟必须是 0-59 之间的整数。"; fi; done
+            ;;
+        *)
+            echo "--> 正在为您计算默认时间..."
+            SYS_TZ=$(get_timezone); LOCAL_OFFSET=$(get_offset_hours "$SYS_TZ")
+            TOKYO_OFFSET=$(get_offset_hours "Asia/Tokyo"); OFFSET_DIFF_CORE=$((TOKYO_OFFSET - LOCAL_OFFSET)); CORE_H=$(( (4 - OFFSET_DIFF_CORE % 24 + 24) % 24 )); CORE_M=0
+            ;;
+    esac
+
+    # 仅写入一个 Crontab 任务
+    (crontab -l 2>/dev/null; \
+    echo "$CORE_M $CORE_H * * * $CORE_MAINTAIN_SCRIPT"; \
+    ) | crontab -
+
+    echo "✅ Cron 设置完成:"
+    echo "   - 核心维护与重启: 服务器本地时间 $CORE_H:$CORE_M"
+fi
 # ----------------- [修改区域结束] -----------------
 
-# 写入 Crontab
-(crontab -l 2>/dev/null; \
- echo "$CORE_M $CORE_H * * * $CORE_MAINTAIN_SCRIPT"; \
- echo "$RULES_M $RULES_H * * 0 $RULES_MAINTAIN_SCRIPT"; \
-) | crontab -
-
-echo "✅ Cron 设置完成:"
-echo "   - 核心维护与重启: 服务器本地时间 $CORE_H:$CORE_M"
-echo "   - 规则文件更新:   服务器本地时间 $RULES_H:$RULES_M"
 
 # --- 步骤 5: 立即执行一次核心维护 ---
 print_message "步骤 5: 准备首次执行核心维护与重启"
