@@ -342,7 +342,7 @@ else
     echo "  [2] 手动自定义时间"
     read -p "请输入选项 [1-2]，直接回车默认为 1: " TIME_CHOICE
 
-    case "$TIME_CHOICE" 在
+    case "$TIME_CHOICE" in
         2)
             echo "--> 设置核心维护与重启的时间..."
             while true; do read -p "请输入执行的小时 (0-23): " CORE_H; if [[ "$CORE_H" =~ ^[0-9]+$ ]] && [ "$CORE_H" -ge 0 ] && [ "$CORE_H" -le 23 ]; then break; else echo "❌ 错误：小时必须是 0-23 之间的整数。"; fi; done
