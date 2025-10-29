@@ -3,21 +3,27 @@
 # VPS 代理服务端口检测和防火墙配置脚本（终极一键安全版 V3 - 兼容 xeefei X-Panel）
 #
 # 功能：
-# - 自动安装并启用防火墙（UFW/firewalld）
+# - 自动安装防火墙（UFW/firewalld）并启用
 # - 自动安装 Fail2Ban（保护 SSH）
 # - 自动检测 SSH、Xray、Sing-box、X-Panel（x-ui/xpanel）端口
-# - 若检测到 x-ui 进程，则自动开放 80 端口（证书申请所需）
-# - 自动清理防火墙中未使用的端口
-# - Telegram 通知支持
+# - 若检测到 x-ui 进程则自动开放 80 端口（证书申请）
+# - 清理无用防火墙端口
+# - 可选 Telegram 通知（交互输入 Token/Chat ID）
 # -----------------------------------------------------------------------------------------
 
 set -e
 
-# --- 基础配置 ---
-TG_TOKEN="7982836307:AAEU-ru2xLuuWFhNLqBgHQVaMmKTh4VF5Js"
-TG_CHAT_ID="6103295147"
-NOTIFY=true
+# === 用户交互输入 ===
+read -p "是否启用 Telegram 通知？(y/N): " enable_tg
+if [[ "$enable_tg" =~ ^[Yy]$ ]]; then
+    read -p "请输入 Telegram Bot Token: " TG_TOKEN
+    read -p "请输入 Telegram Chat ID: " TG_CHAT_ID
+    NOTIFY=true
+else
+    NOTIFY=false
+fi
 
+# --- 打印消息 ---
 print_message() {
     echo ""
     echo "------------------------------------------------------------"
@@ -25,6 +31,7 @@ print_message() {
     echo "------------------------------------------------------------"
 }
 
+# --- Telegram 消息发送 ---
 send_telegram() {
     if [ "$NOTIFY" = true ] && [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT_ID" ]; then
         local message="$1"
@@ -141,13 +148,13 @@ main() {
     local all_ports="$ssh_port"
 
     # Xray
-    if command -v xray &>/dev/null && pgrep -f "xray" &>/dev/null; 键，然后
+    if command -v xray &>/dev/null && pgrep -f "xray" &>/dev/null; then
         xray_ports=$(ss -tlnp | grep xray | awk '{print $4}' | awk -F: '{print $NF}' | sort -u)
         [ -n "$xray_ports" ] && all_ports="$all_ports $xray_ports"
     fi
 
     # Sing-box
-    if pgrep -f "sing-box" &>/dev/null; then
+    if pgrep -f "sing-box" &>/dev/null; 键，然后
         sb_ports=$(ss -tlnp | grep sing-box | awk '{print $4}' | awk -F: '{print $NF}' | sort -u)
         [ -n "$sb_ports" ] && all_ports="$all_ports $sb_ports"
     fi
@@ -160,7 +167,7 @@ main() {
             all_ports="$all_ports $xpanel_ports"
         fi
 
-        # ✅ 如果检测到 x-ui 进程，自动加入 80 端口（证书申请需要）
+        # ✅ 检测到 x-ui 时自动加入 80 端口
         if pgrep -f "x-ui" >/dev/null; then
             echo "🌐 检测到 x-ui 进程，自动放行 80 端口（用于证书申请）"
             all_ports="$all_ports 80"
