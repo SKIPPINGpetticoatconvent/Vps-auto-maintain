@@ -1,16 +1,14 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------------------
-# VPS 代理服务端口检测和防火墙配置脚本（终极一键安全版 V3.7 - 兼容 xeefei X-Panel）
+# VPS 代理服务端口检测和防火墙配置脚本（终极一键安全版 V3.7.1 - 兼容 xeefei X-Panel）
 #
 # 更新日志:
-# V3.7 - [性能优化] 采纳用户建议，改用 *_allports 模式 (ufw-allports / firewallcmd-ipset)
-#        进行封禁，每个IP只生成一条防火墙规则，更高效，更安全。
-# V3.6 - 强化 Fail2Ban 配置，显式指定 banaction 与防火墙同步。
-# V3.5 - 改用 bantime.increment 方案实现稳定、兼容的激进/偏执模式。
+# V3.7.1 - [BUG修复] 修复了 V3.7 版本中 remove_unused_rules 函数的严重语法错误。
+# V3.7   - [性能优化] 改用 *_allports 模式进行封禁，每个IP只生成一条规则，更高效安全。
 #
 # 功能：
 # - 自动安装防火墙（UFW/firewalld）并启用
-# - 提供三种可选的 Fail2Ban 安全模式（普通/激进/偏zis）
+# - 提供三种可选的 Fail2Ban 安全模式（普通/激进/偏执）
 # - [优化] 自动配置 Fail2Ban 使用全端口封禁模式与防火墙联动
 # - 自动检测 SSH、Xray、Sing-box、X-Panel（x-ui/xpanel）端口
 # - 若检测到 x-ui 进程则自动开放 80 端口（证书申请）
@@ -112,7 +110,6 @@ setup_fail2ban() {
     
     rm -f /etc/fail2ban/filter.d/sshd-ddos.conf
 
-    # --- [核心优化] 根据防火墙类型，确定最高效的 allports 封禁动作 ---
     local banaction_config
     if [ "$firewall_type" = "ufw" ]; then
         banaction_config="banaction = ufw-allports"
@@ -194,12 +191,13 @@ EOF
     echo "✅ Fail2Ban 已配置为 [$FAIL2BAN_MODE] 并启动。"
 }
 
-# --- 清理并添加防火墙规则 ---
+# --- [已修复] 清理并添加防火墙规则 ---
 remove_unused_rules() {
     local ports_to_keep="$1"
     local firewall="$2"
     print_message "清理并应用新的防火墙规则"
     local ports_array=($ports_to_keep)
+
     if [ "$firewall" = "ufw" ]; then
         echo "y" | ufw reset >/dev/null 2>&1
         ufw default deny incoming >/dev/null 2>&1
@@ -209,7 +207,18 @@ remove_unused_rules() {
         echo "✅ UFW 规则已更新。"
         ufw status
     elif [ "$firewall" = "firewalld" ]; then
-        # ... (firewalld aunchanged)
+        local existing_ports
+        existing_ports=$(firewall-cmd --list-ports)
+        for p in $existing_ports; do
+            firewall-cmd --permanent --remove-port="$p" >/dev/null 2>&1
+        done
+        for p in "${ports_array[@]}"; do
+            firewall-cmd --permanent --add-port="$p"/tcp >/dev/null 2>&1
+            firewall-cmd --permanent --add-port="$p"/udp >/dev/null 2>&1
+        done
+        firewall-cmd --reload >/dev/null 2>&1
+        echo "✅ firewalld 规则已更新。"
+        firewall-cmd --list-ports
     else
         echo "⚠️ 未找到有效的防火墙工具 (ufw/firewalld)。"
     fi
@@ -217,7 +226,6 @@ remove_unused_rules() {
 
 # --- 主程序 ---
 main() {
-    # [逻辑调整] 先确定防火墙类型，再配置Fail2Ban
     local firewall_type
     firewall_type=$(detect_firewall)
     [ "$firewall_type" = "none" ] && firewall_type=$(setup_firewall)
@@ -228,9 +236,26 @@ main() {
     ssh_port=$(grep -i '^Port ' /etc/ssh/sshd_config | awk '{print $2}' | head -n1)
     [ -z "$ssh_port" ] && ssh_port=22
     echo "🛡️  检测到 SSH 端口: $ssh_port"
-    local all_ports="$ssh_port"
-    # ... (port detection unchanged)
 
+    local all_ports="$ssh_port"
+    if command -v xray &>/dev/null && pgrep -f "xray" &>/dev/null; then
+        xray_ports=$(ss -tnlp | grep xray | awk '{print $4}' | awk -F: '{print $NF}' | sort -u | tr '\n' ' ')
+        [ -n "$xray_ports" ] && echo "🛡️  检测到 Xray 端口: $xray_ports" && all_ports="$all_ports $xray_ports"
+    fi
+    if pgrep -f "sing-box" &>/dev/null; then
+        sb_ports=$(ss -tnlp | grep sing-box | awk '{print $4}' | awk -F: '{print $NF}' | sort -u | tr '\n' ' ')
+        [ -n "$sb_ports" ] && echo "🛡️  检测到 Sing-box 端口: $sb_ports" && all_ports="$all_ports $sb_ports"
+    fi
+    if pgrep -f "xpanel" >/dev/null || pgrep -f "x-ui" >/dev/null; then
+        if [ -f /etc/x-ui/x-ui.db ]; then
+            xpanel_ports=$(sqlite3 /etc/x-ui/x-ui.db "SELECT port FROM inbounds;" | grep -E '^[0-9]+$' | sort -u | tr '\n' ' ')
+            [ -n "$xpanel_ports" ] && echo "🛡️  检测到 X-Panel 入站端口: $xpanel_ports" && all_ports="$all_ports $xpanel_ports"
+        fi
+        if pgrep -f "x-ui" >/dev/null || pgrep -f "xpanel" >/dev/null; then
+            echo "🌐 检测到面板进程，自动放行 80 端口（用于证书申请）。"
+            all_ports="$all_ports 80"
+        fi
+    fi
     all_ports=$(echo "$all_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
     print_message "最终将保留的端口: $all_ports"
     remove_unused_rules "$all_ports" "$firewall_type"
