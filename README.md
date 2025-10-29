@@ -52,27 +52,42 @@
 
 ### 安装部署
 
+#### 方法一：在线运行（推荐，方便快捷）
+
+```
+# 基础维护部署
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/deploy.sh)
+```
+
+```
+# Telegram Bot 管理部署
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/Telegram-Bot.sh)
+```
+
+```
+# 安全配置
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/vps_secure_xpanel_fixed.sh)
+```
+
+
+#### 方法二：克隆项目后运行
+
 1. **克隆项目**
    ```bash
-   git clone https://github.com/your-repo/Vps-auto-maintain.git
+   git clone https://github.com/FTDRTD/Vps-auto-maintain.git
    cd Vps-auto-maintain
    ```
 
 2. **运行部署脚本**
    ```bash
    # 基础维护部署
-   chmod +x deploy.sh
-   ./deploy.sh
+   chmod +x deploy.sh && ./deploy.sh
 
    # 或使用 Telegram Bot 管理
-   chmod +x Telegram-Bot.sh
-   ./Telegram-Bot.sh
-   ```
+   chmod +x Telegram-Bot.sh && ./Telegram-Bot.sh
 
-3. **安全配置**
-   ```bash
-   chmod +x vps_secure_xpanel_fixed.sh
-   ./vps_secure_xpanel_fixed.sh
+   # 安全配置
+   chmod +x vps_secure_xpanel_fixed.sh && ./vps_secure_xpanel_fixed.sh
    ```
 
 ## 使用说明
@@ -226,27 +241,37 @@ A powerful VPS automation maintenance toolkit that provides one-click deployment
 
 ### Installation & Deployment
 
+#### Method 1: Run Online (Recommended, Quick and Easy)
+
+```bash
+# Basic maintenance deployment
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/deploy.sh)
+
+# Telegram Bot management deployment
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/Telegram-Bot.sh)
+
+# Security configuration
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/vps_secure_xpanel_fixed.sh)
+```
+
+#### Method 2: Clone and Run
+
 1. **Clone the project**
    ```bash
-   git clone https://github.com/your-repo/Vps-auto-maintain.git
+   git clone https://github.com/FTDRTD/Vps-auto-maintain.git
    cd Vps-auto-maintain
    ```
 
 2. **Run deployment scripts**
    ```bash
    # Basic maintenance deployment
-   chmod +x deploy.sh
-   ./deploy.sh
+   chmod +x deploy.sh && ./deploy.sh
 
    # Or use Telegram Bot management
-   chmod +x Telegram-Bot.sh
-   ./Telegram-Bot.sh
-   ```
+   chmod +x Telegram-Bot.sh && ./Telegram-Bot.sh
 
-3. **Security configuration**
-   ```bash
-   chmod +x vps_secure_xpanel_fixed.sh
-   ./vps_secure_xpanel_fixed.sh
+   # Security configuration
+   chmod +x vps_secure_xpanel_fixed.sh && ./vps_secure_xpanel_fixed.sh
    ```
 
 ## Usage Guide
