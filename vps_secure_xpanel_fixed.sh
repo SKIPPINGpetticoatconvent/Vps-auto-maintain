@@ -1,10 +1,14 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------------------
-# VPS 代理服务端口检测和防火墙配置脚本（终极一键安全版 V3.2 - 兼容 xeefei X-Panel）
+# VPS 代理服务端口检测和防火墙配置脚本（终极一键安全版 V3.3 - 兼容 xeefei X-Panel）
+#
+# 更新日志:
+# V3.3 - 修复了 remove_unused_rules 函数中的 if/elif/else 语法错误。
+# V3.2 - 新增 Fail2Ban 安全模式选择功能。
 #
 # 功能：
 # - 自动安装防火墙（UFW/firewalld）并启用
-# - [新增] 提供三种可选的 Fail2Ban 安全模式（普通/激进/偏执）
+# - 提供三种可选的 Fail2Ban 安全模式（普通/激进/偏执）
 # - 自动安装 Fail2Ban 并根据选择的模式强化 SSH 防护
 # - 自动检测 SSH、Xray、Sing-box、X-Panel（x-ui/xpanel）端口
 # - 若检测到 x-ui 进程则自动开放 80 端口（证书申请）
@@ -229,16 +233,15 @@ EOF
     echo "✅ Fail2Ban 已配置为 [$FAIL2BAN_MODE] 并启动。"
 }
 
-# --- 清理并添加防火墙规则 ---
+# --- [已修复] 清理并添加防火墙规则 ---
 remove_unused_rules() {
     local ports_to_keep="$1"
     local firewall="$2"
     print_message "清理并应用新的防火墙规则"
     
-    # 将空格分隔的端口列表转换为数组
     local ports_array=($ports_to_keep)
 
-    if [ "$firewall" = "ufw" ]; {
+    if [ "$firewall" = "ufw" ]; then
         echo "y" | ufw reset >/dev/null 2>&1
         ufw default deny incoming >/dev/null 2>&1
         ufw default allow outgoing >/dev/null 2>&1
@@ -246,13 +249,13 @@ remove_unused_rules() {
         ufw --force enable >/dev/null 2>&1
         echo "✅ UFW 规则已更新。"
         ufw status
-    } elif [ "$firewall" = "firewalld" ]; {
-        # 移除所有现有规则
-        local existing_ports=$(firewall-cmd --list-ports)
+    elif [ "$firewall" = "firewalld" ]; then
+        local existing_ports
+        existing_ports=$(firewall-cmd --list-ports)
         for p in $existing_ports; do
-            firewall-cmd --permanent --remove-port=$p >/dev/null 2>&1
+            firewall-cmd --permanent --remove-port="$p" >/dev/null 2>&1
         done
-        # 添加需要保留的规则
+        
         for p in "${ports_array[@]}"; do
             firewall-cmd --permanent --add-port="$p"/tcp >/dev/null 2>&1
             firewall-cmd --permanent --add-port="$p"/udp >/dev/null 2>&1
@@ -260,9 +263,9 @@ remove_unused_rules() {
         firewall-cmd --reload >/dev/null 2>&1
         echo "✅ firewalld 规则已更新。"
         firewall-cmd --list-ports
-    } else {
+    else
         echo "⚠️ 未找到有效的防火墙工具 (ufw/firewalld)。"
-    }
+    fi
 }
 
 
@@ -302,15 +305,13 @@ main() {
     # X-Panel / x-ui / xpanel
     if pgrep -f "xpanel" >/dev/null || pgrep -f "x-ui" >/dev/null; then
         if [ -f /etc/x-ui/x-ui.db ]; then
-            # 兼容不同版本的sqlite3输出
             xpanel_ports=$(sqlite3 /etc/x-ui/x-ui.db "SELECT port FROM inbounds;" | grep -E '^[0-9]+$' | sort -u | tr '\n' ' ')
-            if [ -n "$xpanel_ports" ]; 键，然后
+            if [ -n "$xpanel_ports" ]; then
                 echo "🛡️  检测到 X-Panel 入站端口: $xpanel_ports"
                 all_ports="$all_ports $xpanel_ports"
             fi
         fi
 
-        # 检测到 x-ui 时自动加入 80 端口
         if pgrep -f "x-ui" >/dev/null || pgrep -f "xpanel" >/dev/null; then
             echo "🌐 检测到面板进程，自动放行 80 端口（用于证书申请）。"
             all_ports="$all_ports 80"
