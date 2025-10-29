@@ -1,6 +1,6 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------------------
-# VPS 代理服务端口检测和防火墙配置脚本（终极一键安全版 V3 - 兼容 xeefei X-Panel）
+# VPS 代理服务端口检测和防火墙配置脚本（终极一键安全版 V3.1 - 兼容 xeefei X-Panel）
 #
 # 功能：
 # - 自动安装防火墙（UFW/firewalld）并启用
@@ -38,7 +38,7 @@ send_telegram() {
         curl --connect-timeout 10 --retry 3 -s -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
             -d chat_id="$TG_CHAT_ID" \
             -d text="$message" \
-            -d parse_mode="Markdown" > /dev/null
+            -d parse_mode="Markdown" >/dev/null
     fi
 }
 
@@ -49,7 +49,7 @@ if ! command -v sqlite3 &>/dev/null; then
         apt-get update -y >/dev/null 2>&1
         apt-get install -y sqlite3 >/dev/null 2>&1
     elif [ -f /etc/redhat-release ]; then
-        yum install -y sqlite >/dev/null 2>&1
+        yum install -y sqlite >/dev/null 2>&1 || dnf install -y sqlite >/dev/null 2>&1
     fi
     echo "✅ sqlite3 安装完成。"
 fi
@@ -63,7 +63,7 @@ get_timezone() {
 detect_firewall() {
     if systemctl is-active --quiet firewalld 2>/dev/null; then
         echo "firewalld"
-    elif command -v ufw &> /dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+    elif command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
         echo "ufw"
     else
         echo "none"
@@ -95,7 +95,7 @@ setup_firewall() {
 # --- 安装并配置 Fail2Ban ---
 setup_fail2ban() {
     print_message "配置 Fail2Ban"
-    if ! command -v fail2ban-client &> /dev/null; then
+    if ! command -v fail2ban-client &>/dev/null; then
         apt-get install -y fail2ban >/dev/null 2>&1 || yum install -y fail2ban >/dev/null 2>&1
     fi
     cat >/etc/fail2ban/jail.local <<EOF
@@ -129,6 +129,7 @@ remove_unused_rules() {
             firewall-cmd --permanent --add-port=$p/udp >/dev/null 2>&1
         done
         firewall-cmd --reload >/dev/null 2>&1
+        firewall-cmd --list-ports
     fi
 }
 
