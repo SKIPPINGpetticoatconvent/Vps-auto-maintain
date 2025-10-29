@@ -1,15 +1,16 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------------------
-# VPS 代理服务端口检测和防火墙配置脚本（终极一键安全版 V3.5 - 兼容 xeefei X-Panel）
+# VPS 代理服务端口检测和防火墙配置脚本（终极一键安全版 V3.6 - 兼容 xeefei X-Panel）
 #
 # 更新日志:
-# V3.5 - 最终修复版。彻底移除了导致兼容性问题的自定义过滤器 (sshd-ddos)，
-#        并改用 bantime.increment 方案来实现更稳定、兼容性更强的激进/偏执模式。
+# V3.6 - 强化 Fail2Ban 配置，显式指定 banaction (封禁动作) 与检测到的防火墙
+#        (UFW/firewalld) 同步，确保封禁规则 100% 正确应用。
+# V3.5 - 最终修复版。改用 bantime.increment 方案实现稳定、兼容的激进/偏执模式。
 #
 # 功能：
 # - 自动安装防火墙（UFW/firewalld）并启用
 # - 提供三种可选的 Fail2Ban 安全模式（普通/激进/偏执）
-# - 自动安装 Fail2Ban 并根据选择的模式强化 SSH 防护
+# - [强化] 自动配置 Fail2Ban 与防火墙联动
 # - 自动检测 SSH、Xray、Sing-box、X-Panel（x-ui/xpanel）端口
 # - 若检测到 x-ui 进程则自动开放 80 端口（证书申请）
 # - 清理无用防火墙端口
@@ -97,8 +98,9 @@ setup_firewall() {
     fi
 }
 
-# --- [已修复] 安装并配置 Fail2Ban (带模式选择) ---
+# --- [已强化] 安装并配置 Fail2Ban (带模式选择和防火墙联动) ---
 setup_fail2ban() {
+    local firewall_type="$1"
     print_message "配置 Fail2Ban (SSH 防护)"
 
     if ! command -v fail2ban-client &>/dev/null; then
@@ -107,8 +109,20 @@ setup_fail2ban() {
         echo "✅ Fail2Ban 安装完成。"
     fi
     
-    # 确保移除可能导致问题的旧文件
     rm -f /etc/fail2ban/filter.d/sshd-ddos.conf
+
+    # --- [核心强化] 根据防火墙类型，确定要使用的 banaction ---
+    local banaction_config
+    if [ "$firewall_type" = "ufw" ]; then
+        banaction_config="banaction = ufw"
+        echo "ℹ️ Fail2Ban 将与 UFW 进行联动。"
+    elif [ "$firewall_type" = "firewalld" ]; then
+        banaction_config="banaction = firewallcmd-rich-rules"
+        echo "ℹ️ Fail2Ban 将与 firewalld 进行联动。"
+    else
+        banaction_config="# 未检测到特定防火墙，使用自动模式"
+        echo "⚠️ 未检测到 UFW/firewalld，Fail2Ban 将尝试自动选择封禁方式。"
+    fi
 
     echo "请为 Fail2Ban 选择一个 SSH 防护模式:"
     echo "  1) 普通模式 (Normal): 5次失败 -> 封禁10分钟。适合普通用户。"
@@ -123,6 +137,7 @@ setup_fail2ban() {
         print_message "应用 Fail2Ban [普通模式]"
         cat >/etc/fail2ban/jail.local <<EOF
 [DEFAULT]
+${banaction_config}
 bantime  = 10m
 findtime = 10m
 maxretry = 5
@@ -136,6 +151,7 @@ EOF
         print_message "应用 Fail2Ban [激进模式]"
         cat >/etc/fail2ban/jail.local <<EOF
 [DEFAULT]
+${banaction_config}
 bantime  = 1h
 findtime = 10m
 maxretry = 3
@@ -153,6 +169,7 @@ EOF
         print_message "应用 Fail2Ban [偏执模式]"
         cat >/etc/fail2ban/jail.local <<EOF
 [DEFAULT]
+${banaction_config}
 bantime  = 1h
 findtime = 10m
 maxretry = 2
@@ -210,10 +227,13 @@ remove_unused_rules() {
 
 # --- 主程序 ---
 main() {
-    setup_fail2ban
+    # [逻辑调整] 先确定防火墙类型，再配置Fail2Ban
     local firewall_type
     firewall_type=$(detect_firewall)
     [ "$firewall_type" = "none" ] && firewall_type=$(setup_firewall)
+
+    setup_fail2ban "$firewall_type"
+
     local ssh_port
     ssh_port=$(grep -i '^Port ' /etc/ssh/sshd_config | awk '{print $2}' | head -n1)
     [ -z "$ssh_port" ] && ssh_port=22
