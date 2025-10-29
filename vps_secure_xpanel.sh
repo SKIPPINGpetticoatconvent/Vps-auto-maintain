@@ -2,15 +2,18 @@
 # -----------------------------------------------------------------------------------------
 # VPS 代理服务端口检测和防火墙配置脚本（终极一键安全版 V3 - 兼容 xeefei X-Panel）
 #
-# 新增功能：
-# - 自动检测 xeefei/X-Panel (xpanel) 进程与 /etc/x-ui/x-ui.db
-# - 自动安装 sqlite3 并提取入站端口
-# - 兼容 Xray、Sing-box、X-Panel 的端口识别与防火墙放行
-# - 维持 Fail2Ban、Telegram 通知、UFW/firewalld 自动配置
+# 功能：
+# - 自动安装并启用防火墙（UFW/firewalld）
+# - 自动安装 Fail2Ban（保护 SSH）
+# - 自动检测 SSH、Xray、Sing-box、X-Panel（x-ui/xpanel）端口
+# - 若检测到 x-ui 进程，则自动开放 80 端口（证书申请所需）
+# - 自动清理防火墙中未使用的端口
+# - Telegram 通知支持
 # -----------------------------------------------------------------------------------------
 
 set -e
 
+# --- 基础配置 ---
 TG_TOKEN="7982836307:AAEU-ru2xLuuWFhNLqBgHQVaMmKTh4VF5Js"
 TG_CHAT_ID="6103295147"
 NOTIFY=true
@@ -32,7 +35,7 @@ send_telegram() {
     fi
 }
 
-# 自动安装 sqlite3
+# --- 自动安装 sqlite3 ---
 if ! command -v sqlite3 &>/dev/null; then
     echo "ℹ️ 未检测到 sqlite3，正在安装..."
     if [ -f /etc/debian_version ]; then
@@ -44,10 +47,12 @@ if ! command -v sqlite3 &>/dev/null; then
     echo "✅ sqlite3 安装完成。"
 fi
 
+# --- 获取时区 ---
 get_timezone() {
     timedatectl 2>/dev/null | grep "Time zone" | awk '{print $3}' || cat /etc/timezone 2>/dev/null || echo "Etc/UTC"
 }
 
+# --- 检测防火墙 ---
 detect_firewall() {
     if systemctl is-active --quiet firewalld 2>/dev/null; then
         echo "firewalld"
@@ -58,6 +63,7 @@ detect_firewall() {
     fi
 }
 
+# --- 安装防火墙 ---
 setup_firewall() {
     print_message "安装并启用防火墙"
     if [ -f /etc/os-release ]; then
@@ -79,6 +85,7 @@ setup_firewall() {
     fi
 }
 
+# --- 安装并配置 Fail2Ban ---
 setup_fail2ban() {
     print_message "配置 Fail2Ban"
     if ! command -v fail2ban-client &> /dev/null; then
@@ -97,6 +104,7 @@ EOF
     echo "✅ Fail2Ban 已启用。"
 }
 
+# --- 清理并添加防火墙规则 ---
 remove_unused_rules() {
     local ports_to_keep="$1"
     local firewall="$2"
@@ -117,6 +125,7 @@ remove_unused_rules() {
     fi
 }
 
+# --- 主程序 ---
 main() {
     setup_fail2ban
 
@@ -127,13 +136,12 @@ main() {
     local ssh_port
     ssh_port=$(grep -i '^Port ' /etc/ssh/sshd_config | awk '{print $2}' | head -n1)
     [ -z "$ssh_port" ] && ssh_port=22
-
     echo "🛡️ SSH 端口: $ssh_port"
 
     local all_ports="$ssh_port"
 
     # Xray
-    if command -v xray &>/dev/null && pgrep -f "xray" &>/dev/null; then
+    if command -v xray &>/dev/null && pgrep -f "xray" &>/dev/null; 键，然后
         xray_ports=$(ss -tlnp | grep xray | awk '{print $4}' | awk -F: '{print $NF}' | sort -u)
         [ -n "$xray_ports" ] && all_ports="$all_ports $xray_ports"
     fi
@@ -144,21 +152,27 @@ main() {
         [ -n "$sb_ports" ] && all_ports="$all_ports $sb_ports"
     fi
 
-    # X-Panel 兼容 xeefei
+    # X-Panel / x-ui / xpanel
     if pgrep -f "xpanel" >/dev/null || pgrep -f "x-ui" >/dev/null; then
         if [ -f /etc/x-ui/x-ui.db ]; then
             xpanel_ports=$(sqlite3 /etc/x-ui/x-ui.db "SELECT port FROM inbounds;" | grep -E '^[0-9]+$' | sort -u)
             [ -n "$xpanel_ports" ] && echo "✅ 检测到 X-Panel 入站端口: $xpanel_ports"
             all_ports="$all_ports $xpanel_ports"
         fi
+
+        # ✅ 如果检测到 x-ui 进程，自动加入 80 端口（证书申请需要）
+        if pgrep -f "x-ui" >/dev/null; then
+            echo "🌐 检测到 x-ui 进程，自动放行 80 端口（用于证书申请）"
+            all_ports="$all_ports 80"
+        fi
     fi
 
     all_ports=$(echo "$all_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
-    echo "✅ 允许端口: $all_ports"
+    echo "✅ 将保留以下端口: $all_ports"
 
     remove_unused_rules "$all_ports" "$firewall_type"
 
-    local msg="🔒 *X-Panel 兼容安全配置完成*
+    local msg="🔒 *安全配置完成*
 > *服务器*: \`$(hostname)\`
 > *防火墙*: \`$firewall_type\`
 > *保留端口*: \`$all_ports\`"
