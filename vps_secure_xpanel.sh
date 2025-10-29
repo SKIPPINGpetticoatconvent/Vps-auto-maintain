@@ -8,7 +8,7 @@
 # - 自动检测 SSH、Xray、Sing-box、X-Panel（x-ui/xpanel）端口
 # - 若检测到 x-ui 进程则自动开放 80 端口（证书申请）
 # - 清理无用防火墙端口
-# - 可选 Telegram 通知（交互输入 Token/Chat ID）
+# - 可选 Telegram 通知（运行时输入 Token/Chat ID）
 # -----------------------------------------------------------------------------------------
 
 set -e
@@ -154,14 +154,14 @@ main() {
     fi
 
     # Sing-box
-    if pgrep -f "sing-box" &>/dev/null; 键，然后
+    if pgrep -f "sing-box" &>/dev/null; then
         sb_ports=$(ss -tlnp | grep sing-box | awk '{print $4}' | awk -F: '{print $NF}' | sort -u)
         [ -n "$sb_ports" ] && all_ports="$all_ports $sb_ports"
     fi
 
     # X-Panel / x-ui / xpanel
-    if pgrep -f "xpanel" >/dev/null || pgrep -f "x-ui" >/dev/null; then
-        if [ -f /etc/x-ui/x-ui.db ]; then
+    if pgrep -f "xpanel" >/dev/null || pgrep -f "x-ui" >/dev/null; 键，然后
+        if [ -f /etc/x-ui/x-ui.db ]; 键，然后
             xpanel_ports=$(sqlite3 /etc/x-ui/x-ui.db "SELECT port FROM inbounds;" | grep -E '^[0-9]+$' | sort -u)
             [ -n "$xpanel_ports" ] && echo "✅ 检测到 X-Panel 入站端口: $xpanel_ports"
             all_ports="$all_ports $xpanel_ports"
