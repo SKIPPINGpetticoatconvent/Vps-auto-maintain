@@ -1,15 +1,20 @@
 #!/bin/bash
 # ----------------------------------------------------------
-# Debian RSS 安全更新自动触发 (内存日志版)
+# Debian RSS 安全更新自动触发 (内存日志 + Telegram 交互配置)
 # ----------------------------------------------------------
 
 RSS_URL="https://www.debian.org/security/dsa-long.en.rdf"
-STATE_FILE="/run/rss-security-last-hash.txt"        # 存在内存中
-LOG_FILE="/dev/shm/rss-security-auto-update.log"    # 存在内存中
+STATE_FILE="/run/rss-security-last-hash.txt"        # 内存中保存上次 RSS 哈希
+CONFIG_FILE="/etc/rss-security.conf"                # Telegram 配置保存处
+LOG_FILE="/dev/shm/rss-security-auto-update.log"    # 日志写内存中 (tmpfs)
 
-# Telegram 配置（可选）
-TG_TOKEN="替换为你的BotToken"
-TG_CHAT_ID="替换为你的ChatID"
+# --- 函数定义 ---
+print_message() {
+    echo ""
+    echo "------------------------------------------------------------"
+    echo "$1"
+    echo "------------------------------------------------------------"
+}
 
 send_telegram() {
     local msg="$1"
@@ -20,9 +25,33 @@ send_telegram() {
     fi
 }
 
+# --- 配置交互 ---
+if [ ! -f "$CONFIG_FILE" ]; then
+    print_message "首次运行配置 Telegram 通知"
+    read -p "请输入你的 Telegram Bot Token: " TG_TOKEN
+    read -p "请输入你的 Telegram Chat ID (管理员): " TG_CHAT_ID
+
+    if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT_ID" ]; then
+        echo "❌ 错误：Telegram Bot Token 和 Chat ID 不能为空"
+        exit 1
+    fi
+
+    mkdir -p /etc
+    cat > "$CONFIG_FILE" <<EOF
+TG_TOKEN="$TG_TOKEN"
+TG_CHAT_ID="$TG_CHAT_ID"
+EOF
+
+    chmod 600 "$CONFIG_FILE"
+    echo "✅ Telegram 配置已保存到 $CONFIG_FILE"
+else
+    source "$CONFIG_FILE"
+fi
+
+# --- 内存目录确保存在 ---
 mkdir -p /run /dev/shm
 
-# 获取 RSS 哈希
+# --- RSS 检测 ---
 RSS_HASH=$(curl -fsSL "$RSS_URL" | sha256sum | awk '{print $1}')
 if [ -f "$STATE_FILE" ]; then
     LAST_HASH=$(cat "$STATE_FILE")
