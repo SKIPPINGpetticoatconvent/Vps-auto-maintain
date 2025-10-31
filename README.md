@@ -19,10 +19,10 @@
 
 ### 脚本列表
 
-- `deploy.sh` - VPS 自动维护一键部署脚本
-- `Telegram-Bot.sh` - Telegram Bot 管理系统部署脚本
-- `vps_secure_auto.sh` - VPS 终极安全与自动维护脚本
-- `security-auto-update.sh` - 安全更新专用脚本
+- `deploy.sh` - VPS 自动维护一键部署脚本 (v4.4)
+- `Telegram-Bot.sh` - Telegram Bot 管理系统部署脚本 (v5.3)
+- `vps_secure_xpanel_fixed.sh` - VPS 终极安全与自动维护脚本 (V3.7.3)
+- `Debian/security-auto-update.sh` - Debian 安全更新专用脚本 (v1.0)
 - `LICENSE` - MIT 许可证
 - `.gitignore` - Git 忽略文件
 
@@ -37,16 +37,17 @@
 #### 2. Telegram Bot 管理 (`Telegram-Bot.sh`)
 - 交互式 VPS 管理界面
 - 即时维护命令执行
-- 定时任务管理
+- 定时任务管理（持久化存储）
 - 系统日志查看
 
-#### 3. 安全配置 (`vps_secure_auto.sh`)
+#### 3. 安全配置 (`vps_secure_xpanel_fixed.sh`)
 - UFW/firewalld 防火墙配置
 - Fail2Ban SSH 防护（三种模式）
 - 端口自动检测和开放
+- X-Panel/X-UI 兼容性支持
 - Telegram 实时通知支持
 
-#### 4. 安全更新 (`security-auto-update.sh`)
+#### 4. 安全更新 (`Debian/security-auto-update.sh`)
 - 无人值守安全更新配置
 - 内存日志存储优化
 - 03:00 自动重启
@@ -68,8 +69,8 @@
 
 1. **完整维护方案** (`deploy.sh`) - 系统维护 + 定时任务 + Telegram 通知
 2. **Bot 管理方案** (`Telegram-Bot.sh`) - 交互式 Bot 管理界面
-3. **安全防护方案** (`vps_secure_auto.sh`) - 全面的安全配置和防护
-4. **轻量更新方案** (`security-auto-update.sh`) - 仅安全更新，轻量部署
+3. **安全防护方案** (`vps_secure_xpanel_fixed.sh`) - 全面的安全配置和防护
+4. **轻量更新方案** (`Debian/security-auto-update.sh`) - 仅安全更新，轻量部署
 
 #### 方法一：在线运行（推荐，方便快捷）
 
@@ -80,15 +81,18 @@ bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/
 
 ```
 # Telegram Bot 管理部署
-bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/Telegram-Bot.sh)
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/TG/Telegram-Bot.sh)
 ```
 
 ```
 # 安全配置
-bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/vps_secure_auto.sh)
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/vps_secure_xpanel_fixed.sh)
+```
 
+
+```
 # 安全更新专用
-bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/security-auto-update.sh)
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/Debian/security-auto-update.sh)
 ```
 
 
@@ -106,13 +110,13 @@ bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/
    chmod +x deploy.sh && ./deploy.sh
 
    # 或使用 Telegram Bot 管理
-   chmod +x Telegram-Bot.sh && ./Telegram-Bot.sh
+   chmod +x TG/Telegram-Bot.sh && ./TG/Telegram-Bot.sh
 
    # 安全配置
-   chmod +x vps_secure_auto.sh && ./vps_secure_auto.sh
+   chmod +x vps_secure_xpanel_fixed.sh && ./vps_secure_xpanel_fixed.sh
 
    # 安全更新专用
-   chmod +x security-auto-update.sh && ./security-auto-update.sh
+   chmod +x Debian/security-auto-update.sh && ./Debian/security-auto-update.sh
    ```
 
 ## 使用说明
@@ -159,7 +163,7 @@ Fail2Ban 提供三种防护模式：
 - **SSH 端口**: 自动检测当前 SSH 端口
 - **Xray 端口**: 动态检测所有 Xray 入站端口
 - **Sing-box 端口**: 动态检测所有 Sing-box 入站端口
-- **X-Panel 端口**: 从数据库动态检测并开放相关端口
+- **X-Panel/X-UI 端口**: 从数据库动态检测并开放相关端口
 - **80 端口**: 证书申请专用端口
 - **443 端口**: HTTPS 流量端口
 
@@ -171,20 +175,23 @@ Fail2Ban 提供三种防护模式：
 
 ### 脚本参数说明
 
-#### deploy.sh 和 Telegram-Bot.sh
+#### deploy.sh 和 TG/Telegram-Bot.sh
 - 智能检测 Xray/Sing-box 安装状态
 - 按需创建维护脚本和定时任务
 - 支持手动或自动时间配置
+- 使用内存日志优化系统性能
 
-#### vps_secure_auto.sh
+#### vps_secure_xpanel_fixed.sh
 - `--status`: 查看当前安全配置状态
 - `--uninstall`: 尝试还原安全配置
 - 支持 Telegram 实时通知
+- 兼容 X-Panel/X-UI 面板管理
 
-#### security-auto-update.sh
+#### Debian/security-auto-update.sh
 - 轻量化设计，适用于minimal环境
 - 仅配置无人值守安全更新
 - 不包含复杂的交互功能
+- 专为 Debian 系统优化
 
 ## 架构设计
 
@@ -203,7 +210,8 @@ VPS Auto Maintain
 │   └── Web 界面 (可选)
 └── 安全层
     ├── 防火墙 (UFW/firewalld)
-    └── Fail2Ban
+    ├── Fail2Ban
+    └── 端口管理
 ```
 
 ## 更新日志
@@ -215,23 +223,26 @@ VPS Auto Maintain
 - Xray核心和Sing-box独立更新逻辑
 
 ### v5.3 (Telegram-Bot.sh)
-- 持久化定时任务存储
-- 兼容性修复
+- 持久化定时任务存储（SQLite）
+- 兼容性修复和优化
 - UV 包管理器集成
 - 完整的交互式管理界面
+- 错误处理和日志记录改进
 
-### v4.1 (vps_secure_auto.sh)
+### V3.7.3 (vps_secure_xpanel_fixed.sh)
 - 终极安全配置脚本
 - 三档 Fail2Ban 防护模式
 - 智能端口检测和开放
+- X-Panel/X-UI 兼容性支持
 - Telegram 实时封禁通知
-- 无人值守安全更新
+- 自动检测 Fail2Ban action 文件
 
-### v1.0 (security-auto-update.sh)
+### v1.0 (Debian/security-auto-update.sh)
 - 轻量化安全更新方案
 - 无人值守安全补丁
 - 内存日志存储
 - 03:00 自动重启
+- 智能自检模块
 
 ## 注意事项
 
@@ -239,6 +250,7 @@ VPS Auto Maintain
 - 🔐 妥善保管 Telegram Token 和 Chat ID
 - ⏱️ 维护任务可能导致服务短暂中断
 - 🛡️ 防火墙配置请谨慎操作
+- 📊 建议定期检查 Bot 运行状态
 
 ## 许可证
 
@@ -271,10 +283,10 @@ A powerful VPS automation maintenance toolkit that provides one-click deployment
 
 ### Script List
 
-- `deploy.sh` - VPS auto maintenance one-click deployment script
-- `Telegram-Bot.sh` - Telegram Bot management system deployment script
-- `vps_secure_auto.sh` - Ultimate VPS security and auto maintenance script
-- `security-auto-update.sh` - Security update dedicated script
+- `deploy.sh` - VPS auto maintenance one-click deployment script (v4.4)
+- `Telegram-Bot.sh` - Telegram Bot management system deployment script (v5.3)
+- `vps_secure_xpanel_fixed.sh` - Ultimate VPS security and auto maintenance script (V3.7.3)
+- `Debian/security-auto-update.sh` - Debian security update dedicated script (v1.0)
 - `LICENSE` - MIT License
 - `.gitignore` - Git ignore file
 
@@ -289,16 +301,17 @@ A powerful VPS automation maintenance toolkit that provides one-click deployment
 #### 2. Telegram Bot Management (`Telegram-Bot.sh`)
 - Interactive VPS management interface
 - Instant maintenance command execution
-- Scheduled task management
+- Scheduled task management (persistent storage)
 - System log viewing
 
-#### 3. Security Configuration (`vps_secure_auto.sh`)
+#### 3. Security Configuration (`vps_secure_xpanel_fixed.sh`)
 - UFW/firewalld firewall configuration
 - Fail2Ban SSH protection (three modes)
 - Automatic port detection and opening
+- X-Panel/X-UI panel compatibility
 - Telegram real-time notifications
 
-#### 4. Security Update (`security-auto-update.sh`)
+#### 4. Security Update (`Debian/security-auto-update.sh`)
 - Unattended security updates
 - Memory-based log storage optimization
 - 03:00 automatic reboot
@@ -320,8 +333,8 @@ The project provides four deployment options, please choose according to your ne
 
 1. **Complete Maintenance Plan** (`deploy.sh`) - System maintenance + scheduled tasks + Telegram notifications
 2. **Bot Management Plan** (`Telegram-Bot.sh`) - Interactive Bot management interface
-3. **Security Protection Plan** (`vps_secure_auto.sh`) - Comprehensive security configuration and protection
-4. **Lightweight Update Plan** (`security-auto-update.sh`) - Security updates only, lightweight deployment
+3. **Security Protection Plan** (`vps_secure_xpanel_fixed.sh`) - Comprehensive security configuration and protection
+4. **Lightweight Update Plan** (`Debian/security-auto-update.sh`) - Security updates only, lightweight deployment
 
 #### Method 1: Run Online (Recommended, Quick and Easy)
 
@@ -330,13 +343,13 @@ The project provides four deployment options, please choose according to your ne
 bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/deploy.sh)
 
 # Telegram Bot management deployment
-bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/Telegram-Bot.sh)
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/TG/Telegram-Bot.sh)
 
 # Security configuration
-bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/vps_secure_auto.sh)
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/vps_secure_xpanel_fixed.sh)
 
 # Security update only
-bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/security-auto-update.sh)
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/Debian/security-auto-update.sh)
 ```
 
 #### Method 2: Clone and Run
@@ -353,13 +366,13 @@ bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/
    chmod +x deploy.sh && ./deploy.sh
 
    # Or use Telegram Bot management
-   chmod +x Telegram-Bot.sh && ./Telegram-Bot.sh
+   chmod +x TG/Telegram-Bot.sh && ./TG/Telegram-Bot.sh
 
    # Security configuration
-   chmod +x vps_secure_auto.sh && ./vps_secure_auto.sh
+   chmod +x vps_secure_xpanel_fixed.sh && ./vps_secure_xpanel_fixed.sh
 
    # Security update only
-   chmod +x security-auto-update.sh && ./security-auto-update.sh
+   chmod +x Debian/security-auto-update.sh && ./Debian/security-auto-update.sh
    ```
 
 ## Usage Guide
@@ -406,7 +419,7 @@ Automatically detects and opens ports for:
 - **SSH Port**: Automatically detects current SSH port
 - **Xray Ports**: Dynamically detects all Xray inbound ports
 - **Sing-box Ports**: Dynamically detects all Sing-box inbound ports
-- **X-Panel Ports**: Dynamically detects and opens from database
+- **X-Panel/X-UI Ports**: Dynamically detects and opens from database
 - **Port 80**: Certificate application dedicated port
 - **Port 443**: HTTPS traffic port
 
@@ -418,20 +431,23 @@ Provides three SSH protection levels:
 
 ### Script Parameter Guide
 
-#### deploy.sh and Telegram-Bot.sh
+#### deploy.sh and TG/Telegram-Bot.sh
 - Smart detection of Xray/Sing-box installation status
 - Creates maintenance scripts and scheduled tasks as needed
 - Supports manual or automatic time configuration
+- Uses memory logging for system optimization
 
-#### vps_secure_auto.sh
+#### vps_secure_xpanel_fixed.sh
 - `--status`: View current security configuration status
 - `--uninstall`: Attempt to restore security configuration
 - Supports Telegram real-time notifications
+- Compatible with X-Panel/X-UI panel management
 
-#### security-auto-update.sh
+#### Debian/security-auto-update.sh
 - Lightweight design, suitable for minimal environments
 - Only configures unattended security updates
 - No complex interaction features included
+- Optimized specifically for Debian systems
 
 ## Architecture Design
 
@@ -450,7 +466,8 @@ VPS Auto Maintain
 │   └── Web Interface (optional)
 └── Security Layer
     ├── Firewall (UFW/firewalld)
-    └── Fail2Ban
+    ├── Fail2Ban
+    └── Port Management
 ```
 
 ## Changelog
@@ -462,23 +479,26 @@ VPS Auto Maintain
 - Independent update logic for Xray core and Sing-box
 
 ### v5.3 (Telegram-Bot.sh)
-- Persistent scheduled task storage
-- Compatibility fixes
+- Persistent scheduled task storage (SQLite)
+- Compatibility fixes and optimizations
 - UV package manager integration
 - Complete interactive management interface
+- Improved error handling and logging
 
-### v4.1 (vps_secure_auto.sh)
+### V3.7.3 (vps_secure_xpanel_fixed.sh)
 - Ultimate security configuration script
 - Three-level Fail2Ban protection modes
 - Smart port detection and opening
+- X-Panel/X-UI panel compatibility support
 - Telegram real-time ban notifications
-- Unattended security updates
+- Automatic Fail2Ban action file detection
 
-### v1.0 (security-auto-update.sh)
+### v1.0 (Debian/security-auto-update.sh)
 - Lightweight security update solution
 - Unattended security patches
 - Memory log storage
 - 03:00 automatic reboot
+- Intelligent self-check module
 
 ## Important Notes
 
@@ -486,6 +506,7 @@ VPS Auto Maintain
 - 🔐 Safely store Telegram Token and Chat ID
 - ⏱️ Maintenance tasks may cause brief service interruptions
 - 🛡️ Be cautious with firewall configurations
+- 📊 Regularly check Bot running status
 
 ## License
 
