@@ -1,14 +1,14 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------------------
-# VPS 代理服务端口检测与防火墙配置脚本（终极一键安全版 V3.8.0 - 自检增强版）
+# VPS 代理服务端口检测与防火墙配置脚本（终极一键安全版 V3.8.1 - 自检增强 + SSH Jail 自动修复）
 # 兼容 xeefei X-Panel / X-UI / Xray / Sing-box
 #
 # 🩵 更新日志:
-# V3.8.0 - [稳定版]
-#   ✅ 新增自动自检模块，使用正则匹配验证配置正确性
-#   ✅ 检查 Fail2Ban / 防火墙 / SSH / X-Panel 端口状态
-#   ✅ 自动汇总结果（可推送 Telegram 报告）
-#   ✅ 添加执行耗时统计，运行更直观
+# V3.8.1 - [增强版]
+#   ✅ 新增 Fail2Ban SSH Jail 自动重试加载机制（避免误报）
+#   ✅ 自检前自动延时 5 秒，确保 Fail2Ban 完全初始化
+#   ✅ 统一 Telegram 报告格式，简化调试输出
+#   ✅ 脚本整体逻辑保持轻量高效
 # -----------------------------------------------------------------------------------------
 
 set -e
@@ -158,6 +158,8 @@ maxretry = ${maxretry}
 
 [sshd]
 enabled = true
+port = ssh
+logpath = /var/log/auth.log
 bantime.increment = true
 bantime.factor = 2
 bantime.max = 1w
@@ -182,7 +184,6 @@ remove_unused_rules() {
         for p in "${ports_array[@]}"; do ufw allow "$p" >/dev/null; done
         ufw --force enable >/dev/null 2>&1
         echo "✅ UFW 规则已更新。"
-        ufw status
     elif [ "$firewall" = "firewalld" ]; then
         local existing_ports
         existing_ports=$(firewall-cmd --list-ports)
@@ -195,19 +196,18 @@ remove_unused_rules() {
         done
         firewall-cmd --reload >/dev/null 2>&1
         echo "✅ firewalld 规则已更新。"
-        firewall-cmd --list-ports
     else
         echo "⚠️ 未找到有效防火墙工具。"
     fi
 }
 
-# --- 自检模块 ---
+# --- 自检模块（带延时和重试）---
 self_check() {
     print_message "🔍 正在进行配置自检..."
+    sleep 5  # 等待 Fail2Ban 初始化
     local all_ok=true
-    local report=""
 
-    # Fail2Ban 检查
+    # Fail2Ban 状态检测
     if systemctl is-active --quiet fail2ban; then
         echo "✅ Fail2Ban 服务正在运行。"
     else
@@ -215,14 +215,22 @@ self_check() {
         all_ok=false
     fi
 
-    if fail2ban-client status sshd 2>/dev/null | grep -Eq 'Jail list:.*sshd'; then
-        echo "✅ SSH 防护已启用。"
+    # SSH Jail 检测与自动重试
+    if ! fail2ban-client status sshd >/dev/null 2>&1; then
+        echo "⚠️ SSH Jail 初次检测未加载，等待 5 秒后重试..."
+        sleep 5
+        systemctl reload fail2ban >/dev/null 2>&1
+        if fail2ban-client status sshd >/dev/null 2>&1; then
+            echo "✅ SSH Jail 已在重试后加载成功。"
+        else
+            echo "❌ SSH Jail 加载失败，请检查配置。"
+            all_ok=false
+        fi
     else
-        echo "⚠️ SSH Jail 未加载。"
-        all_ok=false
+        echo "✅ SSH Jail 已正确加载。"
     fi
 
-    # 防火墙检查
+    # 防火墙检测
     local fw
     fw=$(detect_firewall)
     if [ "$fw" = "ufw" ] && ufw status | grep -q "active"; then
@@ -234,7 +242,7 @@ self_check() {
         all_ok=false
     fi
 
-    # SSH端口检查
+    # SSH 端口检测
     local ssh_port
     ssh_port=$(grep -i '^Port ' /etc/ssh/sshd_config | awk '{print $2}' | head -n1)
     [ -z "$ssh_port" ] && ssh_port=22
@@ -245,26 +253,24 @@ self_check() {
         all_ok=false
     fi
 
-    # 汇总结果
     echo "------------------------------------------------------------"
+    local hostname=$(hostname)
+    local duration=$(( $(date +%s) - start_time ))
+
     if [ "$all_ok" = true ]; then
         echo "🎉 自检通过：所有关键安全配置均正常工作。"
-        report="✅ 自检通过，系统配置正常。"
+        result="✅ 自检通过"
     else
-        echo "⚠️ 自检发现问题，请检查日志。"
-        report="⚠️ 自检发现问题，请检查服务器。"
+        echo "⚠️ 自检发现问题，请手动检查。"
+        result="⚠️ 自检发现问题"
     fi
     echo "------------------------------------------------------------"
 
-    # Telegram 推送报告
-    local hostname=$(hostname)
-    local duration=$(( $(date +%s) - start_time ))
     local msg="*VPS 自检报告*
 > *主机名*: \`$hostname\`
 > *防火墙*: \`$fw\`
 > *Fail2Ban模式*: \`$FAIL2BAN_MODE\`
-> *SSH端口*: \`$ssh_port\`
-> *结果*: $report
+> *检测结果*: $result
 > *执行耗时*: ${duration}s"
     send_telegram "$msg"
 }
@@ -303,14 +309,6 @@ main() {
     all_ports=$(echo "$all_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
     print_message "最终将保留的端口: $all_ports"
     remove_unused_rules "$all_ports" "$firewall_type"
-
-    local hostname=$(hostname)
-    local msg="*VPS 安全配置完成*
-> *服务器*: \`$hostname\`
-> *防火墙*: \`$firewall_type\`
-> *Fail2Ban模式*: \`$FAIL2BAN_MODE\`
-> *保留端口*: \`$all_ports\`"
-    send_telegram "$msg"
 
     print_message "✅ 所有安全配置已成功应用！"
 }
