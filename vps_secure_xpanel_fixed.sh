@@ -348,9 +348,30 @@ main() {
         fi
     fi
 
-    # === Sing-box 端口检测（修复版）===
+    # === Sing-box 端口检测（修复版：从配置文件读取）===
     if pgrep -x "sing-box" &>/dev/null; then
-        sb_ports=$(ss -tnlp 2>/dev/null | grep -w "sing-box" | awk '{print $4}' | grep -oE '[0-9]+$' | sort -u)
+        sb_ports=""
+        # 检查配置文件目录是否存在
+        if [ -d "/etc/sing-box/conf" ]; then
+            # 遍历所有配置文件，提取监听端口
+            for config_file in /etc/sing-box/conf/*.json; do
+                if [ -f "$config_file" ]; then
+                    # 从JSON配置中提取listen_port
+                    config_ports=$(jq -r '.inbounds[]?.listen_port // empty' "$config_file" 2>/dev/null | sort -u | tr '\n' ' ')
+                    if [ -n "$config_ports" ]; then
+                        sb_ports="$sb_ports $config_ports"
+                    fi
+                fi
+            done
+            # 如果未从配置文件获取到端口，回退到网络监听检测
+            if [ -z "$sb_ports" ]; then
+                sb_ports=$(ss -tnlp 2>/dev/null | grep -w "sing-box" | awk '{print $4}' | grep -oE '[0-9]+$' | sort -u)
+            fi
+        else
+            # 如果配置文件目录不存在，使用网络监听检测
+            sb_ports=$(ss -tnlp 2>/dev/null | grep -w "sing-box" | awk '{print $4}' | grep -oE '[0-9]+$' | sort -u)
+        fi
+        sb_ports=$(echo "$sb_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
         if [ -n "$sb_ports" ]; then
             echo "🛡️ 检测到 Sing-box 端口: $sb_ports"
             all_ports="$all_ports $sb_ports"
