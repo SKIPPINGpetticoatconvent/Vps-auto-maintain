@@ -186,7 +186,7 @@ detect_logpath() {
         elif [ -f /var/log/secure ]; then
             echo "/var/log/secure"
         else
-            echo "/var/log/auth.log"  # 最终默认值
+            echo "/var/log/auth.log"
         fi
     fi
 }
@@ -483,6 +483,33 @@ main() {
     fi
 
     # === 最终端口去重和格式化 ===
+    all_ports=$(echo "$all_ports" | tr ' ' '\n' | grep -E '^[0-9]+ | sort -u | tr '\n' ' ')
+                if [ -n "$config_ports" ]; then
+                    sb_ports="$sb_ports $config_ports"
+                fi
+            done
+        fi
+        
+        # 方法2: 从网络监听检测（回退）
+        if [ -z "$sb_ports" ]; then
+            sb_ports=$(ss -tnlp 2>/dev/null | grep -w "sing-box" | awk '{print $4}' | grep -oE '[0-9]+
+
+    # === X-Panel 端口检测（修复版：过滤 NULL）===
+    if pgrep -f "xpanel" >/dev/null || pgrep -f "x-ui" >/dev/null; then
+        if [ -f /etc/x-ui/x-ui.db ] && command -v sqlite3 &>/dev/null; then
+            xpanel_ports=$(sqlite3 /etc/x-ui/x-ui.db \
+                "SELECT port FROM inbounds WHERE port IS NOT NULL AND port != '';" 2>/dev/null | \
+                grep -E '^[0-9]+$' | sort -u | tr '\n' ' ')
+            if [ -n "$xpanel_ports" ]; then
+                echo "🛡️ 检测到 X-Panel 入站端口: $xpanel_ports"
+                all_ports="$all_ports $xpanel_ports"
+            fi
+        fi
+        echo "🌐 检测到面板进程，自动放行 80 端口（用于证书申请）。"
+        all_ports="$all_ports 80"
+    fi
+
+    # === 最终端口去重和格式化 ===
     all_ports=$(echo "$all_ports" | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -un | tr '\n' ' ' | sed 's/ $//')
     
     if [ -z "$all_ports" ]; then
@@ -496,6 +523,94 @@ main() {
     print_message "✅ 所有安全配置已成功应用！"
 }
 
+main
+self_check | sort -u | tr '\n' ' ')
+        fi
+        
+        # 去重和格式化
+        sb_ports=$(echo "$sb_ports" | tr ' ' '\n' | grep -E '^[0-9]+
+
+    # === X-Panel 端口检测（修复版：过滤 NULL）===
+    if pgrep -f "xpanel" >/dev/null || pgrep -f "x-ui" >/dev/null; then
+        if [ -f /etc/x-ui/x-ui.db ] && command -v sqlite3 &>/dev/null; then
+            xpanel_ports=$(sqlite3 /etc/x-ui/x-ui.db \
+                "SELECT port FROM inbounds WHERE port IS NOT NULL AND port != '';" 2>/dev/null | \
+                grep -E '^[0-9]+$' | sort -u | tr '\n' ' ')
+            if [ -n "$xpanel_ports" ]; then
+                echo "🛡️ 检测到 X-Panel 入站端口: $xpanel_ports"
+                all_ports="$all_ports $xpanel_ports"
+            fi
+        fi
+        echo "🌐 检测到面板进程，自动放行 80 端口（用于证书申请）。"
+        all_ports="$all_ports 80"
+    fi
+
+    # === 最终端口去重和格式化 ===
+    all_ports=$(echo "$all_ports" | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -un | tr '\n' ' ' | sed 's/ $//')
+    
+    if [ -z "$all_ports" ]; then
+        echo "❌ 错误：未检测到任何有效端口！"
+        exit 1
+    fi
+    
+    print_message "最终将保留的端口: $all_ports"
+    remove_unused_rules "$all_ports" "$firewall_type"
+
+    print_message "✅ 所有安全配置已成功应用！"
+}
+
+main
+self_check | sort -u | tr '\n' ' ')
+        if [ -n "$sb_ports" ]; then
+            echo "🛡️ 检测到 Sing-box 端口: $sb_ports"
+            all_ports="$all_ports $sb_ports"
+        fi
+    fi
+
+    # === X-Panel 端口检测（修复版：过滤 NULL）===
+    if pgrep -f "xpanel" >/dev/null || pgrep -f "x-ui" >/dev/null; then
+        if [ -f /etc/x-ui/x-ui.db ] && command -v sqlite3 &>/dev/null; then
+            xpanel_ports=$(sqlite3 /etc/x-ui/x-ui.db \
+                "SELECT port FROM inbounds WHERE port IS NOT NULL AND port != '';" 2>/dev/null | \
+                grep -E '^[0-9]+$' | sort -u | tr '\n' ' ')
+            if [ -n "$xpanel_ports" ]; then
+                echo "🛡️ 检测到 X-Panel 入站端口: $xpanel_ports"
+                all_ports="$all_ports $xpanel_ports"
+            fi
+        fi
+        echo "🌐 检测到面板进程，自动放行 80 端口（用于证书申请）。"
+        all_ports="$all_ports 80"
+    fi
+
+    # === 最终端口去重和格式化 ===
+    all_ports=$(echo "$all_ports" | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -un | tr '\n' ' ' | sed 's/ $//')
+    
+    if [ -z "$all_ports" ]; then
+        echo "❌ 错误：未检测到任何有效端口！"
+        exit 1
+    fi
+    
+    print_message "最终将保留的端口: $all_ports"
+    remove_unused_rules "$all_ports" "$firewall_type"
+
+    print_message "✅ 所有安全配置已成功应用！"
+}
+
+main
+self_check | sort -un | tr '\n' ' ' | sed 's/ $//')
+    
+    if [ -z "$all_ports" ]; then
+        echo "❌ 错误：未检测到任何有效端口！"
+        exit 1
+    fi
+    
+    print_message "最终将保留的端口: $all_ports"
+    remove_unused_rules "$all_ports" "$firewall_type"
+
+    print_message "✅ 所有安全配置已成功应用！"
+}
+
+# --- 执行主程序 ---
 main
 self_check | sort -u | tr '\n' ' ')
                 if [ -n "$config_ports" ]; then
