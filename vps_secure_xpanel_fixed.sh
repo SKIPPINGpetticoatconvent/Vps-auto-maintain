@@ -348,12 +348,12 @@ main() {
         fi
     fi
 
-    # === Sing-box 端口检测（修复版：从配置文件读取）===
+    # === Sing-box 端口检测（修复版：从配置文件读取，支持233boy脚本）===
     if pgrep -x "sing-box" &>/dev/null; then
         sb_ports=""
-        # 检查配置文件目录是否存在
+        # 检查233boy脚本配置文件目录
         if [ -d "/etc/sing-box/conf" ]; then
-            # 遍历所有配置文件，提取监听端口
+            # 遍历233boy脚本所有配置文件，提取监听端口
             for config_file in /etc/sing-box/conf/*.json; do
                 if [ -f "$config_file" ]; then
                     # 从JSON配置中提取listen_port
@@ -363,12 +363,18 @@ main() {
                     fi
                 fi
             done
-            # 如果未从配置文件获取到端口，回退到网络监听检测
-            if [ -z "$sb_ports" ]; then
-                sb_ports=$(ss -tnlp 2>/dev/null | grep -w "sing-box" | awk '{print $4}' | grep -oE '[0-9]+$' | sort -u)
+        fi
+
+        # 检查通用sing-box配置文件
+        if [ -f "/etc/sing-box/config.json" ]; then
+            config_ports=$(jq -r '.inbounds[]?.listen_port // empty' "/etc/sing-box/config.json" 2>/dev/null | sort -u | tr '\n' ' ')
+            if [ -n "$config_ports" ]; then
+                sb_ports="$sb_ports $config_ports"
             fi
-        else
-            # 如果配置文件目录不存在，使用网络监听检测
+        fi
+
+        # 如果未从配置文件获取到端口，回退到网络监听检测
+        if [ -z "$sb_ports" ]; then
             sb_ports=$(ss -tnlp 2>/dev/null | grep -w "sing-box" | awk '{print $4}' | grep -oE '[0-9]+$' | sort -u)
         fi
         sb_ports=$(echo "$sb_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
@@ -378,7 +384,7 @@ main() {
         fi
     fi
 
-    # === X-Panel 端口检测（修复版：过滤 NULL）===
+    # === X-Panel 端口检测（修复版：过滤 NULL，支持233boy Xray脚本）===
     if pgrep -f "xpanel" >/dev/null || pgrep -f "x-ui" >/dev/null; then
         if [ -f /etc/x-ui/x-ui.db ]; then
             xpanel_ports=$(sqlite3 /etc/x-ui/x-ui.db \
@@ -391,6 +397,44 @@ main() {
         fi
         echo "🌐 检测到面板进程，自动放行 80 端口（用于证书申请）。"
         all_ports="$all_ports 80"
+    fi
+
+    # === 233boy Xray 脚本端口检测 ===
+    if [ -d "/etc/xray/conf" ]; then
+        xray_config_ports=""
+        for config_file in /etc/xray/conf/*.json; do
+            if [ -f "$config_file" ]; then
+                # 提取inbounds中的port字段
+                config_ports=$(jq -r '.inbounds[]?.port // empty' "$config_file" 2>/dev/null | sort -u | tr '\n' ' ')
+                if [ -n "$config_ports" ]; then
+                    xray_config_ports="$xray_config_ports $config_ports"
+                fi
+            fi
+        done
+        if [ -n "$xray_config_ports" ]; then
+            xray_config_ports=$(echo "$xray_config_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+            echo "🛡️ 检测到 233boy Xray 配置端口: $xray_config_ports"
+            all_ports="$all_ports $xray_config_ports"
+        fi
+    fi
+
+    # === 233boy Sing-box 脚本端口检测 ===
+    if [ -d "/etc/sing-box/conf" ]; then
+        sb_config_ports=""
+        for config_file in /etc/sing-box/conf/*.json; do
+            if [ -f "$config_file" ]; then
+                # 提取inbounds中的listen_port字段
+                config_ports=$(jq -r '.inbounds[]?.listen_port // empty' "$config_file" 2>/dev/null | sort -u | tr '\n' ' ')
+                if [ -n "$config_ports" ]; then
+                    sb_config_ports="$sb_config_ports $config_ports"
+                fi
+            fi
+        done
+        if [ -n "$sb_config_ports" ]; then
+            sb_config_ports=$(echo "$sb_config_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+            echo "🛡️ 检测到 233boy Sing-box 配置端口: $sb_config_ports"
+            all_ports="$all_ports $sb_config_ports"
+        fi
     fi
 
     all_ports=$(echo "$all_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
