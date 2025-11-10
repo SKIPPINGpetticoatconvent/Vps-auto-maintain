@@ -15,7 +15,6 @@ on:
 
 env:
   GO_VERSION: '1.21'
-  MODULE_PATH: './Go'
 
 jobs:
   # 代码检查和测试
@@ -30,18 +29,18 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: ${{ env.MODULE_PATH }}/go.sum
+          cache-dependency-path: Go/go.sum
 
       - name: Download dependencies
-        working-directory: ${{ env.MODULE_PATH }}
+        working-directory: Go
         run: go mod download
 
       - name: Run go vet
-        working-directory: ${{ env.MODULE_PATH }}
+        working-directory: Go
         run: go vet ./...
 
       - name: Run go fmt check
-        working-directory: ${{ env.MODULE_PATH }}
+        working-directory: Go
         run: |
           if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
             echo "代码格式不符合规范，请运行 gofmt -s -w ."
@@ -50,7 +49,7 @@ jobs:
           fi
 
       - name: Run tests (if any)
-        working-directory: ${{ env.MODULE_PATH }}
+        working-directory: Go
         run: go test -v ./... || echo "No tests found"
 
   # 构建多平台二进制文件
@@ -91,14 +90,26 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: ${{ env.MODULE_PATH }}/go.sum
+          cache-dependency-path: Go/go.sum
+
+      - name: Verify directory structure
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Listing Go directory:"
+          ls -la Go || echo "Go directory not found"
+          echo "Listing Go/cmd directory:"
+          ls -la Go/cmd || echo "cmd directory not found"
+          echo "Listing Go/cmd/vps-tg-bot directory:"
+          ls -la Go/cmd/vps-tg-bot || echo "vps-tg-bot directory not found"
+          echo "Checking main.go exists:"
+          test -f Go/cmd/vps-tg-bot/main.go && echo "main.go found" || echo "main.go NOT found"
 
       - name: Download dependencies
-        working-directory: ${{ env.MODULE_PATH }}
+        working-directory: Go
         run: go mod download
 
       - name: Build binary
-        working-directory: ${{ env.MODULE_PATH }}
+        working-directory: Go
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -108,12 +119,14 @@ jobs:
           if [ "${{ matrix.goos }}" = "windows" ]; then
             OUTPUT_NAME="vps-tg-bot.exe"
           fi
+          echo "Building from: $(pwd)"
+          echo "Building: ./cmd/vps-tg-bot"
           go build -ldflags="-s -w" -trimpath -o "$OUTPUT_NAME" ./cmd/vps-tg-bot
           echo "BINARY_NAME=$OUTPUT_NAME" >> $GITHUB_ENV
 
       - name: Get version
         id: version
-        working-directory: ${{ env.MODULE_PATH }}
+        working-directory: Go
         run: |
           if [ "${{ github.ref_type }}" = "tag" ]; then
             VERSION="${{ github.ref_name }}"
@@ -124,7 +137,7 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Create archive
-        working-directory: ${{ env.MODULE_PATH }}
+        working-directory: Go
         run: |
           ARCHIVE_NAME="vps-tg-bot-${{ matrix.goos }}-${{ matrix.goarch }}-${{ env.VERSION }}"
           if [ "${{ matrix.goos }}" = "windows" ]; then
@@ -139,7 +152,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vps-tg-bot-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: ${{ env.MODULE_PATH }}/${{ env.ARCHIVE_NAME }}
+          path: Go/${{ env.ARCHIVE_NAME }}
           retention-days: 30
 
   # 创建 Release（仅在打 tag 时）
@@ -233,8 +246,8 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ${{ env.MODULE_PATH }}
-          file: ${{ env.MODULE_PATH }}/Dockerfile
+          context: Go
+          file: Go/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/vps-tg-bot:latest
