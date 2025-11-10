@@ -11,9 +11,9 @@ import (
 
 // Scheduler 定时任务调度器
 type Scheduler struct {
-	cron    *cron.Cron
-	config  *config.Config
-	botAPI  *tgbotapi.BotAPI
+	cron   *cron.Cron
+	config *config.Config
+	botAPI *tgbotapi.BotAPI
 }
 
 // NewScheduler 创建新的调度器

@@ -76,7 +76,7 @@ func GetLogs(serviceName string, lines int) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("获取日志失败: %v", err)
 	}
-	
+
 	logs := string(output)
 	// 限制日志长度（最多2000字符）
 	if len(logs) > 2000 {

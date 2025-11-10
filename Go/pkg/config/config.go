@@ -7,10 +7,10 @@ import (
 
 // Config 存储 Bot 配置信息
 type Config struct {
-	Token        string
-	AdminChatID  int64
-	CoreScript   string
-	RulesScript  string
+	Token       string
+	AdminChatID int64
+	CoreScript  string
+	RulesScript string
 }
 
 // Load 从环境变量加载配置
