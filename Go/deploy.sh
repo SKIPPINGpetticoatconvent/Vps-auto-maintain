@@ -5,6 +5,121 @@
 # 版本: 2.0.0
 # 功能:
 #   ✅ 优先使用预编译二进制文件（避免重复编译）
+#   ✅ 自动下载最新 GitHub Release 文件
+#   ✅ 自动同步 VPS 时区
+#   ✅ 每周日 04:00 自动维护 (系统+规则更新+重启)
+#   ✅ 创建 systemd 服务 (后台运行)
+#   ✅ SSH 终端关闭后程序继续运行
+#   ✅ 支持卸载功能
+#
+# 使用方法:
+#   ./deploy.sh        # 部署
+#   ./deploy.sh remove # 卸载
+# ----------------------------------------------------------------------------
+
+set -e
+
+# 颜色输出
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BOT_DIR="/opt/vps-tg-bot"
+BOT_BINARY="$BOT_DIR/vps-tg-bot"
+BOT_SERVICE="/etc/systemd/system/vps-tg-bot.service"
+CORE_MAINTAIN_SCRIPT="/usr/local/bin/vps-maintain-core.sh"
+RULES_MAINTAIN_SCRIPT="/usr/local/bin/vps-maintain-rules.sh"
+
+# 卸载功能
+uninstall_service() {
+  print_message "卸载 VPS Telegram Bot"
+
+  # 停止并禁用服务
+  if systemctl is-active --quiet vps-tg-bot 2>/dev/null; then
+    print_warning "停止服务..."
+    systemctl stop vps-tg-bot
+  fi
+
+  if systemctl is-enabled --quiet vps-tg-bot 2>/dev/null; then
+    print_warning "禁用服务..."
+    systemctl disable vps-tg-bot
+  fi
+
+  # 删除服务文件
+  if [ -f "$BOT_SERVICE" ]; then
+    print_warning "删除服务文件..."
+    rm -f "$BOT_SERVICE"
+    systemctl daemon-reload
+  fi
+
+  # 删除程序文件
+  if [ -d "$BOT_DIR" ]; then
+    print_warning "删除程序目录..."
+    rm -rf "$BOT_DIR"
+  fi
+
+  # 删除维护脚本
+  if [ -f "$CORE_MAINTAIN_SCRIPT" ]; then
+    print_warning "删除核心维护脚本..."
+    rm -f "$CORE_MAINTAIN_SCRIPT"
+  fi
+
+  if [ -f "$RULES_MAINTAIN_SCRIPT" ]; then
+    print_warning "删除规则维护脚本..."
+    rm -f "$RULES_MAINTAIN_SCRIPT"
+  fi
+
+  # 删除 journald 配置
+  if [ -f "/etc/systemd/journald.conf.d/memory.conf" ]; then
+    print_warning "删除 journald 内存配置..."
+    rm -f "/etc/systemd/journald.conf.d/memory.conf"
+    systemctl restart systemd-journald 2>/dev/null || true
+  fi
+
+  # 清理临时文件
+  rm -f "/tmp/vps_maintain_result.txt" "/tmp/vps_rules_result.txt"
+
+  # 清理 crontab
+  (crontab -l 2>/dev/null | grep -v "vps-maintain" || true) | crontab -
+
+  print_success "卸载完成"
+  exit 0
+}
+
+# 检查命令行参数
+if [ "$1" = "remove" ] || [ "$1" = "uninstall" ]; then
+  if [ "$EUID" -ne 0 ]; then
+    print_error "请使用 root 用户或 sudo 执行卸载命令"
+    exit 1
+  fi
+  uninstall_service
+fi
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+print_message() {
+  echo ""
+  echo "============================================================"
+  echo "$1"
+  echo "============================================================"
+}
+
+print_success() {
+  echo -e "${GREEN}✅ $1${NC}"
+}
+
+print_error() {
+  echo -e "${RED}❌ $1${NC}"
+}
+
+print_warning() {
+  echo -e "${YELLOW}⚠️  $1${NC}"
+}
+#!/bin/bash
+# ----------------------------------------------------------------------------
+# VPS Telegram Bot Go 版本 - 一键部署脚本
+#
+# 版本: 2.0.0
+# 功能:
+#   ✅ 优先使用预编译二进制文件（避免重复编译）
 #   ✅ 自动同步 VPS 时区
 #   ✅ 每周日 04:00 自动维护 (系统+规则更新+重启)
 #   ✅ 创建 systemd 服务 (后台运行)
@@ -19,12 +134,7 @@ BOT_SERVICE="/etc/systemd/system/vps-tg-bot.service"
 CORE_MAINTAIN_SCRIPT="/usr/local/bin/vps-maintain-core.sh"
 RULES_MAINTAIN_SCRIPT="/usr/local/bin/vps-maintain-rules.sh"
 
-print_message() {
-  echo ""
-  echo "============================================================"
-  echo "$1"
-  echo "============================================================"
-}
+# 保留原来的 print_message 函数用于兼容性
 
 # --- 自动同步 VPS 时区 ---
 sync_timezone() {
@@ -290,7 +400,9 @@ else
 fi
 
 print_message "🎉 部署完成！"
-echo "✅ 服务已在后台运行，即使 SSH 终端关闭也不会停止"
-echo "✅ 每周日 04:00 会自动执行系统维护"
-echo "📱 前往 Telegram 发送 /start 开始使用"
-echo "♻️ 支持功能：系统状态、立即维护、查看日志、重启 VPS"
+print_success "服务已在后台运行，即使 SSH 终端关闭也不会停止"
+print_success "每周日 04:00 会自动执行系统维护"
+print_success "前往 Telegram 发送 /start 开始使用"
+print_success "支持功能：系统状态、立即维护、查看日志、重启 VPS"
+echo ""
+print_warning "卸载命令: ./deploy.sh remove"
