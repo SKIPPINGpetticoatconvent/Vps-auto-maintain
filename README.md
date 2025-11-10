@@ -2,18 +2,19 @@
 
 > 简体中文 | [English](#english)
 
-一个强大的 VPS 自动化维护工具集，提供一键部署、定时维护和安全配置功能。
+一个强大的 VPS 自动化维护工具集，提供一键部署、定时维护和安全配置功能，包含 Python 和 Go 两种实现版本的 Telegram Bot 管理系统。
 
 ## 功能特性
 
 - 🔄 **自动维护**: 系统更新、Xray/Sing-box 核心更新、定时重启
 - 🤖 **Telegram 通知**: 实时状态监控、维护结果通知、封禁提醒
 - 🛡️ **安全配置**: 防火墙自动配置、Fail2Ban SSH 防护、三档防护模式
-- 📱 **Bot 管理**: 通过 Telegram Bot 交互式远程管理 VPS
+- 📱 **Bot 管理**: 通过 Telegram Bot 交互式远程管理 VPS（支持 Python 和 Go 两种实现）
 - ⏰ **定时任务**: 智能调度、时区自适应、持久化存储
 - 📊 **状态监控**: 实时查看系统状态、代理服务状态、定时任务状态
 - 💾 **内存优化**: 系统日志内存化存储、内存使用优化
 - 🔒 **安全更新**: 无人值守安全补丁、自动重启、多种部署模式
+- 🚀 **多语言支持**: Python 版本（成熟稳定）、Go 版本（高性能、低资源占用）
 
 ## 项目文件
 
@@ -23,8 +24,23 @@
 - `Telegram-Bot.sh` - Telegram Bot 管理系统部署脚本 (v5.3)
 - `vps_secure_xpanel_fixed.sh` - VPS 终极安全与自动维护脚本 (V3.7.3)
 - `Debian/security-auto-update.sh` - Debian 安全更新专用脚本 (v2.1)
+- `Go/vps-tg-bot-install.sh` - Go 版本 Telegram Bot 一键部署脚本 (v1.0)
 - `LICENSE` - MIT 许可证
 - `.gitignore` - Git 忽略文件
+
+### 目录结构
+
+- `Go/` - Go 语言实现的 Telegram Bot 管理系统
+  - `cmd/vps-tg-bot/` - 主程序入口
+  - `pkg/` - 核心模块（配置、Bot 逻辑、系统操作、定时任务）
+  - `README.md` - Go 版本详细文档
+  - `ARCHITECTURE.md` - 架构设计说明
+  - `BUILD.md` - 构建指南
+  - `CI.md` - CI/CD 工作流说明
+  - `CONFIG.md` - 配置详细说明
+- `TG/` - Telegram Bot 相关脚本
+- `Debian/` - Debian 系统专用脚本
+- `.github/` - GitHub Actions 工作流
 
 ### 主要功能模块
 
@@ -34,11 +50,17 @@
 - 定时任务配置
 - Telegram 通知集成
 
-#### 2. Telegram Bot 管理 (`Telegram-Bot.sh`)
-- 交互式 VPS 管理界面
-- 即时维护命令执行
-- 定时任务管理（持久化存储）
-- 系统日志查看
+#### 2. Telegram Bot 管理
+- **Python 版本** (`Telegram-Bot.sh`) - 成熟稳定的管理系统 (v5.3)
+  - 交互式 VPS 管理界面
+  - 即时维护命令执行
+  - 定时任务管理（持久化存储）
+  - 系统日志查看
+- **Go 版本** (`Go/`) - 高性能、低资源占用的管理系统 (v1.0)
+  - 基于 Go 语言重构
+  - 单一二进制文件部署
+  - 更低的内存占用
+  - 更快的启动速度
 
 #### 3. 安全配置 (`vps_secure_xpanel_fixed.sh`)
 - UFW/firewalld 防火墙配置
@@ -65,12 +87,13 @@
 
 #### 选择适合您的部署方案
 
-项目提供四种部署方案，请根据需求选择：
+项目提供五种部署方案，请根据需求选择：
 
 1. **完整维护方案** (`deploy.sh`) - 系统维护 + 定时任务 + Telegram 通知
-2. **Bot 管理方案** (`Telegram-Bot.sh`) - 交互式 Bot 管理界面
-3. **安全防护方案** (`vps_secure_xpanel_fixed.sh`) - 全面的安全配置和防护
-4. **轻量更新方案** (`Debian/security-auto-update.sh`) - 仅安全更新，轻量部署
+2. **Bot 管理方案（Python）** (`Telegram-Bot.sh`) - 成熟稳定的交互式 Bot 管理界面
+3. **Bot 管理方案（Go）** (`Go/vps-tg-bot-install.sh`) - 高性能的 Go 版本 Bot 管理系统
+4. **安全防护方案** (`vps_secure_xpanel_fixed.sh`) - 全面的安全配置和防护
+5. **轻量更新方案** (`Debian/security-auto-update.sh`) - 仅安全更新，轻量部署
 
 #### 方法一：在线运行（推荐，方便快捷）
 
@@ -80,8 +103,11 @@ bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/
 ```
 
 ```
-# Telegram Bot 管理部署
+# Telegram Bot 管理部署 (Python 版本)
 bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/TG/Telegram-Bot.sh)
+
+# Telegram Bot 管理部署 (Go 版本)
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/Go/vps-tg-bot-install.sh)
 ```
 
 ```
@@ -108,8 +134,11 @@ bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/
    # 基础维护部署
    chmod +x deploy.sh && ./deploy.sh
 
-   # 或使用 Telegram Bot 管理
+   # Telegram Bot 管理 (Python 版本)
    chmod +x TG/Telegram-Bot.sh && ./TG/Telegram-Bot.sh
+
+   # Telegram Bot 管理 (Go 版本)
+   chmod +x Go/vps-tg-bot-install.sh && ./Go/vps-tg-bot-install.sh
 
    # 安全配置
    chmod +x vps_secure_xpanel_fixed.sh && ./vps_secure_xpanel_fixed.sh
@@ -206,7 +235,9 @@ VPS Auto Maintain
 │   ├── 规则更新脚本
 │   └── 重启通知脚本
 ├── 管理层
-│   ├── Telegram Bot
+│   ├── Telegram Bot (Python/Go)
+│   │   ├── Python 版本 (成熟稳定)
+│   │   └── Go 版本 (高性能)
 │   └── Web 界面 (可选)
 └── 安全层
     ├── 防火墙 (UFW/firewalld)
@@ -245,6 +276,17 @@ VPS Auto Maintain
 - 智能自检模块
 - 添加卸载模式支持
 
+### v1.0 (Go/vps-tg-bot)
+- Go 语言实现的 Telegram Bot 管理系统
+- 从 Python 版本完全重构
+- 单一二进制文件部署，无需 Python 环境
+- 更低的内存占用和更快的启动速度
+- 模块化架构设计，便于维护和扩展
+- 支持环境变量和交互式配置
+- 完整的定时任务调度功能
+- systemd 服务自动管理
+- 详细的架构和构建文档
+
 ## 注意事项
 
 - ⚠️ 请在测试环境先验证脚本
@@ -267,18 +309,19 @@ VPS Auto Maintain
 
 # VPS Auto Maintain
 
-A powerful VPS automation maintenance toolkit that provides one-click deployment, scheduled maintenance, and security configuration.
+A powerful VPS automation maintenance toolkit that provides one-click deployment, scheduled maintenance, and security configuration, including both Python and Go implementations of Telegram Bot management systems.
 
 ## Features
 
 - 🔄 **Auto Maintenance**: System updates, Xray/Sing-box core updates, scheduled reboots
 - 🤖 **Telegram Notifications**: Real-time monitoring, maintenance notifications, ban alerts
 - 🛡️ **Security Configuration**: Automatic firewall setup, Fail2Ban SSH protection, three protection modes
-- 📱 **Bot Management**: Interactive remote VPS management via Telegram Bot
+- 📱 **Bot Management**: Interactive remote VPS management via Telegram Bot (Python & Go versions available)
 - ⏰ **Scheduled Tasks**: Smart scheduling, timezone adaptation, persistent storage
 - 📊 **Status Monitoring**: Real-time system status, proxy service status, task status
 - 💾 **Memory Optimization**: System logs in memory storage, memory usage optimization
 - 🔒 **Security Updates**: Unattended security patches, automatic reboot, multiple deployment modes
+- 🚀 **Multi-Language Support**: Python version (mature and stable), Go version (high-performance, low resource usage)
 
 ## Project Files
 
@@ -287,7 +330,8 @@ A powerful VPS automation maintenance toolkit that provides one-click deployment
 - `deploy.sh` - VPS auto maintenance one-click deployment script (v4.4)
 - `Telegram-Bot.sh` - Telegram Bot management system deployment script (v5.3)
 - `vps_secure_xpanel_fixed.sh` - Ultimate VPS security and auto maintenance script (V3.7.3)
-- `Debian/security-auto-update.sh` - Debian security update dedicated script (v1.0)
+- `Debian/security-auto-update.sh` - Debian security update dedicated script (v2.1)
+- `Go/vps-tg-bot-install.sh` - Go version Telegram Bot one-click deployment script (v1.0)
 - `LICENSE` - MIT License
 - `.gitignore` - Git ignore file
 
@@ -299,11 +343,17 @@ A powerful VPS automation maintenance toolkit that provides one-click deployment
 - Cron job configuration
 - Telegram notification integration
 
-#### 2. Telegram Bot Management (`Telegram-Bot.sh`)
-- Interactive VPS management interface
-- Instant maintenance command execution
-- Scheduled task management (persistent storage)
-- System log viewing
+#### 2. Telegram Bot Management
+- **Python version** (`Telegram-Bot.sh`) - Mature and stable management system (v5.3)
+  - Interactive VPS management interface
+  - Instant maintenance command execution
+  - Scheduled task management (persistent storage)
+  - System log viewing
+- **Go version** (`Go/`) - High-performance, low resource management system (v1.0)
+  - Completely rewritten in Go language
+  - Single binary deployment, no Python environment required
+  - Lower memory usage and faster startup
+  - Modular architecture for easy maintenance and expansion
 
 #### 3. Security Configuration (`vps_secure_xpanel_fixed.sh`)
 - UFW/firewalld firewall configuration
@@ -330,12 +380,13 @@ A powerful VPS automation maintenance toolkit that provides one-click deployment
 
 #### Choose Your Deployment Plan
 
-The project provides four deployment options, please choose according to your needs:
+The project provides five deployment options, please choose according to your needs:
 
 1. **Complete Maintenance Plan** (`deploy.sh`) - System maintenance + scheduled tasks + Telegram notifications
-2. **Bot Management Plan** (`Telegram-Bot.sh`) - Interactive Bot management interface
-3. **Security Protection Plan** (`vps_secure_xpanel_fixed.sh`) - Comprehensive security configuration and protection
-4. **Lightweight Update Plan** (`Debian/security-auto-update.sh`) - Security updates only, lightweight deployment
+2. **Bot Management Plan (Python)** (`Telegram-Bot.sh`) - Mature and stable interactive Bot management interface
+3. **Bot Management Plan (Go)** (`Go/vps-tg-bot-install.sh`) - High-performance Go version Bot management system
+4. **Security Protection Plan** (`vps_secure_xpanel_fixed.sh`) - Comprehensive security configuration and protection
+5. **Lightweight Update Plan** (`Debian/security-auto-update.sh`) - Security updates only, lightweight deployment
 
 #### Method 1: Run Online (Recommended, Quick and Easy)
 
@@ -343,8 +394,11 @@ The project provides four deployment options, please choose according to your ne
 # Basic maintenance deployment
 bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/deploy.sh)
 
-# Telegram Bot management deployment
+# Telegram Bot management deployment (Python version)
 bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/TG/Telegram-Bot.sh)
+
+# Telegram Bot management deployment (Go version)
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/Go/vps-tg-bot-install.sh)
 
 # Security configuration
 bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/vps_secure_xpanel_fixed.sh)
@@ -366,8 +420,11 @@ bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/
    # Basic maintenance deployment
    chmod +x deploy.sh && ./deploy.sh
 
-   # Or use Telegram Bot management
+   # Telegram Bot management (Python version)
    chmod +x TG/Telegram-Bot.sh && ./TG/Telegram-Bot.sh
+
+   # Telegram Bot management (Go version)
+   chmod +x Go/vps-tg-bot-install.sh && ./Go/vps-tg-bot-install.sh
 
    # Security configuration
    chmod +x vps_secure_xpanel_fixed.sh && ./vps_secure_xpanel_fixed.sh
@@ -464,7 +521,9 @@ VPS Auto Maintain
 │   ├── Rules Update Script
 │   └── Reboot Notification Script
 ├── Management Layer
-│   ├── Telegram Bot
+│   ├── Telegram Bot (Python/Go)
+│   │   ├── Python Version (Mature & Stable)
+│   │   └── Go Version (High-Performance)
 │   └── Web Interface (optional)
 └── Security Layer
     ├── Firewall (UFW/firewalld)
@@ -502,6 +561,17 @@ VPS Auto Maintain
 - 03:00 automatic reboot
 - Intelligent self-check module
 - Added uninstall mode support
+
+### v1.0 (Go/vps-tg-bot)
+- Go language implementation of Telegram Bot management system
+- Completely rewritten from Python version
+- Single binary deployment, no Python environment required
+- Lower memory usage and faster startup speed
+- Modular architecture design for easy maintenance and expansion
+- Support for environment variable and interactive configuration
+- Complete scheduled task scheduling functionality
+- Automatic systemd service management
+- Detailed architecture and build documentation
 
 ## Important Notes
 
