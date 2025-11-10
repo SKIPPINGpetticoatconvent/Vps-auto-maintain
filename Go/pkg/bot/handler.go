@@ -3,6 +3,7 @@ package bot
 import (
 	"fmt"
 	"log"
+	"time"
 	"vps-tg-bot/pkg/config"
 	"vps-tg-bot/pkg/system"
 
@@ -99,19 +100,21 @@ func (b *Bot) ExecuteMaintenance(chatID int64) error {
 	msg := tgbotapi.NewMessage(chatID, "⏳ 正在执行维护，请稍候...")
 	b.api.Send(msg)
 
-	result, err := system.RunMaintenance(b.config.CoreScript)
-	if err != nil {
-		replyMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("❌ 维护失败: %v", err))
-		b.api.Send(replyMsg)
-		return err
-	}
-
-	replyMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ *维护完成*\n\n```\n%s\n```\n\n⚠️ 系统将在 5 秒后重启", result))
-	replyMsg.ParseMode = tgbotapi.ModeMarkdown
-	b.api.Send(replyMsg)
-
-	// 延迟5秒后重启
+	// 在goroutine中执行维护，避免阻塞Bot响应
 	go func() {
+		result, err := system.RunMaintenance(b.config.CoreScript)
+		if err != nil {
+			replyMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("❌ 维护失败: %v", err))
+			b.api.Send(replyMsg)
+			return
+		}
+
+		replyMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ *维护完成*\n\n```\n%s\n```\n\n⚠️ 系统将在 5 秒后重启", result))
+		replyMsg.ParseMode = tgbotapi.ModeMarkdown
+		b.api.Send(replyMsg)
+
+		// 延迟5秒后重启
+		time.Sleep(5 * time.Second)
 		if err := system.RebootVPS(); err != nil {
 			log.Printf("重启失败: %v", err)
 		}

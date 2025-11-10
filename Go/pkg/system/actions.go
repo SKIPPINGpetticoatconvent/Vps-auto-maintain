@@ -60,7 +60,8 @@ func RunMaintenance(scriptPath string) (string, error) {
 		return "", fmt.Errorf("维护脚本不存在: %s", scriptPath)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	// 增加超时时间到20分钟，避免脚本执行超时
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 
 	output, err := defaultExecutor.ExecuteBash(ctx, scriptPath)

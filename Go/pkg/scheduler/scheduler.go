@@ -3,6 +3,7 @@ package scheduler
 import (
 	"fmt"
 	"log"
+	"time"
 	"vps-tg-bot/pkg/config"
 	"vps-tg-bot/pkg/system"
 
@@ -86,11 +87,10 @@ func (s *Scheduler) scheduledTask() {
 	s.sendNotification(message)
 
 	// 延迟5秒后重启
-	go func() {
-		if err := system.RebootVPS(); err != nil {
-			log.Printf("重启失败: %v", err)
-		}
-	}()
+	time.Sleep(5 * time.Second)
+	if err := system.RebootVPS(); err != nil {
+		log.Printf("重启失败: %v", err)
+	}
 }
 
 // sendNotification 发送通知消息

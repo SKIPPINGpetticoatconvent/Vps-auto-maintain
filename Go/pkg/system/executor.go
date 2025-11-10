@@ -16,7 +16,7 @@ type CommandExecutor struct {
 // NewExecutor 创建新的命令执行器
 func NewExecutor(timeout time.Duration) *CommandExecutor {
 	if timeout == 0 {
-		timeout = 30 * time.Second // 默认30秒超时
+		timeout = 60 * time.Second // 默认60秒超时
 	}
 	return &CommandExecutor{
 		Timeout: timeout,
