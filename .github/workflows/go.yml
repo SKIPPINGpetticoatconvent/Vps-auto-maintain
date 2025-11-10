@@ -31,7 +31,9 @@ jobs:
       uses: golangci/golangci-lint-action@v6
       with:
         version: latest
-        args: --config .golangci.yml --timeout 5m
+        args: --timeout 5m
+        # 如果项目根目录有 .golangci.yml，取消下面这行的注释
+        # args: --config .golangci.yml --timeout 5m
 
   # 构建和测试
   build-and-test:
