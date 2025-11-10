@@ -174,13 +174,15 @@ sync_timezone
 # --- 步骤 0: 环境检查 ---
 print_message "步骤 0: 检查系统环境"
 
-if ! command -v go &>/dev/null; then
-  echo "📦 安装 Go..."
-  apt-get update -o Acquire::ForceIPv4=true && apt-get install -y golang-go
+if command -v go &>/dev/null; then
+  GO_VERSION=$(go version)
+  print_warning "检测到 Go 已安装: $GO_VERSION"
+  print_warning "根据用户要求，检测到 Go 时自动执行卸载操作"
+  uninstall_service
+  exit 0
+else
+  print_success "未检测到 Go，继续安装流程"
 fi
-
-GO_VERSION=$(go version)
-echo "✅ Go 已安装: $GO_VERSION"
 
 # --- 检测并清理旧版本 ---
 print_message "检测并清理旧版本"
