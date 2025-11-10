@@ -9,7 +9,7 @@ on:
     branches: [ "main" ]
 
 env:
-  GO_VERSION: '1.23'
+  GO_VERSION: '1.21'
   DOCKER_IMAGE: 'vps-tg-bot'
 
 jobs:
@@ -36,9 +36,7 @@ jobs:
       with:
         version: latest
         working-directory: Go
-        args: --timeout 5m
-        # 如果 Go/ 目录下有 .golangci.yml，取消下面这行的注释
-        # args: --config .golangci.yml --timeout 5m
+        args: --timeout 5m --disable-all --enable=errcheck,gosimple,govet,ineffassign,staticcheck,unused
 
   # 构建和测试
   build-and-test:
