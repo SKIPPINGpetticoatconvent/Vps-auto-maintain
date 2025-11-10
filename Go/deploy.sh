@@ -92,6 +92,12 @@ if [ "$1" = "remove" ] || [ "$1" = "uninstall" ]; then
   fi
   uninstall_service
 fi
+
+# 检查 root 权限（部署需要）
+if [ "$EUID" -ne 0 ]; then
+  print_error "请使用 root 用户或 sudo 执行部署命令"
+  exit 1
+fi
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
@@ -176,13 +182,27 @@ fi
 GO_VERSION=$(go version)
 echo "✅ Go 已安装: $GO_VERSION"
 
-# --- 清理旧版本 ---
-print_message "清理旧版本文件与服务"
-systemctl stop vps-tg-bot 2>/dev/null || true
-systemctl disable vps-tg-bot 2>/dev/null || true
+# --- 检测并清理旧版本 ---
+print_message "检测并清理旧版本"
+
+# 检查是否有已安装的服务
+OLD_INSTALLATION=false
+if systemctl is-active --quiet vps-tg-bot 2>/dev/null || systemctl is-enabled --quiet vps-tg-bot 2>/dev/null || [ -f "$BOT_SERVICE" ]; then
+  OLD_INSTALLATION=true
+  print_warning "检测到旧版本安装，正在自动卸载..."
+  uninstall_service
+fi
+
+# 清理残留文件（以防万一）
 rm -rf "$BOT_DIR" "$BOT_SERVICE" "$CORE_MAINTAIN_SCRIPT" "$RULES_MAINTAIN_SCRIPT"
+rm -f "/tmp/vps_maintain_result.txt" "/tmp/vps_rules_result.txt"
 (crontab -l 2>/dev/null | grep -v "vps-maintain" || true) | crontab -
-echo "✅ 清理完成"
+
+if [ "$OLD_INSTALLATION" = true ]; then
+  print_success "旧版本清理完成"
+else
+  print_success "未检测到旧版本，继续安装"
+fi
 
 # --- 步骤 1: 配置 Telegram Bot ---
 print_message "步骤 1: 配置 Telegram Bot"
@@ -344,24 +364,26 @@ fi
 chmod +x "$BOT_BINARY"
 echo "✅ Go 程序准备完成"
 
-# 下载最新的 docker-compose.yml
-print_message "下载最新配置文件"
-if command -v curl &>/dev/null; then
-  curl -s https://api.github.com/repos/SKIPPINGpetticoatconvent/Vps-auto-maintain/releases/latest \
-    | grep "browser_download_url.*docker-compose.yml" \
-    | cut -d '"' -f 4 \
-    | xargs -I {} curl -L -o docker-compose.yml {}
-elif command -v wget &>/dev/null; then
-  wget -qO- https://api.github.com/repos/SKIPPINGpetticoatconvent/Vps-auto-maintain/releases/latest \
-    | grep "browser_download_url.*docker-compose.yml" \
-    | cut -d '"' -f 4 \
-    | xargs -I {} wget -O docker-compose.yml {}
-fi
+# 下载最新的 docker-compose.yml（可选）
+if [ "$DOWNLOAD_CONFIG" = "true" ]; then
+  print_message "下载最新配置文件"
+  if command -v curl &>/dev/null; then
+    curl -s https://api.github.com/repos/SKIPPINGpetticoatconvent/Vps-auto-maintain/releases/latest \
+      | grep "browser_download_url.*docker-compose.yml" \
+      | cut -d '"' -f 4 \
+      | xargs -I {} curl -L -o docker-compose.yml {}
+  elif command -v wget &>/dev/null; then
+    wget -qO- https://api.github.com/repos/SKIPPINGpetticoatconvent/Vps-auto-maintain/releases/latest \
+      | grep "browser_download_url.*docker-compose.yml" \
+      | cut -d '"' -f 4 \
+      | xargs -I {} wget -O docker-compose.yml {}
+  fi
 
-if [ -f "docker-compose.yml" ]; then
-  echo "✅ docker-compose.yml 下载完成"
-else
-  echo "⚠️ docker-compose.yml 下载失败，使用现有配置"
+  if [ -f "docker-compose.yml" ]; then
+    print_success "docker-compose.yml 下载完成"
+  else
+    print_warning "docker-compose.yml 下载失败，使用现有配置"
+  fi
 fi
 
 # --- 步骤 5: 创建 systemd 服务 ---
