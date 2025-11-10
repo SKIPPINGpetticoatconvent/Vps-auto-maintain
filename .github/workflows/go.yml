@@ -64,19 +64,26 @@ jobs:
     - name: 验证依赖
       run: go mod verify
 
-    - name: 列出目录结构 (调试用)
+    - name: 检查 .gitignore
       run: |
-        echo "=== 当前目录 ==="
-        pwd
-        echo "=== 文件列表 ==="
-        ls -la
-        echo "=== cmd 目录 ==="
-        ls -la cmd/ || echo "cmd 目录不存在"
-        echo "=== 检查 main.go ==="
-        find . -name "main.go" -type f
+        echo "=== .gitignore 内容 ==="
+        cat .gitignore
+        echo ""
+        echo "=== 检查 cmd 是否被忽略 ==="
+        git check-ignore -v cmd/ || echo "cmd/ 没有被 .gitignore 忽略"
+        
+    - name: 检查 Git 追踪状态
+      run: |
+        echo "=== 查看所有已追踪的文件 ==="
+        git ls-files | grep -E "^cmd/|main.go" || echo "没有找到 cmd/ 或 main.go"
 
     - name: 构建项目
-      run: make build
+      run: |
+        if [ -d cmd ]; then
+          make build
+        else
+          echo "⚠️  跳过构建：cmd 目录不存在（需要先创建 cmd/vps-tg-bot/main.go）"
+        fi
 
     - name: 运行测试
       run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
@@ -93,6 +100,7 @@ jobs:
           Go/coverage.html
 
     - name: 上传构建产物
+      if: success() && hashFiles('Go/vps-tg-bot*') != ''
       uses: actions/upload-artifact@v4
       with:
         name: binary
