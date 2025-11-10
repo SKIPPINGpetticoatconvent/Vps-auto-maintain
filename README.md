@@ -22,7 +22,7 @@
 - `deploy.sh` - VPS 自动维护一键部署脚本 (v4.4)
 - `Telegram-Bot.sh` - Telegram Bot 管理系统部署脚本 (v5.3)
 - `vps_secure_xpanel_fixed.sh` - VPS 终极安全与自动维护脚本 (V3.7.3)
-- `Debian/security-auto-update.sh` - Debian 安全更新专用脚本 (v1.0)
+- `Debian/security-auto-update.sh` - Debian 安全更新专用脚本 (v2.1)
 - `LICENSE` - MIT 许可证
 - `.gitignore` - Git 忽略文件
 
@@ -189,6 +189,7 @@ Fail2Ban 提供三种防护模式：
 #### Debian/security-auto-update.sh
 - 轻量化设计，适用于minimal环境
 - 仅配置无人值守安全更新
+- 支持卸载模式 (--uninstall/-u)
 - 不包含复杂的交互功能
 - 专为 Debian 系统优化
 
@@ -236,12 +237,13 @@ VPS Auto Maintain
 - Telegram 实时封禁通知
 - 自动检测 Fail2Ban action 文件
 
-### v1.0 (Debian/security-auto-update.sh)
+### v2.1 (Debian/security-auto-update.sh)
 - 轻量化安全更新方案
 - 无人值守安全补丁
 - 内存日志存储
 - 03:00 自动重启
 - 智能自检模块
+- 添加卸载模式支持
 
 ## 注意事项
 
@@ -445,6 +447,7 @@ Provides three SSH protection levels:
 #### Debian/security-auto-update.sh
 - Lightweight design, suitable for minimal environments
 - Only configures unattended security updates
+- Supports uninstall mode (--uninstall/-u)
 - No complex interaction features included
 - Optimized specifically for Debian systems
 
@@ -492,12 +495,13 @@ VPS Auto Maintain
 - Telegram real-time ban notifications
 - Automatic Fail2Ban action file detection
 
-### v1.0 (Debian/security-auto-update.sh)
+### v2.1 (Debian/security-auto-update.sh)
 - Lightweight security update solution
 - Unattended security patches
 - Memory log storage
 - 03:00 automatic reboot
 - Intelligent self-check module
+- Added uninstall mode support
 
 ## Important Notes
 
