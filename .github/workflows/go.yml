@@ -17,6 +17,9 @@ jobs:
   lint:
     name: 代码检查
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./Go
     steps:
     - name: 检出代码
       uses: actions/checkout@v4
@@ -26,13 +29,15 @@ jobs:
       with:
         go-version: ${{ env.GO_VERSION }}
         cache: true
+        cache-dependency-path: Go/go.sum
 
     - name: 运行 golangci-lint
       uses: golangci/golangci-lint-action@v6
       with:
         version: latest
+        working-directory: Go
         args: --timeout 5m
-        # 如果项目根目录有 .golangci.yml，取消下面这行的注释
+        # 如果 Go/ 目录下有 .golangci.yml，取消下面这行的注释
         # args: --config .golangci.yml --timeout 5m
 
   # 构建和测试
@@ -40,6 +45,9 @@ jobs:
     name: 构建与测试
     runs-on: ubuntu-latest
     needs: lint
+    defaults:
+      run:
+        working-directory: ./Go
     steps:
     - name: 检出代码
       uses: actions/checkout@v4
@@ -49,6 +57,7 @@ jobs:
       with:
         go-version: ${{ env.GO_VERSION }}
         cache: true
+        cache-dependency-path: Go/go.sum
 
     - name: 下载依赖
       run: go mod download
@@ -71,20 +80,23 @@ jobs:
       with:
         name: coverage-report
         path: |
-          coverage.out
-          coverage.html
+          Go/coverage.out
+          Go/coverage.html
 
     - name: 上传构建产物
       uses: actions/upload-artifact@v4
       with:
         name: binary
-        path: vps-tg-bot*
+        path: Go/vps-tg-bot*
 
   # 安全扫描
   security:
     name: 安全扫描
     runs-on: ubuntu-latest
     needs: lint
+    defaults:
+      run:
+        working-directory: ./Go
     steps:
     - name: 检出代码
       uses: actions/checkout@v4
@@ -94,16 +106,19 @@ jobs:
       with:
         go-version: ${{ env.GO_VERSION }}
         cache: true
+        cache-dependency-path: Go/go.sum
 
     - name: 运行 Gosec 安全扫描
       uses: securego/gosec@master
       with:
-        args: '-no-fail -fmt sarif -out gosec-results.sarif ./...'
+        args: '-no-fail -fmt sarif -out results.sarif ./...'
+      env:
+        GOPATH: ${{ github.workspace }}/go
 
     - name: 上传安全扫描结果
       uses: github/codeql-action/upload-sarif@v3
       with:
-        sarif_file: gosec-results.sarif
+        sarif_file: results.sarif
 
   # Docker 镜像构建
   docker:
@@ -111,6 +126,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-test
     if: github.event_name == 'push'
+    defaults:
+      run:
+        working-directory: ./Go
     steps:
     - name: 检出代码
       uses: actions/checkout@v4
@@ -140,7 +158,7 @@ jobs:
     - name: 构建 Docker 镜像
       uses: docker/build-push-action@v5
       with:
-        context: .
+        context: ./Go
         platforms: linux/amd64,linux/arm64
         push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
         tags: ${{ steps.meta.outputs.tags }}
@@ -154,6 +172,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-and-test, docker]
     if: startsWith(github.ref, 'refs/tags/v')
+    defaults:
+      run:
+        working-directory: ./Go
     steps:
     - name: 检出代码
       uses: actions/checkout@v4
@@ -175,9 +196,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         files: |
-          vps-tg-bot-*
-          docker-compose.yml
-          vps-tg-bot-install.sh
+          Go/vps-tg-bot-*
+          Go/docker-compose.yml
+          Go/vps-tg-bot-install.sh
         generate_release_notes: true
         draft: false
         prerelease: false
