@@ -2,14 +2,14 @@
 # -----------------------------------------------------------------------------
 # VPS Telegram Bot 管理系统 - 一键部署脚本 (使用 uv)
 #
-# 版本: 5.3.1-weekly-fix2
+# 版本: 5.3.2-reboot
 # 作者: FTDRTD
 # 功能:
-#   ✅ 自动兼容 VPS 时区 (同步 /etc/localtime 与 /etc/timezone)
-#   ✅ 默认每周日 04:00 执行完整维护 (系统+规则更新+自动重启)
+#   ✅ 自动同步 VPS 时区
+#   ✅ 每周日 04:00 自动维护 (系统+规则更新+重启)
 #   ✅ 使用 uv 包管理器 (支持 0.9+)
-#   ✅ 固定 apscheduler==3.6.3 解决 PTB 兼容性冲突
-#   ✅ 使用 .venv/bin/python 启动，完全离线运行
+#   ✅ 使用 .venv/bin/python 启动
+#   ✅ 新增 ♻️ 一键重启 功能 (Telegram 面板按钮)
 # -----------------------------------------------------------------------------
 
 set -e
@@ -56,7 +56,7 @@ fi
 
 sync_timezone
 
-# --- 步骤 0: 检查环境 ---
+# --- 步骤 0: 环境检查 ---
 print_message "步骤 0: 检查系统环境"
 
 if ! command -v curl &>/dev/null; then
@@ -64,9 +64,8 @@ if ! command -v curl &>/dev/null; then
   apt-get update -o Acquire::ForceIPv4=true && apt-get install -y curl
 fi
 
-echo "📦 检查 uv 包管理器..."
 if ! command -v uv &>/dev/null; then
-  echo "正在安装 uv..."
+  echo "📦 安装 uv 包管理器..."
   curl -LsSf https://astral.sh/uv/install.sh | sh
   export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 fi
@@ -79,9 +78,9 @@ systemctl stop vps-tg-bot 2>/dev/null || true
 systemctl disable vps-tg-bot 2>/dev/null || true
 rm -rf "$BOT_DIR" "$BOT_SERVICE" "$CORE_MAINTAIN_SCRIPT" "$RULES_MAINTAIN_SCRIPT"
 (crontab -l 2>/dev/null | grep -v "vps-maintain" || true) | crontab -
-echo "✅ 环境准备完成"
+echo "✅ 清理完成"
 
-# --- 步骤 1: 获取 Token ---
+# --- 步骤 1: 配置 Telegram Bot ---
 print_message "步骤 1: 配置 Telegram Bot"
 read -p "请输入你的 Telegram Bot Token: " TG_TOKEN
 read -p "请输入你的 Telegram Chat ID (管理员): " TG_CHAT_ID
@@ -90,8 +89,8 @@ if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT_ID" ]; then
   exit 1
 fi
 
-# --- 步骤 2: 配置 journald ---
-print_message "步骤 2: 配置系统日志内存存储"
+# --- 步骤 2: journald 内存化 ---
+print_message "步骤 2: 配置 journald 内存日志"
 mkdir -p /etc/systemd/journald.conf.d
 cat > /etc/systemd/journald.conf.d/memory.conf <<'EOF'
 [Journal]
@@ -100,7 +99,7 @@ RuntimeMaxUse=50M
 Compress=yes
 EOF
 systemctl restart systemd-journald 2>/dev/null || true
-echo "✅ journald 内存化配置完成"
+echo "✅ journald 内存化完成"
 
 # --- 步骤 3: 创建维护脚本 ---
 print_message "步骤 3: 创建维护脚本"
@@ -156,8 +155,8 @@ EOF
 chmod +x "$RULES_MAINTAIN_SCRIPT"
 echo "✅ 维护脚本创建完成"
 
-# --- 步骤 4: 创建 Python 项目 ---
-print_message "步骤 4: 使用 uv 创建 Python 项目"
+# --- 步骤 4: 创建 Python 环境 ---
+print_message "步骤 4: 初始化 Python 项目"
 mkdir -p "$BOT_DIR"
 cd "$BOT_DIR"
 
@@ -174,7 +173,7 @@ cd "$BOT_DIR"
 "$UV_BIN" sync
 echo "✅ Python 环境安装完成"
 
-# --- 步骤 5: 创建主程序 ---
+# --- 步骤 5: 创建 Bot 主程序 ---
 print_message "步骤 5: 创建 Telegram Bot 主程序"
 
 cat > "$BOT_SCRIPT" <<'EOF'
@@ -212,7 +211,8 @@ def start(update: Update, context: CallbackContext):
     keyboard = [
         [InlineKeyboardButton("📊 系统状态", callback_data='status')],
         [InlineKeyboardButton("🔧 立即维护", callback_data='maintain_core')],
-        [InlineKeyboardButton("📋 查看日志", callback_data='logs')]
+        [InlineKeyboardButton("📋 查看日志", callback_data='logs')],
+        [InlineKeyboardButton("♻️ 重启 VPS", callback_data='reboot')]
     ]
     update.message.reply_text("🤖 *VPS 管理 Bot*\n\n请选择操作：", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
 
@@ -232,6 +232,10 @@ def button(update: Update, context: CallbackContext):
     elif query.data == 'logs':
         logs = subprocess.getoutput("journalctl -u vps-tg-bot -n 20 --no-pager")
         query.edit_message_text(f"📋 *日志*\n\n```\n{logs[-2000:]}\n```", parse_mode=ParseMode.MARKDOWN)
+    elif query.data == 'reboot':
+        query.edit_message_text("⚠️ 系统将在 5 秒后重启...")
+        time.sleep(5)
+        subprocess.run(["/sbin/reboot"])
 
 def scheduled_task():
     subprocess.run([RULES_SCRIPT], check=False)
@@ -259,7 +263,7 @@ chmod +x "$BOT_SCRIPT"
 echo "✅ Bot 主程序创建完成"
 
 # --- 步骤 6: 创建 systemd 服务 ---
-print_message "步骤 6: 配置系统服务"
+print_message "步骤 6: 创建 systemd 服务"
 
 cat > "$BOT_SERVICE" <<EOF
 [Unit]
@@ -283,7 +287,7 @@ systemctl enable vps-tg-bot
 systemctl start vps-tg-bot
 sleep 3
 
-if systemctl is-active --quiet vps-tg-bot; 键，然后
+if systemctl is-active --quiet vps-tg-bot; then
   echo "✅ 服务启动成功"
 else
   echo "❌ 服务启动失败，请查看日志: journalctl -u vps-tg-bot -n 50"
@@ -292,3 +296,4 @@ fi
 print_message "🎉 部署完成！"
 echo "✅ 每周维护任务已自动设置 (每周日 04:00)"
 echo "📱 前往 Telegram 发送 /start 开始使用"
+echo "♻️ 新增按钮：重启 VPS"
