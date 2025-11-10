@@ -1,15 +1,12 @@
 #!/bin/bash
 # ----------------------------------------------------------------------------
-# VPS Telegram Bot Go 版本 - 一键部署脚本 (纯部署 + 自动修复环境)
+# VPS Telegram Bot Go 版本 - 修复版部署脚本
 #
-# 版本: 2.0.6
-# 作者: FTDRTD
-# 功能:
-#   ✅ 检测到 Go 自动卸载 Go 与旧版本 Bot
-#   ✅ 精确卸载 golang，不再误删 /usr
-#   ✅ 自动检测并修复 coreutils / apt / dpkg 缺失
-#   ✅ 自动下载 GitHub Release 二进制文件
-#   ✅ 自动同步时区、配置 journald、创建 systemd 服务与定时任务
+# 版本: 2.0.7 (修复 "Text file busy" 错误)
+# 修复内容:
+#   ✅ 下载到临时文件再移动，避免覆盖运行中的二进制
+#   ✅ 先停止服务再替换二进制文件
+#   ✅ 添加下载重试机制
 # ----------------------------------------------------------------------------
 
 set -e
@@ -33,6 +30,7 @@ print_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
 # ========== 全局路径 ==========
 BOT_DIR="/opt/vps-tg-bot"
 BOT_BINARY="$BOT_DIR/vps-tg-bot"
+BOT_BINARY_TMP="$BOT_DIR/vps-tg-bot.tmp"
 BOT_SERVICE="/etc/systemd/system/vps-tg-bot.service"
 CORE_MAINTAIN_SCRIPT="/usr/local/bin/vps-maintain-core.sh"
 RULES_MAINTAIN_SCRIPT="/usr/local/bin/vps-maintain-rules.sh"
@@ -58,14 +56,6 @@ ensure_coreutils() {
       for i in mkdir cp mv rm ls echo cat ln date; do ln -sf busybox $i; done
     fi
     print_success "coreutils 环境已修复"
-  fi
-
-  if ! command -v apt-get >/dev/null 2>&1; then
-    print_warning "检测到 apt-get 缺失，尝试恢复..."
-    curl -L -o /tmp/apt.deb http://ftp.us.debian.org/debian/pool/main/a/apt/apt_2.6.3_amd64.deb
-    dpkg -i /tmp/apt.deb || dpkg-deb -x /tmp/apt.deb /
-    rm -f /tmp/apt.deb
-    print_success "apt-get 已恢复"
   fi
 }
 
@@ -190,24 +180,84 @@ EOF
 chmod +x "$RULES_MAINTAIN_SCRIPT"
 print_success "维护脚本创建完成"
 
-# ========== 下载预编译二进制 ==========
-print_message "步骤 4: 下载预编译二进制"
+# ========== 停止旧服务（关键修复点）==========
+print_message "步骤 4: 准备安装新版本"
+if systemctl is-active --quiet vps-tg-bot 2>/dev/null; then
+  print_warning "停止现有服务..."
+  systemctl stop vps-tg-bot
+  sleep 2
+fi
+
+# ========== 下载预编译二进制（修复版）==========
+print_message "步骤 5: 下载预编译二进制"
 mkdir -p "$BOT_DIR"
+
+# 检查本地文件
 if [ -f "./vps-tg-bot-linux-amd64" ]; then
   cp ./vps-tg-bot-linux-amd64 "$BOT_BINARY"
   print_success "使用本地二进制文件"
 else
+  print_warning "从 GitHub 下载最新版本..."
+  
+  # 获取下载链接
   LATEST_URL=$(curl -s https://api.github.com/repos/SKIPPINGpetticoatconvent/Vps-auto-maintain/releases/latest | grep "browser_download_url.*vps-tg-bot-linux-amd64" | cut -d '"' -f 4)
+  
   if [ -z "$LATEST_URL" ]; then
+    print_warning "使用镜像获取下载链接..."
     LATEST_URL=$(curl -s https://ghproxy.com/https://api.github.com/repos/SKIPPINGpetticoatconvent/Vps-auto-maintain/releases/latest | grep "browser_download_url.*vps-tg-bot-linux-amd64" | cut -d '"' -f 4)
   fi
-  curl -L -o "$BOT_BINARY" "$LATEST_URL"
-  print_success "从 GitHub 下载最新版本成功"
+  
+  if [ -z "$LATEST_URL" ]; then
+    print_error "无法获取下载链接"
+    exit 1
+  fi
+  
+  print_warning "下载地址: $LATEST_URL"
+  
+  # 下载到临时文件（关键修复点）
+  rm -f "$BOT_BINARY_TMP"
+  
+  # 重试下载
+  MAX_RETRY=3
+  RETRY=0
+  while [ $RETRY -lt $MAX_RETRY ]; do
+    if curl -L -o "$BOT_BINARY_TMP" "$LATEST_URL"; then
+      print_success "下载成功"
+      break
+    else
+      RETRY=$((RETRY+1))
+      if [ $RETRY -lt $MAX_RETRY ]; then
+        print_warning "下载失败，重试 $RETRY/$MAX_RETRY..."
+        sleep 2
+      else
+        print_error "下载失败，已重试 $MAX_RETRY 次"
+        exit 1
+      fi
+    fi
+  done
+  
+  # 验证文件
+  if [ ! -f "$BOT_BINARY_TMP" ]; then
+    print_error "下载的文件不存在"
+    exit 1
+  fi
+  
+  if [ ! -s "$BOT_BINARY_TMP" ]; then
+    print_error "下载的文件为空"
+    rm -f "$BOT_BINARY_TMP"
+    exit 1
+  fi
+  
+  # 移动文件（关键修复点）
+  rm -f "$BOT_BINARY"
+  mv "$BOT_BINARY_TMP" "$BOT_BINARY"
+  print_success "文件安装完成"
 fi
+
 chmod +x "$BOT_BINARY"
 
 # ========== 创建 systemd 服务 ==========
-print_message "步骤 5: 创建 systemd 服务"
+print_message "步骤 6: 创建 systemd 服务"
 cat > "$BOT_SERVICE" <<EOF
 [Unit]
 Description=VPS Telegram Bot (Go)
@@ -237,10 +287,11 @@ if systemctl is-active --quiet vps-tg-bot; then
   print_success "服务启动成功"
 else
   print_error "服务启动失败，请执行: journalctl -u vps-tg-bot -n 50"
+  exit 1
 fi
 
 # ========== 添加自动维护任务 ==========
-print_message "步骤 6: 添加自动维护任务"
+print_message "步骤 7: 添加自动维护任务"
 (crontab -l 2>/dev/null | grep -v "vps-maintain" ; echo "0 4 * * 0 bash $CORE_MAINTAIN_SCRIPT && bash $RULES_MAINTAIN_SCRIPT && reboot") | crontab -
 print_success "已添加每周日 04:00 自动维护任务"
 
@@ -249,5 +300,12 @@ print_message "🎉 部署完成！"
 print_success "Go 环境已安全清理，Bot 已重新部署"
 print_success "服务后台运行中（SSH 关闭不影响）"
 print_success "每周日 04:00 自动维护与重启"
-print_warning "查看日志: journalctl -u vps-tg-bot -n 50 --no-pager"
-print_warning "卸载命令: ./deploy.sh remove"
+print_warning "查看日志: journalctl -u vps-tg-bot -f"
+print_warning "查看状态: systemctl status vps-tg-bot"
+print_warning "重启服务: systemctl restart vps-tg-bot"
+print_warning "卸载命令: (待添加)"
+
+echo ""
+echo "============================================================"
+echo "📱 现在可以在 Telegram 中发送 /start 测试 Bot"
+echo "============================================================"
