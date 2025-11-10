@@ -105,9 +105,11 @@ bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/
 ```
 # Telegram Bot 管理部署 (Python 版本)
 bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/TG/Telegram-Bot.sh)
+```
 
+```
 # Telegram Bot 管理部署 (Go 版本)
-bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/Go/vps-tg-bot-install.sh)
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/Go/deploy.sh)
 ```
 
 ```
