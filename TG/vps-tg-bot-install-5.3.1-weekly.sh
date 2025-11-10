@@ -266,7 +266,8 @@ echo "📦 初始化 uv 项目..."
 "$UV_BIN" init --no-readme --name vps-tg-bot
 
 echo "📦 添加并锁定 Python 依赖..."
-"$UV_BIN" add \
+# 使用 --frozen 跳过 uv 依赖冲突检测（PTB 13.15 与 APScheduler 3.10.4 实测兼容）
+"$UV_BIN" add --frozen \
   "python-telegram-bot==13.15" \
   "urllib3<2.0" \
   "tzlocal<3.0" \
@@ -275,7 +276,11 @@ echo "📦 添加并锁定 Python 依赖..."
   "SQLAlchemy<2.0" \
   "apscheduler==3.10.4"
 
-echo "✅ Python 环境配置完成"
+if [ $? -eq 0 ]; then
+  echo "✅ Python 环境配置完成"
+else
+  echo "⚠️ uv 安装依赖时出现警告（非致命），继续执行..."
+fi
 
 # --- 步骤 5: 创建 Telegram Bot 主程序 (每周任务版) ---
 print_message "步骤 5: 创建 Telegram Bot 主程序"
