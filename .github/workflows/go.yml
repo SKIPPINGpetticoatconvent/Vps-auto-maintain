@@ -4,7 +4,7 @@ on:
   push:
     branches: [ "main" ]
     tags:
-      - 'v*'          # 例如 v1.0.0 时自动发布
+      - 'v*'
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
@@ -15,11 +15,18 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: Go   # 👈 Go 模块所在目录
+        working-directory: Go  # 👈 Go 模块目录
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Debug: Show workspace structure
+        run: |
+          echo "==> Current path:"
+          pwd
+          echo "==> List files:"
+          ls -R .
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -36,6 +43,7 @@ jobs:
       - name: Build binary (Linux x86_64)
         run: |
           mkdir -p dist
+          echo "==> Building binary from ./cmd/vps-tg-bot"
           go build -v -trimpath -ldflags "-s -w" \
             -o dist/vps-tg-bot ./cmd/vps-tg-bot
 
@@ -56,11 +64,17 @@ jobs:
         goarch: [amd64, arm64]
     defaults:
       run:
-        working-directory: Go   # 👈 一致保持 Go 目录
+        working-directory: Go
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Debug: Verify path before build
+        run: |
+          echo "==> Current path for release job:"
+          pwd
+          ls -R .
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -75,6 +89,7 @@ jobs:
           EXT=""
           if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
 
+          echo "==> Building ${BIN_NAME}${EXT} from ./cmd/vps-tg-bot"
           GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
           go build -v -trimpath \
             -ldflags "-s -w -X 'main.Version=${{ github.ref_name }}'" \
