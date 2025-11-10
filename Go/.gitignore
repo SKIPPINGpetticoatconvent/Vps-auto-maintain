@@ -4,8 +4,6 @@
 *.dll
 *.so
 *.dylib
-vps-tg-bot
-vps-tg-bot-*
 
 # Test binary, built with `go test -c`
 *.test
