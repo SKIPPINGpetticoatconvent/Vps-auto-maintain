@@ -148,38 +148,58 @@ EOF
 chmod +x "$RULES_MAINTAIN_SCRIPT"
 echo "✅ 维护脚本创建完成"
 
-# --- 步骤 4: 编译 Go 程序 ---
-print_message "步骤 4: 编译 Go 程序"
+# --- 步骤 4: 获取或编译 Go 程序 ---
+print_message "步骤 4: 获取或编译 Go 程序"
 mkdir -p "$BOT_DIR"
 
-# 获取脚本所在目录（假设脚本在 Go 目录下）
+# 获取脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_DIR="$SCRIPT_DIR"
 
-# 检查源代码目录是否存在
-if [ ! -f "$SOURCE_DIR/cmd/vps-tg-bot/main.go" ]; then
-  echo "❌ 错误：找不到源代码文件 $SOURCE_DIR/cmd/vps-tg-bot/main.go"
-  echo "请确保在 Go 项目根目录下运行此脚本"
-  exit 1
-fi
+# 检查是否已有预编译二进制文件（优先检查多个位置）
+if [ -f "../vps-tg-bot-linux-amd64" ]; then
+  echo "✅ 发现预编译二进制文件 ../vps-tg-bot-linux-amd64，使用现有文件"
+  cp ../vps-tg-bot-linux-amd64 "$BOT_BINARY"
+elif [ -f "vps-tg-bot-linux-amd64" ]; then
+  echo "✅ 发现预编译二进制文件 vps-tg-bot-linux-amd64，使用现有文件"
+  cp vps-tg-bot-linux-amd64 "$BOT_BINARY"
+elif [ -f "$SOURCE_DIR/../vps-tg-bot-linux-amd64" ]; then
+  echo "✅ 发现预编译二进制文件在上级目录，使用现有文件"
+  cp "$SOURCE_DIR/../vps-tg-bot-linux-amd64" "$BOT_BINARY"
+elif [ -f "$SOURCE_DIR/dist/vps-tg-bot" ]; then
+  echo "✅ 发现预编译二进制文件，使用现有文件"
+  cp "$SOURCE_DIR/dist/vps-tg-bot" "$BOT_BINARY"
+elif [ -f "$SOURCE_DIR/vps-tg-bot" ]; then
+  echo "✅ 发现二进制文件，使用现有文件"
+  cp "$SOURCE_DIR/vps-tg-bot" "$BOT_BINARY"
+else
+  echo "📦 未发现预编译文件，开始编译 Go 程序"
 
-cd "$SOURCE_DIR"
+  # 检查源代码目录是否存在
+  if [ ! -f "$SOURCE_DIR/cmd/vps-tg-bot/main.go" ]; then
+    echo "❌ 错误：找不到源代码文件 $SOURCE_DIR/cmd/vps-tg-bot/main.go"
+    echo "请确保在 Go 项目根目录下运行此脚本"
+    exit 1
+  fi
 
-# 下载依赖
-echo "📦 下载 Go 依赖..."
-go mod download
+  cd "$SOURCE_DIR"
 
-# 编译二进制文件
-echo "🔨 编译二进制文件..."
-GOOS=linux GOARCH=amd64 go build -o "$BOT_BINARY" ./cmd/vps-tg-bot
+  # 下载依赖
+  echo "📦 下载 Go 依赖..."
+  go mod download
 
-if [ ! -f "$BOT_BINARY" ]; then
-  echo "❌ 编译失败"
-  exit 1
+  # 编译二进制文件
+  echo "🔨 编译二进制文件..."
+  GOOS=linux GOARCH=amd64 go build -o "$BOT_BINARY" ./cmd/vps-tg-bot
+
+  if [ ! -f "$BOT_BINARY" ]; then
+    echo "❌ 编译失败"
+    exit 1
+  fi
 fi
 
 chmod +x "$BOT_BINARY"
-echo "✅ Go 程序编译完成"
+echo "✅ Go 程序准备完成"
 
 # --- 步骤 5: 创建 systemd 服务 ---
 print_message "步骤 5: 创建 systemd 服务"
