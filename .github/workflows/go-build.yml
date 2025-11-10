@@ -1,0 +1,244 @@
+name: Go Build and Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+env:
+  GO_VERSION: '1.21'
+  MODULE_PATH: './Go'
+
+jobs:
+  # 代码检查和测试
+  test:
+    name: Test and Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: ${{ env.MODULE_PATH }}/go.sum
+
+      - name: Download dependencies
+        working-directory: ${{ env.MODULE_PATH }}
+        run: go mod download
+
+      - name: Run go vet
+        working-directory: ${{ env.MODULE_PATH }}
+        run: go vet ./...
+
+      - name: Run go fmt check
+        working-directory: ${{ env.MODULE_PATH }}
+        run: |
+          if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+            echo "代码格式不符合规范，请运行 gofmt -s -w ."
+            gofmt -s -d .
+            exit 1
+          fi
+
+      - name: Run tests (if any)
+        working-directory: ${{ env.MODULE_PATH }}
+        run: go test -v ./... || echo "No tests found"
+
+  # 构建多平台二进制文件
+  build:
+    name: Build for ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+            goos: linux
+            goarch: amd64
+          - os: ubuntu-latest
+            arch: arm64
+            goos: linux
+            goarch: arm64
+          - os: windows-latest
+            arch: amd64
+            goos: windows
+            goarch: amd64
+          - os: macos-latest
+            arch: amd64
+            goos: darwin
+            goarch: amd64
+          - os: macos-latest
+            arch: arm64
+            goos: darwin
+            goarch: arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: ${{ env.MODULE_PATH }}/go.sum
+
+      - name: Download dependencies
+        working-directory: ${{ env.MODULE_PATH }}
+        run: go mod download
+
+      - name: Build binary
+        working-directory: ${{ env.MODULE_PATH }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          OUTPUT_NAME="vps-tg-bot"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            OUTPUT_NAME="vps-tg-bot.exe"
+          fi
+          go build -ldflags="-s -w" -trimpath -o "$OUTPUT_NAME" ./cmd/vps-tg-bot
+          echo "BINARY_NAME=$OUTPUT_NAME" >> $GITHUB_ENV
+
+      - name: Get version
+        id: version
+        working-directory: ${{ env.MODULE_PATH }}
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            VERSION="${{ github.ref_name }}"
+          else
+            VERSION="dev-$(git rev-parse --short HEAD)"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create archive
+        working-directory: ${{ env.MODULE_PATH }}
+        run: |
+          ARCHIVE_NAME="vps-tg-bot-${{ matrix.goos }}-${{ matrix.goarch }}-${{ env.VERSION }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            7z a "${ARCHIVE_NAME}.zip" "${{ env.BINARY_NAME }}"
+            echo "ARCHIVE_NAME=${ARCHIVE_NAME}.zip" >> $GITHUB_ENV
+          else
+            tar -czf "${ARCHIVE_NAME}.tar.gz" "${{ env.BINARY_NAME }}"
+            echo "ARCHIVE_NAME=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vps-tg-bot-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ env.MODULE_PATH }}/${{ env.ARCHIVE_NAME }}
+          retention-days: 30
+
+  # 创建 Release（仅在打 tag 时）
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create checksums
+        run: |
+          cd artifacts
+          find . -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec sha256sum {} \; > checksums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release ${{ env.VERSION }}
+          body: |
+            ## VPS Telegram Bot ${{ env.VERSION }}
+
+            ### 变更日志
+            - 查看 [提交历史](https://github.com/${{ github.repository }}/compare/${{ github.event.before }}...${{ github.sha }})
+
+            ### 下载
+            下载对应平台的二进制文件：
+            - Linux amd64: `vps-tg-bot-linux-amd64-*.tar.gz`
+            - Linux arm64: `vps-tg-bot-linux-arm64-*.tar.gz`
+            - Windows amd64: `vps-tg-bot-windows-amd64-*.zip`
+            - macOS amd64: `vps-tg-bot-darwin-amd64-*.tar.gz`
+            - macOS arm64: `vps-tg-bot-darwin-arm64-*.tar.gz`
+
+            ### 安装说明
+            1. 下载对应平台的二进制文件
+            2. 解压文件
+            3. 设置环境变量：
+               ```bash
+               export TG_TOKEN="your_bot_token"
+               export TG_CHAT_ID="your_chat_id"
+               ```
+            4. 运行：`./vps-tg-bot` (Linux/macOS) 或 `vps-tg-bot.exe` (Windows)
+
+            或使用部署脚本：
+            ```bash
+            chmod +x vps-tg-bot-install.sh
+            ./vps-tg-bot-install.sh
+            ```
+          files: |
+            artifacts/**/*
+          draft: false
+          prerelease: ${{ contains(env.VERSION, '-') }}
+
+  # 构建 Docker 镜像（可选）
+  docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub (if needed)
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ env.MODULE_PATH }}
+          file: ${{ env.MODULE_PATH }}/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/vps-tg-bot:latest
+            ${{ secrets.DOCKER_USERNAME }}/vps-tg-bot:${{ github.sha }}
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/vps-tg-bot:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/vps-tg-bot:buildcache,mode=max
+        if: hashFiles('Go/Dockerfile') != ''

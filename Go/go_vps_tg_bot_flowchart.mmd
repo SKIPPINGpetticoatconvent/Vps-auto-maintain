@@ -1,0 +1,91 @@
+flowchart TD
+
+%% ===============================
+%% 主体流程结构
+%% ===============================
+
+A[开始迁移 Python 版 Bot ➜ Go] --> B[初始化 Go 模块与依赖]
+B --> C[实现配置加载 (Token / ChatID)]
+C --> D[实现 Telegram Bot 核心逻辑]
+D --> E[封装系统操作函数]
+E --> F[实现指令处理器 (命令路由)]
+F --> G[集成定时任务 Scheduler]
+G --> H[测试 CLI 与功能]
+H --> I[构建 systemd 服务并部署]
+I --> J[完成验证与优化发布]
+
+%% ===============================
+%% 模块细分
+%% ===============================
+
+subgraph "项目结构"
+  P1[cmd/vps-tg-bot/main.go]
+  P2[pkg/config/config.go]
+  P3[pkg/bot/handler.go]
+  P4[pkg/system/actions.go]
+  P5[pkg/scheduler/scheduler.go]
+  P6[go.mod / go.sum]
+end
+
+B --> P6
+C --> P2
+D --> P3
+E --> P4
+G --> P5
+H --> P1
+
+%% ===============================
+%% Telegram 命令逻辑
+%% ===============================
+
+subgraph "Bot 指令路由"
+  CMD1[/start ➜ 欢迎信息 + 菜单/]
+  CMD2[/status ➜ 执行 uptime && date/]
+  CMD3[/maintain ➜ 调用维护脚本/]
+  CMD4[/reboot ➜ 5秒后执行 /sbin/reboot/]
+end
+
+P3 --> CMD1
+P3 --> CMD2
+P3 --> CMD3
+P3 --> CMD4
+
+%% ===============================
+%% 系统操作流程
+%% ===============================
+
+subgraph "系统层接口"
+  SYS1[func CheckUptime()]
+  SYS2[func RunMaintenance()]
+  SYS3[func RebootVPS()]
+end
+
+P4 --> SYS1
+P4 --> SYS2
+P4 --> SYS3
+
+%% ===============================
+%% 定时任务逻辑
+%% ===============================
+
+subgraph "定时任务 (Scheduler)"
+  SCH1[每周日 04:00 执行系统维护]
+  SCH2[执行 RunMaintenance()]
+  SCH3[通知管理员 + 自动重启]
+end
+
+P5 --> SCH1
+SCH1 --> SCH2 --> SCH3
+
+%% ===============================
+%% 部署阶段
+%% ===============================
+
+subgraph "部署阶段"
+  DEP1[编译二进制 ➜ vps-tg-bot]
+  DEP2[创建 /etc/systemd/system/vps-tg-bot.service]
+  DEP3[启用 systemctl enable/start]
+  DEP4[Telegram 测试验证]
+end
+
+I --> DEP1 --> DEP2 --> DEP3 --> DEP4
