@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: Go
+        working-directory: Go  # ✅ 切换到 Go 子目录执行
     steps:
       - uses: actions/checkout@v4
 
@@ -34,7 +34,7 @@ jobs:
           mkdir -p dist
           go build -v -trimpath -ldflags "-s -w" -o dist/vps-tg-bot ./cmd/vps-tg-bot
 
-      - name: Upload binary
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: vps-tg-bot
