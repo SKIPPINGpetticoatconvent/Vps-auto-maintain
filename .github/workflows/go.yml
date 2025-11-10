@@ -66,7 +66,11 @@ jobs:
 
     - name: 构建项目
       run: |
-        make build || go build -v -o vps-tg-bot ./cmd/...
+        if [ -f Makefile ]; then
+          make build || go build -v -o vps-tg-bot ./cmd/vps-tg-bot
+        else
+          go build -v -o vps-tg-bot ./cmd/vps-tg-bot
+        fi
 
     - name: 运行测试
       run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
@@ -185,11 +189,11 @@ jobs:
 
     - name: 构建多平台二进制文件
       run: |
-        GOOS=linux GOARCH=amd64 go build -o vps-tg-bot-linux-amd64 ./cmd/...
-        GOOS=linux GOARCH=arm64 go build -o vps-tg-bot-linux-arm64 ./cmd/...
-        GOOS=windows GOARCH=amd64 go build -o vps-tg-bot-windows-amd64.exe ./cmd/...
-        GOOS=darwin GOARCH=amd64 go build -o vps-tg-bot-darwin-amd64 ./cmd/...
-        GOOS=darwin GOARCH=arm64 go build -o vps-tg-bot-darwin-arm64 ./cmd/...
+        GOOS=linux GOARCH=amd64 go build -o vps-tg-bot-linux-amd64 ./cmd/vps-tg-bot
+        GOOS=linux GOARCH=arm64 go build -o vps-tg-bot-linux-arm64 ./cmd/vps-tg-bot
+        GOOS=windows GOARCH=amd64 go build -o vps-tg-bot-windows-amd64.exe ./cmd/vps-tg-bot
+        GOOS=darwin GOARCH=amd64 go build -o vps-tg-bot-darwin-amd64 ./cmd/vps-tg-bot
+        GOOS=darwin GOARCH=arm64 go build -o vps-tg-bot-darwin-arm64 ./cmd/vps-tg-bot
 
     - name: 创建 GitHub Release
       uses: softprops/action-gh-release@v2
