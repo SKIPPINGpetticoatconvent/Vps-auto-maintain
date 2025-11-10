@@ -2,14 +2,15 @@
 # -----------------------------------------------------------------------------
 # VPS Telegram Bot 管理系统 - 一键部署脚本 (使用 uv)
 #
-# 版本: 5.3.2-reboot
+# 版本: 5.3.3-stable
 # 作者: FTDRTD
 # 功能:
 #   ✅ 自动同步 VPS 时区
 #   ✅ 每周日 04:00 自动维护 (系统+规则更新+重启)
 #   ✅ 使用 uv 包管理器 (支持 0.9+)
 #   ✅ 使用 .venv/bin/python 启动
-#   ✅ 新增 ♻️ 一键重启 功能 (Telegram 面板按钮)
+#   ✅ 新增 ♻️ 一键重启 功能
+#   ✅ 新增 🧹 一键卸载模式 (--uninstall)
 # -----------------------------------------------------------------------------
 
 set -e
@@ -20,12 +21,55 @@ BOT_SERVICE="/etc/systemd/system/vps-tg-bot.service"
 CORE_MAINTAIN_SCRIPT="/usr/local/bin/vps-maintain-core.sh"
 RULES_MAINTAIN_SCRIPT="/usr/local/bin/vps-maintain-rules.sh"
 
+# --- 检查是否执行卸载模式 ---
+if [[ "$1" == "--uninstall" || "$1" == "uninstall" ]]; then
+  echo ""
+  echo "============================================================"
+  echo "🧹 VPS Telegram Bot 管理系统 - 卸载模式"
+  echo "============================================================"
+  echo ""
+  read -p "⚠️ 确认要卸载 VPS Bot 管理系统吗？(y/N): " confirm
+  if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+    echo "❎ 已取消卸载操作。"
+    exit 0
+  fi
+
+  echo ""
+  echo "🧩 正在执行卸载操作..."
+
+  systemctl stop vps-tg-bot 2>/dev/null || true
+  systemctl disable vps-tg-bot 2>/dev/null || true
+
+  rm -rf "$BOT_DIR" "$BOT_SERVICE" "$CORE_MAINTAIN_SCRIPT" "$RULES_MAINTAIN_SCRIPT"
+  (crontab -l 2>/dev/null | grep -v "vps-maintain" || true) | crontab -
+
+  if [ -f /etc/systemd/journald.conf.d/memory.conf ]; then
+    rm -f /etc/systemd/journald.conf.d/memory.conf
+    systemctl restart systemd-journald 2>/dev/null || true
+  fi
+
+  rm -f /tmp/vps_maintain_result.txt /tmp/vps_rules_result.txt /var/log/vps-tg-bot.log 2>/dev/null || true
+
+  echo ""
+  echo "✅ 卸载完成！"
+  echo "所有相关服务与文件已清理干净。"
+  echo "如需重新安装，请重新执行部署脚本。"
+  echo "============================================================"
+  exit 0
+fi
+
 print_message() {
   echo ""
   echo "============================================================"
   echo "$1"
   echo "============================================================"
 }
+
+# --- 检查 root 权限 ---
+if [ "$EUID" -ne 0 ]; then
+  echo "❌ 请使用 root 用户或 sudo 执行此脚本"
+  exit 1
+fi
 
 # --- 自动同步 VPS 时区 ---
 sync_timezone() {
@@ -38,32 +82,21 @@ sync_timezone() {
   else
     tz="Etc/UTC"
   fi
-
   if [ -z "$tz" ] || [ ! -f "/usr/share/zoneinfo/$tz" ]; then
     tz="Etc/UTC"
   fi
-
   ln -sf "/usr/share/zoneinfo/$tz" /etc/localtime
   echo "$tz" > /etc/timezone
   echo "✅ 当前 VPS 时区: $tz"
 }
-
-# --- 检查 root 权限 ---
-if [ "$EUID" -ne 0 ]; then
-  echo "❌ 请使用 root 用户或 sudo 执行此脚本"
-  exit 1
-fi
-
 sync_timezone
 
-# --- 步骤 0: 环境检查 ---
+# --- 步骤 0: 检查系统环境 ---
 print_message "步骤 0: 检查系统环境"
-
 if ! command -v curl &>/dev/null; then
   echo "📦 安装 curl..."
   apt-get update -o Acquire::ForceIPv4=true && apt-get install -y curl
 fi
-
 if ! command -v uv &>/dev/null; then
   echo "📦 安装 uv 包管理器..."
   curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -161,6 +194,7 @@ mkdir -p "$BOT_DIR"
 cd "$BOT_DIR"
 
 "$UV_BIN" init --no-readme --name vps-tg-bot
+"$UV_BIN" venv .venv
 "$UV_BIN" add --frozen \
   "python-telegram-bot==13.15" \
   "urllib3<2.0" \
@@ -169,7 +203,6 @@ cd "$BOT_DIR"
   "pytz" \
   "SQLAlchemy<2.0" \
   "apscheduler==3.6.3"
-
 "$UV_BIN" sync
 echo "✅ Python 环境安装完成"
 
@@ -183,6 +216,7 @@ import logging, subprocess, os, time, pytz
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
+from telegram.helpers import escape_markdown
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -195,7 +229,15 @@ ADMIN_CHAT_ID = '__TG_CHAT_ID__'
 CORE_SCRIPT = '/usr/local/bin/vps-maintain-core.sh'
 RULES_SCRIPT = '/usr/local/bin/vps-maintain-rules.sh'
 jobstores = {'default': SQLAlchemyJobStore(url='sqlite:///jobs.sqlite')}
-SYSTEM_TZ = pytz.timezone(subprocess.check_output("timedatectl show -p Timezone --value", shell=True).decode().strip())
+
+try:
+    tz_name = subprocess.getoutput("timedatectl show -p Timezone --value").strip()
+    if not tz_name:
+        tz_name = open("/etc/timezone").read().strip()
+    SYSTEM_TZ = pytz.timezone(tz_name)
+except Exception:
+    SYSTEM_TZ = pytz.UTC
+
 scheduler = BackgroundScheduler(jobstores=jobstores, timezone=SYSTEM_TZ)
 
 def send_message(text):
@@ -222,26 +264,31 @@ def button(update: Update, context: CallbackContext):
         query.edit_message_text("❌ 无权限访问"); return
     if query.data == 'status':
         info = subprocess.getoutput("uptime && date")
-        query.edit_message_text(f"📊 *系统状态*\n\n```\n{info}\n```", parse_mode=ParseMode.MARKDOWN)
+        query.edit_message_text(f"📊 *系统状态*\n\n```\n{escape_markdown(info, version=2)}\n```", parse_mode=ParseMode.MARKDOWN_V2)
     elif query.data == 'maintain_core':
         query.edit_message_text("⏳ 正在执行维护，请稍候...")
         subprocess.run([CORE_SCRIPT], check=False)
         result = open("/tmp/vps_maintain_result.txt").read()
-        query.edit_message_text(f"✅ *维护完成*\n\n```\n{result}\n```\n\n⚠️ 系统将在 5 秒后重启", parse_mode=ParseMode.MARKDOWN)
-        time.sleep(5); subprocess.run(["/sbin/reboot"])
+        query.edit_message_text(f"✅ *维护完成*\n\n```\n{escape_markdown(result, version=2)}\n```\n\n⚠️ 系统将在 5 秒后重启", parse_mode=ParseMode.MARKDOWN_V2)
+        time.sleep(5); reboot_system()
     elif query.data == 'logs':
         logs = subprocess.getoutput("journalctl -u vps-tg-bot -n 20 --no-pager")
-        query.edit_message_text(f"📋 *日志*\n\n```\n{logs[-2000:]}\n```", parse_mode=ParseMode.MARKDOWN)
+        query.edit_message_text(f"📋 *日志*\n\n```\n{escape_markdown(logs[-2000:], version=2)}\n```", parse_mode=ParseMode.MARKDOWN_V2)
     elif query.data == 'reboot':
         query.edit_message_text("⚠️ 系统将在 5 秒后重启...")
-        time.sleep(5)
-        subprocess.run(["/sbin/reboot"])
+        time.sleep(5); reboot_system()
+
+def reboot_system():
+    if os.path.exists("/sbin/reboot"):
+        subprocess.run(["/sbin/reboot"], check=False)
+    else:
+        subprocess.run(["shutdown", "-r", "now"], check=False)
 
 def scheduled_task():
     subprocess.run([RULES_SCRIPT], check=False)
     subprocess.run([CORE_SCRIPT], check=False)
     send_message("🕒 定时维护已执行，系统将在 5 秒后自动重启")
-    time.sleep(5); subprocess.run(["/sbin/reboot"])
+    time.sleep(5); reboot_system()
 
 def main():
     updater = Updater(TOKEN, use_context=True)
@@ -277,6 +324,8 @@ WorkingDirectory=$BOT_DIR
 ExecStart=$BOT_DIR/.venv/bin/python $BOT_SCRIPT
 Restart=always
 RestartSec=10
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
@@ -297,3 +346,4 @@ print_message "🎉 部署完成！"
 echo "✅ 每周维护任务已自动设置 (每周日 04:00)"
 echo "📱 前往 Telegram 发送 /start 开始使用"
 echo "♻️ 新增按钮：重启 VPS"
+echo "🧹 支持 --uninstall 模式安全卸载"
