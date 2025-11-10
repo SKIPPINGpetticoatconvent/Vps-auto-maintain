@@ -64,13 +64,19 @@ jobs:
     - name: 验证依赖
       run: go mod verify
 
-    - name: 构建项目
+    - name: 列出目录结构 (调试用)
       run: |
-        if [ -f Makefile ]; then
-          make build || go build -v -o vps-tg-bot ./cmd/vps-tg-bot
-        else
-          go build -v -o vps-tg-bot ./cmd/vps-tg-bot
-        fi
+        echo "=== 当前目录 ==="
+        pwd
+        echo "=== 文件列表 ==="
+        ls -la
+        echo "=== cmd 目录 ==="
+        ls -la cmd/ || echo "cmd 目录不存在"
+        echo "=== 检查 main.go ==="
+        find . -name "main.go" -type f
+
+    - name: 构建项目
+      run: make build
 
     - name: 运行测试
       run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
