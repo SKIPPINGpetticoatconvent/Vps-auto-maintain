@@ -54,9 +54,31 @@ chmod +x vps-tg-bot-install.sh
 
 ### 2. 配置
 
-部署过程中需要输入：
-- **Telegram Bot Token**: 从 [@BotFather](https://t.me/BotFather) 获取
-- **Telegram Chat ID**: 管理员 Telegram 用户 ID
+程序支持两种配置方式：
+
+#### 方式一：环境变量（推荐）
+
+```bash
+export TG_TOKEN="your_bot_token"
+export TG_CHAT_ID="your_chat_id"
+./vps-tg-bot
+```
+
+#### 方式二：交互式输入
+
+如果环境变量未设置，程序会自动提示输入配置信息：
+
+```bash
+./vps-tg-bot
+```
+
+程序会依次提示：
+1. Telegram Bot Token（隐藏输入，从 [@BotFather](https://t.me/BotFather) 获取）
+2. Telegram Chat ID（管理员，从 [@userinfobot](https://t.me/userinfobot) 获取）
+3. 核心维护脚本路径（可选，有默认值）
+4. 规则更新脚本路径（可选，有默认值）
+
+详细配置说明请查看 [CONFIG.md](CONFIG.md)
 
 ### 3. 使用
 
@@ -74,12 +96,14 @@ go build -o vps-tg-bot ./cmd/vps-tg-bot
 
 ## 环境变量
 
-程序通过环境变量读取配置：
+程序优先从环境变量读取配置，如果未设置且处于交互式终端，会提示用户输入：
 
 - `TG_TOKEN`: Telegram Bot Token（必需）
 - `TG_CHAT_ID`: 管理员 Chat ID（必需）
 - `CORE_SCRIPT`: 核心维护脚本路径（默认: `/usr/local/bin/vps-maintain-core.sh`）
 - `RULES_SCRIPT`: 规则更新脚本路径（默认: `/usr/local/bin/vps-maintain-rules.sh`）
+
+**注意**：在 systemd 服务中运行时，必须使用环境变量配置，因为服务不是交互式终端。
 
 ## 系统服务管理
 

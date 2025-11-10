@@ -134,7 +134,6 @@ func (b *Bot) ExecuteReboot(chatID int64) error {
 	return nil
 }
 
-
 // GetAPI 获取 Bot API 实例（用于定时任务发送消息）
 func (b *Bot) GetAPI() *tgbotapi.BotAPI {
 	return b.api
