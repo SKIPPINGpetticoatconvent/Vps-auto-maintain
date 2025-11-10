@@ -7,43 +7,42 @@ on:
       - 'v*'
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:  # ✅ 手动触发支持
 
 env:
   GO_VERSION: '1.21'
-  DOCKER_IMAGE: 'vps-tg-bot'
 
 jobs:
-  # 代码质量检查
+  # ==============================
+  # 🧹 代码检查 (暂可禁用)
+  # ==============================
   lint:
     name: 代码检查
     runs-on: ubuntu-latest
-    if: false  # 暂时禁用，直到 go.mod 版本兼容
+    if: false  # 暂时禁用，可在 go.mod 稳定后开启
     defaults:
       run:
         working-directory: ./Go
     steps:
-    - name: 检出代码
-      uses: actions/checkout@v4
-
-    - name: 设置 Go 环境
-      uses: actions/setup-go@v5
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
       with:
         go-version: ${{ env.GO_VERSION }}
         cache: true
         cache-dependency-path: Go/go.sum
-
-    - name: 运行 golangci-lint
-      uses: golangci/golangci-lint-action@v6
+    - uses: golangci/golangci-lint-action@v6
       with:
         version: latest
         working-directory: Go
         args: --timeout 5m --disable-all --enable=errcheck,gosimple,govet,ineffassign,staticcheck,unused
 
-  # 构建和测试
+  # ==============================
+  # ⚙️ 构建与测试
+  # ==============================
   build-and-test:
     name: 构建与测试
     runs-on: ubuntu-latest
-    # needs: lint  # 已禁用 lint，移除依赖
+    # needs: lint  # lint 暂时禁用
     defaults:
       run:
         working-directory: ./Go
@@ -64,30 +63,20 @@ jobs:
     - name: 验证依赖
       run: go mod verify
 
-    - name: 检查 .gitignore
-      run: |
-        echo "=== .gitignore 内容 ==="
-        cat .gitignore
-        echo ""
-        echo "=== 检查 cmd 是否被忽略 ==="
-        git check-ignore -v cmd/ || echo "cmd/ 没有被 .gitignore 忽略"
-        
-    - name: 检查 Git 追踪状态
-      run: |
-        echo "=== 查看所有已追踪的文件 ==="
-        git ls-files | grep -E "^cmd/|main.go" || echo "没有找到 cmd/ 或 main.go"
-
     - name: 构建项目
       run: |
-        if [ -d cmd ]; then
-          make build
+        mkdir -p dist
+        if [ -d "cmd/vps-tg-bot" ]; then
+          go build -v -trimpath -ldflags "-s -w" -o dist/vps-tg-bot ./cmd/vps-tg-bot
+        elif [ -f "main.go" ]; then
+          go build -v -trimpath -ldflags "-s -w" -o dist/vps-tg-bot .
         else
-          echo "⚠️  跳过构建：cmd 目录不存在（需要先创建 cmd/vps-tg-bot/main.go）"
+          echo "❌ 未找到入口文件 (main.go 或 cmd/vps-tg-bot)"
+          exit 1
         fi
 
     - name: 运行测试
       run: |
-        # 检查是否有测试文件
         if find . -name "*_test.go" -type f | grep -q .; then
           go test -v -coverprofile=coverage.out -covermode=atomic ./...
         else
@@ -98,7 +87,7 @@ jobs:
       if: hashFiles('Go/coverage.out') != ''
       run: go tool cover -html=coverage.out -o coverage.html
 
-    - name: 上传覆盖率报告
+    - name: 上传测试报告
       if: hashFiles('Go/coverage.out') != ''
       uses: actions/upload-artifact@v4
       with:
@@ -108,124 +97,72 @@ jobs:
           Go/coverage.html
 
     - name: 上传构建产物
-      if: success() && hashFiles('Go/vps-tg-bot*') != ''
+      if: success()
       uses: actions/upload-artifact@v4
       with:
         name: binary
-        path: Go/vps-tg-bot*
+        path: Go/dist/vps-tg-bot*
 
-  # 安全扫描
+  # ==============================
+  # 🔒 安全扫描
+  # ==============================
   security:
     name: 安全扫描
     runs-on: ubuntu-latest
-    # needs: lint  # 已禁用 lint，移除依赖
     defaults:
       run:
         working-directory: ./Go
     steps:
-    - name: 检出代码
-      uses: actions/checkout@v4
-
-    - name: 设置 Go 环境
-      uses: actions/setup-go@v5
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
       with:
         go-version: ${{ env.GO_VERSION }}
         cache: true
         cache-dependency-path: Go/go.sum
-
     - name: 运行 Gosec 安全扫描
       uses: securego/gosec@master
       with:
         args: '-no-fail -fmt sarif -out results.sarif ./...'
       env:
         GOPATH: ${{ github.workspace }}/go
-
     - name: 上传安全扫描结果
       uses: github/codeql-action/upload-sarif@v3
       with:
-        sarif_file: results.sarif
+        sarif_file: Go/results.sarif
 
-  # Docker 镜像构建
-  docker:
-    name: Docker 镜像构建
-    runs-on: ubuntu-latest
-    needs: build-and-test
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
-    defaults:
-      run:
-        working-directory: ./Go
-    steps:
-    - name: 检出代码
-      uses: actions/checkout@v4
-
-    - name: 设置 Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: 登录 Docker Hub (可选)
-      if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
-
-    - name: 提取 Docker 元数据
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ secrets.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE }}
-        tags: |
-          type=ref,event=branch
-          type=ref,event=pr
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          type=sha,prefix={{branch}}-
-
-    - name: 构建 Docker 镜像
-      uses: docker/build-push-action@v5
-      with:
-        context: ./Go
-        platforms: linux/amd64,linux/arm64
-        push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
-  # 发布 Release
+  # ==============================
+  # 🚀 创建 Release
+  # ==============================
   release:
     name: 创建 Release
     runs-on: ubuntu-latest
-    needs: [build-and-test, docker]
+    needs: [build-and-test]
     if: startsWith(github.ref, 'refs/tags/v')
     defaults:
       run:
         working-directory: ./Go
     steps:
-    - name: 检出代码
-      uses: actions/checkout@v4
-
-    - name: 设置 Go 环境
-      uses: actions/setup-go@v5
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
       with:
         go-version: ${{ env.GO_VERSION }}
 
     - name: 构建多平台二进制文件
       run: |
-        GOOS=linux GOARCH=amd64 go build -o vps-tg-bot-linux-amd64 ./cmd/vps-tg-bot
-        GOOS=linux GOARCH=arm64 go build -o vps-tg-bot-linux-arm64 ./cmd/vps-tg-bot
-        GOOS=windows GOARCH=amd64 go build -o vps-tg-bot-windows-amd64.exe ./cmd/vps-tg-bot
-        GOOS=darwin GOARCH=amd64 go build -o vps-tg-bot-darwin-amd64 ./cmd/vps-tg-bot
-        GOOS=darwin GOARCH=arm64 go build -o vps-tg-bot-darwin-arm64 ./cmd/vps-tg-bot
+        mkdir -p dist
+        GOOS=linux   GOARCH=amd64 go build -o dist/vps-tg-bot-linux-amd64   ./cmd/vps-tg-bot
+        GOOS=linux   GOARCH=arm64 go build -o dist/vps-tg-bot-linux-arm64   ./cmd/vps-tg-bot
+        GOOS=windows GOARCH=amd64 go build -o dist/vps-tg-bot-windows-amd64.exe ./cmd/vps-tg-bot
+        GOOS=darwin  GOARCH=amd64 go build -o dist/vps-tg-bot-darwin-amd64  ./cmd/vps-tg-bot
+        GOOS=darwin  GOARCH=arm64 go build -o dist/vps-tg-bot-darwin-arm64  ./cmd/vps-tg-bot
 
     - name: 创建 GitHub Release
       uses: softprops/action-gh-release@v2
       with:
         files: |
-          Go/vps-tg-bot-*
+          Go/dist/vps-tg-bot-*
           Go/docker-compose.yml
           Go/vps-tg-bot-install.sh
         generate_release_notes: true
-        draft: false
-        prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
