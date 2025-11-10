@@ -39,7 +39,12 @@ func NewBot(cfg *config.Config) (*Bot, error) {
 
 // SendMessage 发送消息给管理员
 func (b *Bot) SendMessage(text string) error {
-	msg := tgbotapi.NewMessage(b.config.AdminChatID, text)
+	return b.SendMessageToChat(b.config.AdminChatID, text)
+}
+
+// SendMessageToChat 发送消息到指定聊天
+func (b *Bot) SendMessageToChat(chatID int64, text string) error {
+	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = tgbotapi.ModeMarkdown
 	_, err := b.api.Send(msg)
 	return err
@@ -54,39 +59,19 @@ func (b *Bot) IsAdmin(chatID int64) bool {
 func (b *Bot) Start() {
 	log.Println("Bot 开始运行...")
 
+	router := NewRouter(b)
+
 	for update := range b.updates {
 		if update.Message != nil {
-			b.handleMessage(update.Message)
+			router.HandleMessage(update.Message)
 		} else if update.CallbackQuery != nil {
-			b.handleCallback(update.CallbackQuery)
+			router.HandleCallback(update.CallbackQuery)
 		}
 	}
 }
 
-// handleMessage 处理文本消息
-func (b *Bot) handleMessage(message *tgbotapi.Message) {
-	if !b.IsAdmin(message.Chat.ID) {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "❌ 无权限访问此 Bot")
-		b.api.Send(msg)
-		return
-	}
-
-	if message.IsCommand() {
-		switch message.Command() {
-		case "start":
-			b.handleStart(message)
-		case "status":
-			b.handleStatus(message)
-		case "maintain":
-			b.handleMaintain(message)
-		case "reboot":
-			b.handleReboot(message)
-		}
-	}
-}
-
-// handleStart 处理 /start 命令
-func (b *Bot) handleStart(message *tgbotapi.Message) {
+// ShowMainMenu 显示主菜单
+func (b *Bot) ShowMainMenu(chatID int64) error {
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📊 系统状态", "status"),
@@ -102,39 +87,26 @@ func (b *Bot) handleStart(message *tgbotapi.Message) {
 		),
 	)
 
-	msg := tgbotapi.NewMessage(message.Chat.ID, "🤖 *VPS 管理 Bot*\n\n请选择操作：")
+	msg := tgbotapi.NewMessage(chatID, "🤖 *VPS 管理 Bot*\n\n请选择操作：")
 	msg.ReplyMarkup = keyboard
 	msg.ParseMode = tgbotapi.ModeMarkdown
-	b.api.Send(msg)
+	_, err := b.api.Send(msg)
+	return err
 }
 
-// handleStatus 处理 /status 命令
-func (b *Bot) handleStatus(message *tgbotapi.Message) {
-	info, err := system.CheckUptime()
-	if err != nil {
-		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("❌ 获取系统状态失败: %v", err))
-		b.api.Send(msg)
-		return
-	}
-
-	msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("📊 *系统状态*\n\n```\n%s\n```", info))
-	msg.ParseMode = tgbotapi.ModeMarkdown
-	b.api.Send(msg)
-}
-
-// handleMaintain 处理 /maintain 命令
-func (b *Bot) handleMaintain(message *tgbotapi.Message) {
-	msg := tgbotapi.NewMessage(message.Chat.ID, "⏳ 正在执行维护，请稍候...")
+// ExecuteMaintenance 执行维护
+func (b *Bot) ExecuteMaintenance(chatID int64) error {
+	msg := tgbotapi.NewMessage(chatID, "⏳ 正在执行维护，请稍候...")
 	b.api.Send(msg)
 
 	result, err := system.RunMaintenance(b.config.CoreScript)
 	if err != nil {
-		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("❌ 维护失败: %v", err))
-		b.api.Send(msg)
-		return
+		replyMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("❌ 维护失败: %v", err))
+		b.api.Send(replyMsg)
+		return err
 	}
 
-	replyMsg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("✅ *维护完成*\n\n```\n%s\n```\n\n⚠️ 系统将在 5 秒后重启", result))
+	replyMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ *维护完成*\n\n```\n%s\n```\n\n⚠️ 系统将在 5 秒后重启", result))
 	replyMsg.ParseMode = tgbotapi.ModeMarkdown
 	b.api.Send(replyMsg)
 
@@ -144,11 +116,13 @@ func (b *Bot) handleMaintain(message *tgbotapi.Message) {
 			log.Printf("重启失败: %v", err)
 		}
 	}()
+
+	return nil
 }
 
-// handleReboot 处理 /reboot 命令
-func (b *Bot) handleReboot(message *tgbotapi.Message) {
-	msg := tgbotapi.NewMessage(message.Chat.ID, "⚠️ 系统将在 5 秒后重启...")
+// ExecuteReboot 执行重启
+func (b *Bot) ExecuteReboot(chatID int64) error {
+	msg := tgbotapi.NewMessage(chatID, "⚠️ 系统将在 5 秒后重启...")
 	b.api.Send(msg)
 
 	go func() {
@@ -156,94 +130,10 @@ func (b *Bot) handleReboot(message *tgbotapi.Message) {
 			log.Printf("重启失败: %v", err)
 		}
 	}()
+
+	return nil
 }
 
-// handleCallback 处理回调查询（按钮点击）
-func (b *Bot) handleCallback(query *tgbotapi.CallbackQuery) {
-	if !b.IsAdmin(query.Message.Chat.ID) {
-		callback := tgbotapi.NewCallback(query.ID, "❌ 无权限访问")
-		b.api.Request(callback)
-		return
-	}
-
-	callback := tgbotapi.NewCallback(query.ID, "")
-	b.api.Request(callback)
-
-	switch query.Data {
-	case "status":
-		b.handleStatusCallback(query)
-	case "maintain_core":
-		b.handleMaintainCallback(query)
-	case "logs":
-		b.handleLogsCallback(query)
-	case "reboot":
-		b.handleRebootCallback(query)
-	}
-}
-
-// handleStatusCallback 处理状态查询回调
-func (b *Bot) handleStatusCallback(query *tgbotapi.CallbackQuery) {
-	info, err := system.CheckUptime()
-	if err != nil {
-		msg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, fmt.Sprintf("❌ 获取系统状态失败: %v", err))
-		b.api.Send(msg)
-		return
-	}
-
-	msg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, fmt.Sprintf("📊 *系统状态*\n\n```\n%s\n```", info))
-	msg.ParseMode = tgbotapi.ModeMarkdown
-	b.api.Send(msg)
-}
-
-// handleMaintainCallback 处理维护回调
-func (b *Bot) handleMaintainCallback(query *tgbotapi.CallbackQuery) {
-	msg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, "⏳ 正在执行维护，请稍候...")
-	b.api.Send(msg)
-
-	result, err := system.RunMaintenance(b.config.CoreScript)
-	if err != nil {
-		msg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, fmt.Sprintf("❌ 维护失败: %v", err))
-		b.api.Send(msg)
-		return
-	}
-
-	replyMsg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, fmt.Sprintf("✅ *维护完成*\n\n```\n%s\n```\n\n⚠️ 系统将在 5 秒后重启", result))
-	replyMsg.ParseMode = tgbotapi.ModeMarkdown
-	b.api.Send(replyMsg)
-
-	// 延迟5秒后重启
-	go func() {
-		if err := system.RebootVPS(); err != nil {
-			log.Printf("重启失败: %v", err)
-		}
-	}()
-}
-
-// handleLogsCallback 处理日志查询回调
-func (b *Bot) handleLogsCallback(query *tgbotapi.CallbackQuery) {
-	logs, err := system.GetLogs("vps-tg-bot", 20)
-	if err != nil {
-		msg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, fmt.Sprintf("❌ 获取日志失败: %v", err))
-		b.api.Send(msg)
-		return
-	}
-
-	msg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, fmt.Sprintf("📋 *日志*\n\n```\n%s\n```", logs))
-	msg.ParseMode = tgbotapi.ModeMarkdown
-	b.api.Send(msg)
-}
-
-// handleRebootCallback 处理重启回调
-func (b *Bot) handleRebootCallback(query *tgbotapi.CallbackQuery) {
-	msg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, "⚠️ 系统将在 5 秒后重启...")
-	b.api.Send(msg)
-
-	go func() {
-		if err := system.RebootVPS(); err != nil {
-			log.Printf("重启失败: %v", err)
-		}
-	}()
-}
 
 // GetAPI 获取 Bot API 实例（用于定时任务发送消息）
 func (b *Bot) GetAPI() *tgbotapi.BotAPI {

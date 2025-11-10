@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"fmt"
 	"log"
 	"vps-tg-bot/pkg/config"
 	"vps-tg-bot/pkg/system"
@@ -40,6 +41,20 @@ func (s *Scheduler) Start() {
 
 	s.cron.Start()
 	log.Println("定时任务调度器已启动 (每周日 04:00 执行维护)")
+}
+
+// AddTask 添加自定义定时任务
+func (s *Scheduler) AddTask(cronExpr string, task func()) error {
+	_, err := s.cron.AddFunc(cronExpr, task)
+	if err != nil {
+		return fmt.Errorf("添加定时任务失败: %v", err)
+	}
+	return nil
+}
+
+// GetTasks 获取所有任务列表
+func (s *Scheduler) GetTasks() []cron.Entry {
+	return s.cron.Entries()
 }
 
 // Stop 停止调度器
