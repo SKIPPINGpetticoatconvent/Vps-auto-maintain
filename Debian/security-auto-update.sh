@@ -1,9 +1,35 @@
 #!/bin/bash
 # ============================================================
 # Debian 无人值守安全更新 + 自动清理 + 内存日志 + 智能自检
-# 版本: 2.0 (增强正则检测，修复误报/漏报问题)
+# 版本: 2.1 (添加卸载模式)
 # ============================================================
 set -e
+
+# 检查卸载参数
+if [[ "$1" == "--uninstall" ]] || [[ "$1" == "-u" ]]; then
+    echo "🗑️ 正在卸载无人值守安全更新配置..."
+
+    # 禁用定时任务
+    systemctl disable apt-daily.timer apt-daily-upgrade.timer >/dev/null 2>&1 || true
+
+    # 删除配置文件
+    rm -f /etc/apt/apt.conf.d/50unattended-upgrades
+    rm -f /etc/apt/apt.conf.d/20auto-upgrades
+    rm -f /etc/systemd/journald.conf.d/volatile.conf
+
+    # 重启 systemd-journald 以恢复默认日志配置
+    systemctl restart systemd-journald
+
+    # 卸载包
+    apt remove -y unattended-upgrades apt-listchanges apt-utils
+
+    # 清理系统
+    apt autoremove -y --purge
+    apt autoclean -y
+
+    echo "✅ 卸载完成！无人值守安全更新配置已完全移除。"
+    exit 0
+fi
 echo "🧩 正在配置无人值守安全更新环境..."
 
 # 1️⃣ 安装必要组件
