@@ -170,12 +170,12 @@ export DEBIAN_FRONTEND=noninteractive
 # 检查 sudo 是否需要密码
 if sudo -n true 2>/dev/null; then
     echo "✅ sudo 无需密码，继续执行..."
-    sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean
+    sudo apt update && sudo apt full-upgrade -y && sudo apt autoremove -y && sudo apt autoclean
 else
     echo "❌ 警告：sudo 需要密码。系统更新可能失败。请考虑配置无密码 sudo 或手动运行："
-    echo "    sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean"
+    echo "    sudo apt update && sudo apt full-upgrade -y && sudo apt autoremove -y && sudo apt autoclean"
     # 尝试执行，如果失败则发送错误通知
-    if ! sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean; then
+    if ! sudo apt update && sudo apt full-upgrade -y && sudo apt autoremove -y && sudo apt autoclean; then
         send_telegram "❌ *系统更新失败*
 > *原因*: sudo 需要密码
 > *建议*: 配置无密码 sudo 或手动更新系统"

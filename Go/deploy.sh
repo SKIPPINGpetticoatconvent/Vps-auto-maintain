@@ -162,7 +162,7 @@ set -e
 export DEBIAN_FRONTEND=noninteractive
 RESULT_FILE="/tmp/vps_maintain_result.txt"
 TIME_NOW=$(date '+%Y-%m-%d %H:%M:%S')
-apt-get update -o Acquire::ForceIPv4=true && apt-get -y upgrade && apt-get -y autoremove && apt-get clean
+sudo apt update && sudo apt full-upgrade -y && sudo apt autoremove -y && sudo apt autoclean
 echo "✅ 系统更新完成于 $TIME_NOW" > "$RESULT_FILE"
 EOF
 chmod +x "$CORE_MAINTAIN_SCRIPT"

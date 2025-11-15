@@ -149,7 +149,7 @@ TIME_NOW=$(date '+%Y-%m-%d %H:%M:%S')
 RESULT_FILE="/tmp/vps_maintain_result.txt"
 export DEBIAN_FRONTEND=noninteractive
 echo "开始系统更新..." > "$RESULT_FILE"
-if sudo -n apt-get update && sudo apt-get upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean; then
+if sudo apt update && sudo apt full-upgrade -y && sudo apt autoremove -y && sudo apt autoclean; then
     echo "✅ 系统更新成功" >> "$RESULT_FILE"
 else
     echo "❌ 系统更新失败" >> "$RESULT_FILE"

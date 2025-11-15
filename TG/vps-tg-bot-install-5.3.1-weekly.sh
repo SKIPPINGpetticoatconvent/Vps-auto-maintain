@@ -147,7 +147,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 echo "开始系统更新..." > "$RESULT_FILE"
 if command -v apt-get &>/dev/null; then
-  apt-get update -o Acquire::ForceIPv4=true && apt-get -y upgrade && apt-get -y autoremove && apt-get clean \
+  sudo apt update && sudo apt full-upgrade -y && sudo apt autoremove -y && sudo apt autoclean \
     && echo "✅ 系统更新成功" >> "$RESULT_FILE" \
     || echo "❌ 系统更新失败" >> "$RESULT_FILE"
 fi
