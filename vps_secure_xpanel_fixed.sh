@@ -352,38 +352,63 @@ main() {
 
     local all_ports="$ssh_port"
 
-    # === Xray 端口检测（修复版：精确匹配进程名）===
+    # === Xray 端口检测（修复版：精确匹配进程名，兼容v2ray-agent）===
     if command -v xray &>/dev/null && pgrep -x "xray" &>/dev/null; then
-        xray_ports=$(ss -tnlp 2>/dev/null | grep -w xray | awk '{print $4}' | grep -oE '[0-9]+$' | sort -u)
+        xray_ports=""
+        # 优先从配置文件检测端口
+        xray_config_dirs=("/etc/xray/conf" "/etc/v2ray-agent/xray/conf")
+        for config_dir in "${xray_config_dirs[@]}"; do
+            if [ -d "$config_dir" ]; then
+                for config_file in "$config_dir"/*.json; do
+                    if [ -f "$config_file" ]; then
+                        # 从JSON配置中提取port
+                        config_ports=$(jq -r '.inbounds[]?.port // empty' "$config_file" 2>/dev/null | sort -u | tr '\n' ' ')
+                        if [ -n "$config_ports" ]; then
+                            xray_ports="$xray_ports $config_ports"
+                        fi
+                    fi
+                done
+            fi
+        done
+
+        # 如果未从配置文件获取到端口，回退到网络监听检测
+        if [ -z "$xray_ports" ]; then
+            xray_ports=$(ss -tnlp 2>/dev/null | grep -w xray | awk '{print $4}' | grep -oE '[0-9]+$' | sort -u)
+        fi
+
+        xray_ports=$(echo "$xray_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
         if [ -n "$xray_ports" ]; then
             echo "🛡️ 检测到 Xray 端口: $xray_ports"
             all_ports="$all_ports $xray_ports"
         fi
     fi
 
-    # === Sing-box 端口检测（修复版：从配置文件读取）===
+    # === Sing-box 端口检测（修复版：从配置文件读取，兼容v2ray-agent）===
     if pgrep -x "sing-box" &>/dev/null; then
         sb_ports=""
-        # 检查配置文件目录是否存在
-        if [ -d "/etc/sing-box/conf" ]; then
-            # 遍历所有配置文件，提取监听端口
-            for config_file in /etc/sing-box/conf/*.json; do
-                if [ -f "$config_file" ]; then
-                    # 从JSON配置中提取listen_port
-                    config_ports=$(jq -r '.inbounds[]?.listen_port // empty' "$config_file" 2>/dev/null | sort -u | tr '\n' ' ')
-                    if [ -n "$config_ports" ]; then
-                        sb_ports="$sb_ports $config_ports"
+        # 检查配置文件目录是否存在（支持多个路径）
+        config_dirs=("/etc/sing-box/conf" "/etc/v2ray-agent/sing-box/conf/config")
+
+        for config_dir in "${config_dirs[@]}"; do
+            if [ -d "$config_dir" ]; then
+                # 遍历所有配置文件，提取监听端口
+                for config_file in "$config_dir"/*.json; do
+                    if [ -f "$config_file" ]; then
+                        # 从JSON配置中提取listen_port
+                        config_ports=$(jq -r '.inbounds[]?.listen_port // empty' "$config_file" 2>/dev/null | sort -u | tr '\n' ' ')
+                        if [ -n "$config_ports" ]; then
+                            sb_ports="$sb_ports $config_ports"
+                        fi
                     fi
-                fi
-            done
-            # 如果未从配置文件获取到端口，回退到网络监听检测
-            if [ -z "$sb_ports" ]; then
-                sb_ports=$(ss -tnlp 2>/dev/null | grep -w "sing-box" | awk '{print $4}' | grep -oE '[0-9]+$' | sort -u)
+                done
             fi
-        else
-            # 如果配置文件目录不存在，使用网络监听检测
+        done
+
+        # 如果未从配置文件获取到端口，回退到网络监听检测
+        if [ -z "$sb_ports" ]; then
             sb_ports=$(ss -tnlp 2>/dev/null | grep -w "sing-box" | awk '{print $4}' | grep -oE '[0-9]+$' | sort -u)
         fi
+
         sb_ports=$(echo "$sb_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
         if [ -n "$sb_ports" ]; then
             echo "🛡️ 检测到 Sing-box 端口: $sb_ports"
@@ -425,23 +450,28 @@ main() {
         fi
     fi
 
-    # === 233boy Sing-box 脚本端口检测 ===
-    if [ -d "/etc/sing-box/conf" ]; then
-        sb_config_ports=""
-        for config_file in /etc/sing-box/conf/*.json; do
-            if [ -f "$config_file" ]; then
-                # 提取inbounds中的listen_port字段
-                config_ports=$(jq -r '.inbounds[]?.listen_port // empty' "$config_file" 2>/dev/null | sort -u | tr '\n' ' ')
-                if [ -n "$config_ports" ]; then
-                    sb_config_ports="$sb_config_ports $config_ports"
+    # === Sing-box 配置端口检测（兼容v2ray-agent和233boy脚本）===
+    sb_config_ports=""
+    sb_config_dirs=("/etc/sing-box/conf" "/etc/v2ray-agent/sing-box/conf/config")
+
+    for config_dir in "${sb_config_dirs[@]}"; do
+        if [ -d "$config_dir" ]; then
+            for config_file in "$config_dir"/*.json; do
+                if [ -f "$config_file" ]; then
+                    # 提取inbounds中的listen_port字段
+                    config_ports=$(jq -r '.inbounds[]?.listen_port // empty' "$config_file" 2>/dev/null | sort -u | tr '\n' ' ')
+                    if [ -n "$config_ports" ]; then
+                        sb_config_ports="$sb_config_ports $config_ports"
+                    fi
                 fi
-            fi
-        done
-        if [ -n "$sb_config_ports" ]; then
-            sb_config_ports=$(echo "$sb_config_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
-            echo "🛡️ 检测到 233boy Sing-box 配置端口: $sb_config_ports"
-            all_ports="$all_ports $sb_config_ports"
+            done
         fi
+    done
+
+    if [ -n "$sb_config_ports" ]; then
+        sb_config_ports=$(echo "$sb_config_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+        echo "🛡️ 检测到 Sing-box 配置端口: $sb_config_ports"
+        all_ports="$all_ports $sb_config_ports"
     fi
 
     all_ports=$(echo "$all_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
