@@ -1,13 +1,13 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------------------
-# VPS 代理服务端口检测与防火墙配置脚本（V3.8.9 无域名适配版）
-# 兼容 mack-a v2ray-agent (无域名/有域名自动识别) / X-UI / Sing-box
+# VPS 代理服务端口检测与防火墙配置脚本（V3.8.11 双重扫描版）
+# 兼容 mack-a v2ray-agent / X-UI / Sing-box / 233boy
 #
 # 🩵 更新日志:
-# V3.8.9-REALITY
-#   ✅ [深度适配] 针对“无域名 Reality”模式，精准提取 Xray 监听端口
-#   ✅ [智能策略] 如果没检测到 Web 服务(Nginx)，则不强制开启 80 端口，避免暴露特征
-#   ✅ [暴力读取] 增强对 mack-a 脚本复杂配置文件的解析能力
+# V3.8.11-DUALSCAN
+#   ✅ [双重扫描] 强制同时执行“配置读取”和“进程扫描(ss)”，取并集，绝不漏网
+#   ✅ [透明日志] 防火墙执行阶段逐个打印所有被放行的端口，消除误解
+#   ✅ [调试信息] 打印每个配置文件解析出的端口，方便排查
 # -----------------------------------------------------------------------------------------
 
 set -e
@@ -65,22 +65,21 @@ install_dependency() {
 install_dependency "sqlite3"
 install_dependency "jq"
 
-# --- 端口提取函数 (智能过滤本地回环) ---
+# --- 端口提取函数 ---
 extract_public_ports() {
     local file="$1"
     local key_port="$2"     # "port" or "listen_port"
     local key_listen="$3"   # "listen"
     local ports=""
 
-    # 逻辑：提取端口，条件是 'listen' 字段不存在，或者存在但不是 127.0.0.1/localhost
+    # 提取逻辑：过滤掉明确绑定到 127.0.0.1 或 localhost 的端口
     local jq_ports
     jq_ports=$(sed 's://.*$::g' "$file" | jq -r ".inbounds[] | select((.$key_listen == null) or (.$key_listen != \"127.0.0.1\" and .$key_listen != \"localhost\")) | .$key_port" 2>/dev/null | grep -E '^[0-9]+$' | sort -u)
-    
+
     if [ -n "$jq_ports" ]; then
         ports="$ports $jq_ports"
     else
-        # 兜底：如果 jq 失败，使用 grep 暴力匹配
-        # 只有当文件中没有明确写 "listen": "127.0.0.1" 时才认为它是公网端口
+        # 兜底：grep 暴力匹配，除非该行明确写了 127.0.0.1，否则都视为公网
         if ! grep -q "\"$key_listen\"\s*:\s*\"127.0.0.1\"" "$file"; then
              local grep_ports
              grep_ports=$(grep -oE "\"$key_port\"\s*:\s*[0-9]+" "$file" | grep -oE '[0-9]+' | sort -u)
@@ -90,7 +89,6 @@ extract_public_ports() {
     echo "$ports" | tr ' ' '\n' | sort -u | tr '\n' ' '
 }
 
-# --- 获取 SSH 端口 ---
 get_ssh_port() {
     local port
     port=$(grep -iE '^\s*Port\s+[0-9]+' /etc/ssh/sshd_config 2>/dev/null | \
@@ -101,7 +99,6 @@ get_ssh_port() {
     echo "${port:-22}"
 }
 
-# --- 检测防火墙 ---
 detect_firewall() {
     if systemctl is-active --quiet firewalld 2>/dev/null; then
         echo "firewalld"
@@ -112,7 +109,6 @@ detect_firewall() {
     fi
 }
 
-# --- 安装防火墙 ---
 setup_firewall() {
     print_message "安装并启用防火墙"
     if [ -f /etc/os-release ]; then
@@ -134,15 +130,14 @@ setup_firewall() {
     fi
 }
 
-# --- Fail2Ban 配置 ---
 detect_banaction() {
     local firewall_type="$1"
     if [ "$firewall_type" = "ufw" ]; then
-        if [ -f "/etc/fail2ban/action.d/ufw-allports.conf" ]; then echo "ufw-allports"; 
-        elif [ -f "/etc/fail2ban/action.d/ufw.conf" ]; then echo "ufw"; 
+        if [ -f "/etc/fail2ban/action.d/ufw-allports.conf" ]; then echo "ufw-allports";
+        elif [ -f "/etc/fail2ban/action.d/ufw.conf" ]; then echo "ufw";
         else echo "iptables-allports"; fi
     elif [ "$firewall_type" = "firewalld" ]; then
-        if [ -f "/etc/fail2ban/action.d/firewallcmd-ipset.conf" ]; then echo "firewallcmd-ipset"; 
+        if [ -f "/etc/fail2ban/action.d/firewallcmd-ipset.conf" ]; then echo "firewallcmd-ipset";
         else echo "iptables-allports"; fi
     else
         echo "iptables-allports"
@@ -156,7 +151,7 @@ setup_fail2ban() {
         echo "ℹ️ 正在安装 Fail2Ban..."
         install_dependency "fail2ban"
     fi
-    
+
     systemctl stop fail2ban >/dev/null 2>&1
     rm -f /etc/fail2ban/filter.d/sshd-ddos.conf
     local banaction=$(detect_banaction "$firewall_type")
@@ -196,7 +191,6 @@ EOF
     echo "✅ Fail2Ban 已配置为 [$FAIL2BAN_MODE] 并启动。"
 }
 
-# --- 应用防火墙规则 ---
 remove_unused_rules() {
     local ports_to_keep="$1"
     local firewall="$2"
@@ -204,7 +198,7 @@ remove_unused_rules() {
     [ -z "$safe_ssh_port" ] && safe_ssh_port=22
 
     print_message "清理并应用新的防火墙规则"
-    
+
     if systemctl is-active --quiet fail2ban; then
         echo "⏸️  临时暂停 Fail2Ban 以避免冲突..."
         systemctl stop fail2ban
@@ -216,12 +210,13 @@ remove_unused_rules() {
         echo "y" | ufw reset >/dev/null 2>&1
         ufw default deny incoming >/dev/null 2>&1
         ufw default allow outgoing >/dev/null 2>&1
-        
+
         echo "🔒 优先强制放行 SSH 端口: $safe_ssh_port"
         ufw allow "${safe_ssh_port}/tcp" >/dev/null
 
-        for p in "${ports_array[@]}"; do 
+        for p in "${ports_array[@]}"; do
             if [ "$p" != "$safe_ssh_port" ]; then
+                echo "🌐 放行端口: $p"
                 ufw allow "$p" >/dev/null
             fi
         done
@@ -237,9 +232,10 @@ remove_unused_rules() {
 
         echo "🔒 优先强制放行 SSH 端口: $safe_ssh_port"
         firewall-cmd --permanent --add-port="$safe_ssh_port"/tcp >/dev/null 2>&1
-        
+
         for p in "${ports_array[@]}"; do
              if [ "$p" != "$safe_ssh_port" ]; then
+                echo "🌐 放行端口: $p"
                 firewall-cmd --permanent --add-port="$p"/tcp >/dev/null 2>&1
                 firewall-cmd --permanent --add-port="$p"/udp >/dev/null 2>&1
             fi
@@ -251,7 +247,6 @@ remove_unused_rules() {
     fi
 }
 
-# --- 自检 ---
 self_check() {
     print_message "🔍 正在自检..."
     sleep 3
@@ -303,46 +298,53 @@ main() {
     local all_ports="$ssh_port"
 
     # === 智能 Web 端口检测 ===
-    # 只有检测到 Nginx/Apache 这种 Web 服务时，才认为需要开 80/443
-    # 无域名 Reality 模式下，这里通常不会触发，从而避免乱开 80 端口
-    if pgrep -x "nginx" >/dev/null || pgrep -x "apache2" >/dev/null || pgrep -x "httpd" >/dev/null; then
-        echo "🌐 检测到 Web 服务器运行，放行 80/443"
+    if pgrep -x "nginx" >/dev/null || pgrep -x "apache2" >/dev/null; then
+        echo "🌐 检测到 Web 服务器，放行 80/443"
         all_ports="$all_ports 80 443"
     else
-        echo "ℹ️ 未检测到 Web 服务器 (Nginx)，跳过 80/443 (符合无域名 Reality 特征)"
+        echo "ℹ️ 未检测到 Web 服务器 (Nginx)，跳过 80/443"
     fi
 
-    # === Xray 端口深度检测 ===
-    if command -v xray &>/dev/null && (pgrep -x "xray" >/dev/null || [ -d "/etc/v2ray-agent" ]); then
-        xray_ports=""
-        # 扫描 mack-a 脚本的默认路径
+    # === Xray 端口深度检测 (双重扫描模式) ===
+    xray_ports=""
+
+    # 1. 扫描配置目录 (Config Scan)
+    if [ -d "/etc/v2ray-agent" ] || command -v xray &>/dev/null; then
         xray_config_dirs=("/etc/xray/conf" "/etc/v2ray-agent/xray/conf" "/usr/local/etc/xray")
-        
+
         for config_dir in "${xray_config_dirs[@]}"; do
             if [ -d "$config_dir" ]; then
+                echo "📂 扫描目录: $config_dir"
                 for config_file in "$config_dir"/*.json; do
                     [ -f "$config_file" ] || continue
-                    # 提取非本地监听的端口
                     config_ports=$(extract_public_ports "$config_file" "port" "listen")
-                    [ -n "$config_ports" ] && xray_ports="$xray_ports $config_ports"
+                    if [ -n "$config_ports" ]; then
+                        echo "   📄 文件 $(basename "$config_file") -> 发现端口: $config_ports"
+                        xray_ports="$xray_ports $config_ports"
+                    fi
                 done
             fi
         done
-        
-        # 兜底：如果文件没找到端口，但进程在跑，就用 ss 查，并排除 127.0.0.1
-        if [ -z "$xray_ports" ] && pgrep -x "xray" >/dev/null; then
-            xray_ports=$(ss -tnlp 2>/dev/null | grep -w xray | grep -v "127.0.0.1" | awk '{print $4}' | grep -oE '[0-9]+$' | sort -u)
-        fi
-        
-        xray_ports=$(echo "$xray_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
-        if [ -n "$xray_ports" ]; then
-            echo "🛡️ 检测到 Xray 公网端口 (Reality): $xray_ports"
-            all_ports="$all_ports $xray_ports"
-        else
-            echo "⚠️ 警告: 未找到 Xray 端口。如果你的 Reality 使用 443，请确保它已启动。"
-            # 既然是 Reality，如果检测失败，为了保险起见建议手动检查 443
-            # 但脚本为了安全不会默认乱开
-        fi
+    fi
+
+    # 2. 扫描运行进程 (Process Scan - 强制执行)
+    echo "🕵️ 正在执行系统网络扫描 (ss/netstat)..."
+    # 扫描所有监听端口，排除 127.0.0.1 和 ::1 (本地回环)
+    # 只提取 LISTEN 状态的 TCP 端口
+    sys_ports=$(ss -tnlp 2>/dev/null | grep -E "xray|v2ray" | grep -v "127.0.0.1" | grep -v "\[::1\]" | awk '{print $4}' | grep -oE '[0-9]+$' | sort -u)
+
+    if [ -n "$sys_ports" ]; then
+         echo "   ⚙️ 进程扫描发现端口: $sys_ports"
+         xray_ports="$xray_ports $sys_ports"
+    fi
+
+    # 合并结果
+    xray_ports=$(echo "$xray_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+    if [ -n "$xray_ports" ]; then
+        echo "🛡️ 检测到 Xray 公网端口: $xray_ports"
+        all_ports="$all_ports $xray_ports"
+    else
+        echo "⚠️ 警告: 未找到 Xray 端口 (配置和进程扫描均为空)"
     fi
 
     # === Sing-box 端口检测 ===
@@ -357,18 +359,16 @@ main() {
             done
         fi
     done
-    if pgrep -x "sing-box" &>/dev/null; then
-        if [ -z "$sb_ports" ]; then
-             net_ports=$(ss -tnlp 2>/dev/null | grep -w "sing-box" | grep -v "127.0.0.1" | awk '{print $4}' | grep -oE '[0-9]+$' | sort -u)
-             sb_ports="$sb_ports $net_ports"
-        fi
-    fi
+    # Sing-box 进程扫描
+    sys_sb_ports=$(ss -tnlp 2>/dev/null | grep -w "sing-box" | grep -v "127.0.0.1" | grep -v "\[::1\]" | awk '{print $4}' | grep -oE '[0-9]+$' | sort -u)
+    [ -n "$sys_sb_ports" ] && sb_ports="$sb_ports $sys_sb_ports"
+
     sb_ports=$(echo "$sb_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
     [ -n "$sb_ports" ] && echo "🛡️ 检测到 Sing-box 端口: $sb_ports" && all_ports="$all_ports $sb_ports"
 
     all_ports=$(echo "$all_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
     print_message "最终放行端口: $all_ports"
-    
+
     remove_unused_rules "$all_ports" "$firewall_type" "$ssh_port"
     setup_fail2ban "$firewall_type"
 
