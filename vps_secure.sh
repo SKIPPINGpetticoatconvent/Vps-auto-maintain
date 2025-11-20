@@ -1,13 +1,13 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------------------
-# VPS 代理服务端口检测与防火墙配置脚本（V3.8.11 双重扫描版）
+# VPS 代理服务端口检测与防火墙配置脚本（V3.8.12 全能修正版）
 # 兼容 mack-a v2ray-agent / X-UI / Sing-box / 233boy
 #
 # 🩵 更新日志:
-# V3.8.11-DUALSCAN
-#   ✅ [双重扫描] 强制同时执行“配置读取”和“进程扫描(ss)”，取并集，绝不漏网
-#   ✅ [透明日志] 防火墙执行阶段逐个打印所有被放行的端口，消除误解
-#   ✅ [调试信息] 打印每个配置文件解析出的端口，方便排查
+# V3.8.12-FULL
+#   ✅ [回归] 修复 V3.8.11 中遗漏的 X-UI/X-Panel 检测模块
+#   ✅ [X-UI] 检测到面板时，自动读取数据库端口并强制放行 80 (用于证书申请)
+#   ✅ [继承] 保留 V3.8.11 的双重扫描、透明日志、防冲突所有特性
 # -----------------------------------------------------------------------------------------
 
 set -e
@@ -75,11 +75,11 @@ extract_public_ports() {
     # 提取逻辑：过滤掉明确绑定到 127.0.0.1 或 localhost 的端口
     local jq_ports
     jq_ports=$(sed 's://.*$::g' "$file" | jq -r ".inbounds[] | select((.$key_listen == null) or (.$key_listen != \"127.0.0.1\" and .$key_listen != \"localhost\")) | .$key_port" 2>/dev/null | grep -E '^[0-9]+$' | sort -u)
-
+    
     if [ -n "$jq_ports" ]; then
         ports="$ports $jq_ports"
     else
-        # 兜底：grep 暴力匹配，除非该行明确写了 127.0.0.1，否则都视为公网
+        # 兜底：grep 暴力匹配
         if ! grep -q "\"$key_listen\"\s*:\s*\"127.0.0.1\"" "$file"; then
              local grep_ports
              grep_ports=$(grep -oE "\"$key_port\"\s*:\s*[0-9]+" "$file" | grep -oE '[0-9]+' | sort -u)
@@ -133,11 +133,11 @@ setup_firewall() {
 detect_banaction() {
     local firewall_type="$1"
     if [ "$firewall_type" = "ufw" ]; then
-        if [ -f "/etc/fail2ban/action.d/ufw-allports.conf" ]; then echo "ufw-allports";
-        elif [ -f "/etc/fail2ban/action.d/ufw.conf" ]; then echo "ufw";
+        if [ -f "/etc/fail2ban/action.d/ufw-allports.conf" ]; then echo "ufw-allports"; 
+        elif [ -f "/etc/fail2ban/action.d/ufw.conf" ]; then echo "ufw"; 
         else echo "iptables-allports"; fi
     elif [ "$firewall_type" = "firewalld" ]; then
-        if [ -f "/etc/fail2ban/action.d/firewallcmd-ipset.conf" ]; then echo "firewallcmd-ipset";
+        if [ -f "/etc/fail2ban/action.d/firewallcmd-ipset.conf" ]; then echo "firewallcmd-ipset"; 
         else echo "iptables-allports"; fi
     else
         echo "iptables-allports"
@@ -151,7 +151,7 @@ setup_fail2ban() {
         echo "ℹ️ 正在安装 Fail2Ban..."
         install_dependency "fail2ban"
     fi
-
+    
     systemctl stop fail2ban >/dev/null 2>&1
     rm -f /etc/fail2ban/filter.d/sshd-ddos.conf
     local banaction=$(detect_banaction "$firewall_type")
@@ -198,7 +198,7 @@ remove_unused_rules() {
     [ -z "$safe_ssh_port" ] && safe_ssh_port=22
 
     print_message "清理并应用新的防火墙规则"
-
+    
     if systemctl is-active --quiet fail2ban; then
         echo "⏸️  临时暂停 Fail2Ban 以避免冲突..."
         systemctl stop fail2ban
@@ -210,11 +210,11 @@ remove_unused_rules() {
         echo "y" | ufw reset >/dev/null 2>&1
         ufw default deny incoming >/dev/null 2>&1
         ufw default allow outgoing >/dev/null 2>&1
-
+        
         echo "🔒 优先强制放行 SSH 端口: $safe_ssh_port"
         ufw allow "${safe_ssh_port}/tcp" >/dev/null
 
-        for p in "${ports_array[@]}"; do
+        for p in "${ports_array[@]}"; do 
             if [ "$p" != "$safe_ssh_port" ]; then
                 echo "🌐 放行端口: $p"
                 ufw allow "$p" >/dev/null
@@ -232,7 +232,7 @@ remove_unused_rules() {
 
         echo "🔒 优先强制放行 SSH 端口: $safe_ssh_port"
         firewall-cmd --permanent --add-port="$safe_ssh_port"/tcp >/dev/null 2>&1
-
+        
         for p in "${ports_array[@]}"; do
              if [ "$p" != "$safe_ssh_port" ]; then
                 echo "🌐 放行端口: $p"
@@ -307,11 +307,11 @@ main() {
 
     # === Xray 端口深度检测 (双重扫描模式) ===
     xray_ports=""
-
+    
     # 1. 扫描配置目录 (Config Scan)
     if [ -d "/etc/v2ray-agent" ] || command -v xray &>/dev/null; then
         xray_config_dirs=("/etc/xray/conf" "/etc/v2ray-agent/xray/conf" "/usr/local/etc/xray")
-
+        
         for config_dir in "${xray_config_dirs[@]}"; do
             if [ -d "$config_dir" ]; then
                 echo "📂 扫描目录: $config_dir"
@@ -329,10 +329,8 @@ main() {
 
     # 2. 扫描运行进程 (Process Scan - 强制执行)
     echo "🕵️ 正在执行系统网络扫描 (ss/netstat)..."
-    # 扫描所有监听端口，排除 127.0.0.1 和 ::1 (本地回环)
-    # 只提取 LISTEN 状态的 TCP 端口
     sys_ports=$(ss -tnlp 2>/dev/null | grep -E "xray|v2ray" | grep -v "127.0.0.1" | grep -v "\[::1\]" | awk '{print $4}' | grep -oE '[0-9]+$' | sort -u)
-
+    
     if [ -n "$sys_ports" ]; then
          echo "   ⚙️ 进程扫描发现端口: $sys_ports"
          xray_ports="$xray_ports $sys_ports"
@@ -343,8 +341,6 @@ main() {
     if [ -n "$xray_ports" ]; then
         echo "🛡️ 检测到 Xray 公网端口: $xray_ports"
         all_ports="$all_ports $xray_ports"
-    else
-        echo "⚠️ 警告: 未找到 Xray 端口 (配置和进程扫描均为空)"
     fi
 
     # === Sing-box 端口检测 ===
@@ -366,9 +362,23 @@ main() {
     sb_ports=$(echo "$sb_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
     [ -n "$sb_ports" ] && echo "🛡️ 检测到 Sing-box 端口: $sb_ports" && all_ports="$all_ports $sb_ports"
 
+    # === X-Panel / X-UI 端口检测 (回归!) ===
+    if pgrep -f "xpanel" >/dev/null || pgrep -f "x-ui" >/dev/null; then
+        echo "🌐 检测到 X-UI/X-Panel 进程"
+        if [ -f /etc/x-ui/x-ui.db ]; then
+            xpanel_ports=$(sqlite3 /etc/x-ui/x-ui.db "SELECT port FROM inbounds WHERE port IS NOT NULL AND port != '';" 2>/dev/null | grep -E '^[0-9]+$' | sort -u)
+            if [ -n "$xpanel_ports" ]; then
+                echo "   📊 面板入站端口: $xpanel_ports"
+                all_ports="$all_ports $xpanel_ports"
+            fi
+        fi
+        echo "   🔓 自动放行 80 端口 (用于证书申请)"
+        all_ports="$all_ports 80"
+    fi
+
     all_ports=$(echo "$all_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
     print_message "最终放行端口: $all_ports"
-
+    
     remove_unused_rules "$all_ports" "$firewall_type" "$ssh_port"
     setup_fail2ban "$firewall_type"
 
