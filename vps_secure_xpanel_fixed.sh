@@ -1,13 +1,13 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------------------
-# VPS 代理服务端口检测与防火墙配置脚本（V3.8.4 防自锁版）
+# VPS 代理服务端口检测与防火墙配置脚本（V3.8.5 最终完美版）
 # 兼容 xeefei X-Panel / X-UI / Xray / Sing-box / 233boy / v2ray-agent
 #
 # 🩵 更新日志:
-# V3.8.4-SAFE
-#   ✅ [安全] 实施“SSH 优先”策略：防火墙重置后第一件事强制放行 SSH 端口
-#   ✅ [优化] 即使端口检测逻辑出错，防火墙函数也会强制兜底放行 SSH
-#   ✅ [修复] 继承 V3.8.3 的所有修复（变量污染、国际化问题、路径兼容）
+# V3.8.5-STABLE
+#   ✅ [修复] 将 grep 正则中的 '\s' 替换为标准的 '[[:space:]]'，修复精简版系统自检失败的问题
+#   ✅ [增强] 优化 UFW 状态检测正则，支持带编号 (numbered) 的规则列表
+#   ✅ [调试] 如果自检失败，自动打印当前防火墙规则列表，方便排查
 # -----------------------------------------------------------------------------------------
 
 set -e
@@ -42,7 +42,6 @@ print_message() {
 send_telegram() {
     if [ "$NOTIFY" = true ] && [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT_ID" ]; then
         local message="$1"
-        # 转义 MarkdownV2 特殊字符
         message=$(echo "$message" | sed 's/`/\\`/g' | sed 's/\*/\\*/g' | sed 's/_/\\_/g')
         curl --connect-timeout 10 --retry 3 -s -X POST \
             "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
@@ -68,10 +67,9 @@ install_dependency() {
 install_dependency "sqlite3"
 install_dependency "jq"
 
-# --- 获取 SSH 端口 (公共函数) ---
+# --- 获取 SSH 端口 ---
 get_ssh_port() {
     local port
-    # 提取配置 -> 过滤注释 -> 提取端口号 -> 校验数字 -> 取第一行
     port=$(grep -iE '^\s*Port\s+[0-9]+' /etc/ssh/sshd_config 2>/dev/null | \
            grep -v '^\s*#' | \
            awk '{print $2}' | \
@@ -80,19 +78,18 @@ get_ssh_port() {
     echo "${port:-22}"
 }
 
-# --- 检测防火墙状态 (强制英文环境) ---
+# --- 检测防火墙状态 ---
 detect_firewall() {
-    # 强制 LC_ALL=C 避免中文输出导致 grep 失败
     if systemctl is-active --quiet firewalld 2>/dev/null; then
         echo "firewalld"
-    elif command -v ufw &>/dev/null && LC_ALL=C ufw status 2>/dev/null | grep -qE "^Status:\s+active"; then
+    elif command -v ufw &>/dev/null && LC_ALL=C ufw status 2>/dev/null | grep -qE "^Status:[[:space:]]+active"; then
         echo "ufw"
     else
         echo "none"
     fi
 }
 
-# --- 安装防火墙 (不输出干扰变量的文本) ---
+# --- 安装防火墙 ---
 setup_firewall() {
     print_message "安装并启用防火墙"
     if [ -f /etc/os-release ]; then
@@ -114,40 +111,29 @@ setup_firewall() {
     fi
 }
 
-# --- 自动检测 Fail2Ban 封禁动作 ---
+# --- 检测 Fail2Ban 动作 ---
 detect_banaction() {
     local firewall_type="$1"
-    local banaction=""
     if [ "$firewall_type" = "ufw" ]; then
-        if [ -f "/etc/fail2ban/action.d/ufw-allports.conf" ]; then
-            banaction="ufw-allports"
-        elif [ -f "/etc/fail2ban/action.d/ufw.conf" ]; then
-            banaction="ufw"
-        else
-            banaction="iptables-allports"
-        fi
+        if [ -f "/etc/fail2ban/action.d/ufw-allports.conf" ]; then echo "ufw-allports"; 
+        elif [ -f "/etc/fail2ban/action.d/ufw.conf" ]; then echo "ufw"; 
+        else echo "iptables-allports"; fi
     elif [ "$firewall_type" = "firewalld" ]; then
-        if [ -f "/etc/fail2ban/action.d/firewallcmd-ipset.conf" ]; then
-            banaction="firewallcmd-ipset"
-        else
-            banaction="iptables-allports"
-        fi
+        if [ -f "/etc/fail2ban/action.d/firewallcmd-ipset.conf" ]; then echo "firewallcmd-ipset"; 
+        else echo "iptables-allports"; fi
     else
-        banaction="iptables-allports"
+        echo "iptables-allports"
     fi
-    echo "$banaction"
 }
 
-# --- 安装并配置 Fail2Ban ---
+# --- 安装 Fail2Ban ---
 setup_fail2ban() {
     local firewall_type="$1"
     print_message "配置 Fail2Ban (SSH 防护)"
-
     if ! command -v fail2ban-client &>/dev/null; then
         echo "ℹ️ 正在安装 Fail2Ban..."
         install_dependency "fail2ban"
     fi
-
     rm -f /etc/fail2ban/filter.d/sshd-ddos.conf
     local banaction=$(detect_banaction "$firewall_type")
     echo "ℹ️ Fail2Ban 将使用动作: $banaction"
@@ -158,12 +144,11 @@ setup_fail2ban() {
     echo "  3) 偏执模式: 2次失败封禁12小时，屡教不改×3"
     read -p "请输入选项 [1-3], 默认 2: " mode
     mode=${mode:-2}
-
     case $mode in
     1) FAIL2BAN_MODE="普通 (Normal)"; bantime="10m"; maxretry="5"; findtime="10m" ;;
     2) FAIL2BAN_MODE="激进 (Aggressive)"; bantime="1h"; maxretry="3"; findtime="10m" ;;
     3) FAIL2BAN_MODE="偏执 (Paranoid)"; bantime="1h"; maxretry="2"; findtime="10m" ;;
-    *) echo "无效输入，使用默认激进模式"; FAIL2BAN_MODE="激进 (Aggressive)"; bantime="1h"; maxretry="3"; findtime="10m" ;;
+    *) FAIL2BAN_MODE="激进 (Aggressive)"; bantime="1h"; maxretry="3"; findtime="10m" ;;
     esac
 
     cat >/etc/fail2ban/jail.local <<EOF
@@ -182,19 +167,16 @@ bantime.increment = true
 bantime.factor = 2
 bantime.max = 1w
 EOF
-
     systemctl enable --now fail2ban >/dev/null 2>&1
     systemctl restart fail2ban
     echo "✅ Fail2Ban 已配置为 [$FAIL2BAN_MODE] 并启动。"
 }
 
-# --- 清理并添加防火墙规则 (增强版：强制放行 SSH) ---
+# --- 应用防火墙规则 ---
 remove_unused_rules() {
     local ports_to_keep="$1"
     local firewall="$2"
-    local safe_ssh_port="$3"  # 接收明确的 SSH 端口参数
-    
-    # 最终安全兜底：如果 SSH 端口参数为空，强制默认为 22
+    local safe_ssh_port="$3"
     [ -z "$safe_ssh_port" ] && safe_ssh_port=22
 
     print_message "清理并应用新的防火墙规则"
@@ -205,18 +187,14 @@ remove_unused_rules() {
         ufw default deny incoming >/dev/null 2>&1
         ufw default allow outgoing >/dev/null 2>&1
         
-        # 🔥【强制执行】第一时间放行 SSH 端口，防止自锁
         echo "🔒 正在优先强制放行 SSH 端口: $safe_ssh_port"
         ufw allow "$safe_ssh_port" >/dev/null
 
-        # 遍历放行其他端口
         for p in "${ports_array[@]}"; do 
-            # 避免重复添加 SSH 端口 (虽无害但为了日志整洁)
             if [ "$p" != "$safe_ssh_port" ]; then
                 ufw allow "$p" >/dev/null
             fi
         done
-        
         ufw --force enable >/dev/null 2>&1
         echo "✅ UFW 规则已更新，当前状态: Active"
 
@@ -227,18 +205,15 @@ remove_unused_rules() {
             firewall-cmd --permanent --remove-port="$p" >/dev/null 2>&1
         done
 
-        # 🔥【强制执行】第一时间放行 SSH 端口
         echo "🔒 正在优先强制放行 SSH 端口: $safe_ssh_port"
         firewall-cmd --permanent --add-port="$safe_ssh_port"/tcp >/dev/null 2>&1
         
-        # 遍历放行其他端口
         for p in "${ports_array[@]}"; do
              if [ "$p" != "$safe_ssh_port" ]; then
                 firewall-cmd --permanent --add-port="$p"/tcp >/dev/null 2>&1
                 firewall-cmd --permanent --add-port="$p"/udp >/dev/null 2>&1
             fi
         done
-        
         firewall-cmd --reload >/dev/null 2>&1
         echo "✅ firewalld 规则已更新，当前状态: Running"
     else
@@ -246,14 +221,14 @@ remove_unused_rules() {
     fi
 }
 
-# --- 自检模块 ---
+# --- 自检模块 (V3.8.5 修复版) ---
 self_check() {
     print_message "🔍 正在进行配置自检（增强版）..."
-    sleep 5  # 等待 Fail2Ban 初始化
+    sleep 5
     local all_ok=true
     local issues=()
 
-    # === Fail2Ban 状态检测 ===
+    # Fail2Ban 检测
     if systemctl is-active --quiet fail2ban 2>/dev/null; then
         echo "✅ Fail2Ban 服务正在运行。"
     else
@@ -262,23 +237,22 @@ self_check() {
         all_ok=false
     fi
 
-    # === SSH Jail 检测 ===
+    # SSH Jail 检测
     if ! fail2ban-client status sshd >/dev/null 2>&1; then
-        echo "⚠️ SSH Jail 初次检测未加载，等待 5 秒后重试..."
-        sleep 5
+        sleep 3
         systemctl reload fail2ban >/dev/null 2>&1
         if fail2ban-client status sshd >/dev/null 2>&1; then
-            echo "✅ SSH Jail 已在重试后加载成功。"
+            echo "✅ SSH Jail 加载成功。"
         else
-            echo "❌ SSH Jail 加载失败，请检查配置。"
+            echo "❌ SSH Jail 加载失败。"
             issues+=("SSH-Jail未加载")
             all_ok=false
         fi
     else
-        echo "✅ SSH Jail 已正确加载。"
+        echo "✅ SSH Jail 加载成功。"
     fi
 
-    # === 防火墙检测 ===
+    # 防火墙检测
     local fw
     fw=$(detect_firewall)
     if [ "$fw" = "ufw" ]; then
@@ -291,12 +265,11 @@ self_check() {
         all_ok=false
     fi
 
-    # === SSH 端口检测 ===
+    # SSH 端口检测
     local ssh_port
     ssh_port=$(get_ssh_port)
     
-    # === SSH 监听检测 ===
-    if ss -tln 2>/dev/null | grep -qE "[^0-9]${ssh_port}(\s|$)"; then
+    if ss -tln 2>/dev/null | grep -qE "[^0-9]${ssh_port}([[:space:]]|$)"; then
         echo "✅ SSH 端口 $ssh_port 监听正常。"
     else
         echo "⚠️ SSH 端口 $ssh_port 未监听！"
@@ -304,17 +277,23 @@ self_check() {
         all_ok=false
     fi
 
-    # === 验证 SSH 端口是否在防火墙规则中 (强制 LC_ALL=C) ===
+    # 规则检测 (使用 POSIX 标准正则 [[:space:]] 替换 \s)
     if [ "$fw" = "ufw" ]; then
-        # 强制使用英文输出，确保 grep 能够匹配 "ALLOW"
-        if ! LC_ALL=C ufw status 2>/dev/null | grep -qE "^${ssh_port}(/tcp)?\s+(ALLOW|allow)"; then
+        # 正则解释：行首或空格 + 端口号 + (可选/tcp) + 必须有空格 + ALLOW/allow
+        if ! LC_ALL=C ufw status 2>/dev/null | grep -qE "(^|[[:space:]])${ssh_port}(/tcp)?[[:space:]]+(ALLOW|allow)"; then
             echo "⚠️ SSH 端口 $ssh_port 未在 UFW 规则中！"
+            echo "⬇️ --- 当前 UFW 规则列表 (调试) ---"
+            LC_ALL=C ufw status
+            echo "⬆️ --------------------------------"
             issues+=("SSH端口未放行")
             all_ok=false
         fi
     elif [ "$fw" = "firewalld" ]; then
         if ! firewall-cmd --list-ports 2>/dev/null | grep -qE "${ssh_port}/(tcp|udp)"; then
             echo "⚠️ SSH 端口 $ssh_port 未在 Firewalld 规则中！"
+            echo "⬇️ --- 当前 Firewalld 规则 (调试) ---"
+            firewall-cmd --list-ports
+            echo "⬆️ ----------------------------------"
             issues+=("SSH端口未放行")
             all_ok=false
         fi
@@ -329,7 +308,7 @@ self_check() {
         result="✅ 自检通过"
         issue_summary=""
     else
-        echo "⚠️ 自检发现问题，请手动检查。"
+        echo "⚠️ 自检发现问题，请检查上方日志。"
         result="⚠️ 发现问题"
         issue_summary="\n> *问题*: ${issues[*]}"
     fi
@@ -348,18 +327,13 @@ self_check() {
 # --- 主程序 ---
 main() {
     local firewall_type
-    
-    # 1. 初步检测防火墙
     firewall_type=$(detect_firewall)
     
-    # 2. 如果未检测到，则安装
     if [ "$firewall_type" = "none" ]; then
-        setup_firewall # 直接执行，不捕获输出，避免变量污染
-        # 3. 安装后再次检测状态
+        setup_firewall
         firewall_type=$(detect_firewall)
     fi
 
-    # 4. 最终确认防火墙状态
     if [ "$firewall_type" = "none" ]; then
         print_message "❌ 严重错误：防火墙安装失败或无法识别，脚本停止。"
         exit 1
@@ -369,17 +343,14 @@ main() {
 
     setup_fail2ban "$firewall_type"
 
-    # === SSH 端口检测 ===
     local ssh_port
     ssh_port=$(get_ssh_port)
     echo "🛡️ 检测到 SSH 端口: $ssh_port"
-
     local all_ports="$ssh_port"
 
-    # === Xray 端口检测 ===
+    # Xray 检测
     if command -v xray &>/dev/null && pgrep -x "xray" &>/dev/null; then
         xray_ports=""
-        # 包含原版路径、233boy路径、v2ray-agent路径
         xray_config_dirs=("/etc/xray/conf" "/etc/v2ray-agent/xray/conf" "/usr/local/etc/xray")
         for config_dir in "${xray_config_dirs[@]}"; do
             if [ -d "$config_dir" ]; then
@@ -390,23 +361,16 @@ main() {
                 done
             fi
         done
-
-        # 回退到网络监听检测
         if [ -z "$xray_ports" ]; then
             xray_ports=$(ss -tnlp 2>/dev/null | grep -w xray | awk '{print $4}' | grep -oE '[0-9]+$' | sort -u)
         fi
-
         xray_ports=$(echo "$xray_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
-        if [ -n "$xray_ports" ]; then
-            echo "🛡️ 检测到 Xray 端口: $xray_ports"
-            all_ports="$all_ports $xray_ports"
-        fi
+        [ -n "$xray_ports" ] && echo "🛡️ 检测到 Xray 端口: $xray_ports" && all_ports="$all_ports $xray_ports"
     fi
 
-    # === Sing-box 端口检测 ===
+    # Sing-box 检测
     sb_ports=""
     sb_config_dirs=("/etc/sing-box/conf" "/etc/v2ray-agent/sing-box/conf/config" "/etc/sing-box")
-
     for config_dir in "${sb_config_dirs[@]}"; do
         if [ -d "$config_dir" ]; then
             for config_file in "$config_dir"/*.json; do
@@ -416,40 +380,28 @@ main() {
             done
         fi
     done
-
     if pgrep -x "sing-box" &>/dev/null; then
         if [ -z "$sb_ports" ]; then
             net_ports=$(ss -tnlp 2>/dev/null | grep -w "sing-box" | awk '{print $4}' | grep -oE '[0-9]+$' | sort -u)
             sb_ports="$sb_ports $net_ports"
         fi
     fi
-
     sb_ports=$(echo "$sb_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
-    if [ -n "$sb_ports" ]; then
-        echo "🛡️ 检测到 Sing-box 端口: $sb_ports"
-        all_ports="$all_ports $sb_ports"
-    fi
+    [ -n "$sb_ports" ] && echo "🛡️ 检测到 Sing-box 端口: $sb_ports" && all_ports="$all_ports $sb_ports"
 
-    # === X-Panel / X-UI 端口检测 ===
+    # X-Panel 检测
     if pgrep -f "xpanel" >/dev/null || pgrep -f "x-ui" >/dev/null; then
         if [ -f /etc/x-ui/x-ui.db ]; then
-            xpanel_ports=$(sqlite3 /etc/x-ui/x-ui.db \
-                "SELECT port FROM inbounds WHERE port IS NOT NULL AND port != '';" 2>/dev/null | \
-                grep -E '^[0-9]+$' | sort -u)
-            if [ -n "$xpanel_ports" ]; then
-                echo "🛡️ 检测到 X-Panel 入站端口: $xpanel_ports"
-                all_ports="$all_ports $xpanel_ports"
-            fi
+            xpanel_ports=$(sqlite3 /etc/x-ui/x-ui.db "SELECT port FROM inbounds WHERE port IS NOT NULL AND port != '';" 2>/dev/null | grep -E '^[0-9]+$' | sort -u)
+            [ -n "$xpanel_ports" ] && echo "🛡️ 检测到 X-Panel 端口: $xpanel_ports" && all_ports="$all_ports $xpanel_ports"
         fi
-        echo "🌐 检测到面板进程，自动放行 80 端口（用于证书申请）。"
+        echo "🌐 检测到面板进程，自动放行 80 端口。"
         all_ports="$all_ports 80"
     fi
 
-    # === 最终处理 ===
     all_ports=$(echo "$all_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
     print_message "最终将保留的端口: $all_ports"
     
-    # 🔥 传递 SSH 端口作为第三个参数，确保在函数内部被优先处理
     remove_unused_rules "$all_ports" "$firewall_type" "$ssh_port"
 
     print_message "✅ 所有安全配置已成功应用！"
