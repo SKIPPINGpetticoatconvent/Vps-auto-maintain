@@ -1,12 +1,13 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------------------
-# VPS 代理服务端口检测与防火墙配置脚本（V3.8.3 国际化修复版）
-# 兼容 xeefei X-Panel / X-UI / Xray / Sing-box
+# VPS 代理服务端口检测与防火墙配置脚本（V3.8.4 防自锁版）
+# 兼容 xeefei X-Panel / X-UI / Xray / Sing-box / 233boy / v2ray-agent
 #
 # 🩵 更新日志:
-# V3.8.3-FIXED
-#   ✅ [修复] 强制使用 LC_ALL=C 执行防火墙命令，解决中文系统下 ufw status 输出 "允许" 导致自检误报的问题
-#   ✅ [优化] 增强 grep 匹配逻辑，忽略多余空格干扰
+# V3.8.4-SAFE
+#   ✅ [安全] 实施“SSH 优先”策略：防火墙重置后第一件事强制放行 SSH 端口
+#   ✅ [优化] 即使端口检测逻辑出错，防火墙函数也会强制兜底放行 SSH
+#   ✅ [修复] 继承 V3.8.3 的所有修复（变量污染、国际化问题、路径兼容）
 # -----------------------------------------------------------------------------------------
 
 set -e
@@ -91,7 +92,7 @@ detect_firewall() {
     fi
 }
 
-# --- 安装防火墙 (不输出任何干扰变量的文本) ---
+# --- 安装防火墙 (不输出干扰变量的文本) ---
 setup_firewall() {
     print_message "安装并启用防火墙"
     if [ -f /etc/os-release ]; then
@@ -187,10 +188,15 @@ EOF
     echo "✅ Fail2Ban 已配置为 [$FAIL2BAN_MODE] 并启动。"
 }
 
-# --- 清理并添加防火墙规则 ---
+# --- 清理并添加防火墙规则 (增强版：强制放行 SSH) ---
 remove_unused_rules() {
     local ports_to_keep="$1"
     local firewall="$2"
+    local safe_ssh_port="$3"  # 接收明确的 SSH 端口参数
+    
+    # 最终安全兜底：如果 SSH 端口参数为空，强制默认为 22
+    [ -z "$safe_ssh_port" ] && safe_ssh_port=22
+
     print_message "清理并应用新的防火墙规则"
     local ports_array=($ports_to_keep)
 
@@ -198,19 +204,41 @@ remove_unused_rules() {
         echo "y" | ufw reset >/dev/null 2>&1
         ufw default deny incoming >/dev/null 2>&1
         ufw default allow outgoing >/dev/null 2>&1
-        for p in "${ports_array[@]}"; do ufw allow "$p" >/dev/null; done
+        
+        # 🔥【强制执行】第一时间放行 SSH 端口，防止自锁
+        echo "🔒 正在优先强制放行 SSH 端口: $safe_ssh_port"
+        ufw allow "$safe_ssh_port" >/dev/null
+
+        # 遍历放行其他端口
+        for p in "${ports_array[@]}"; do 
+            # 避免重复添加 SSH 端口 (虽无害但为了日志整洁)
+            if [ "$p" != "$safe_ssh_port" ]; then
+                ufw allow "$p" >/dev/null
+            fi
+        done
+        
         ufw --force enable >/dev/null 2>&1
         echo "✅ UFW 规则已更新，当前状态: Active"
+
     elif [ "$firewall" = "firewalld" ]; then
         local existing_ports
         existing_ports=$(firewall-cmd --list-ports 2>/dev/null)
         for p in $existing_ports; do
             firewall-cmd --permanent --remove-port="$p" >/dev/null 2>&1
         done
+
+        # 🔥【强制执行】第一时间放行 SSH 端口
+        echo "🔒 正在优先强制放行 SSH 端口: $safe_ssh_port"
+        firewall-cmd --permanent --add-port="$safe_ssh_port"/tcp >/dev/null 2>&1
+        
+        # 遍历放行其他端口
         for p in "${ports_array[@]}"; do
-            firewall-cmd --permanent --add-port="$p"/tcp >/dev/null 2>&1
-            firewall-cmd --permanent --add-port="$p"/udp >/dev/null 2>&1
+             if [ "$p" != "$safe_ssh_port" ]; then
+                firewall-cmd --permanent --add-port="$p"/tcp >/dev/null 2>&1
+                firewall-cmd --permanent --add-port="$p"/udp >/dev/null 2>&1
+            fi
         done
+        
         firewall-cmd --reload >/dev/null 2>&1
         echo "✅ firewalld 规则已更新，当前状态: Running"
     else
@@ -276,13 +304,11 @@ self_check() {
         all_ok=false
     fi
 
-    # === 验证 SSH 端口是否在防火墙规则中 (修复版：强制 LC_ALL=C) ===
+    # === 验证 SSH 端口是否在防火墙规则中 (强制 LC_ALL=C) ===
     if [ "$fw" = "ufw" ]; then
         # 强制使用英文输出，确保 grep 能够匹配 "ALLOW"
         if ! LC_ALL=C ufw status 2>/dev/null | grep -qE "^${ssh_port}(/tcp)?\s+(ALLOW|allow)"; then
             echo "⚠️ SSH 端口 $ssh_port 未在 UFW 规则中！"
-            # 调试信息：如果失败，尝试打印当前规则（可选）
-            # LC_ALL=C ufw status | grep "$ssh_port"
             issues+=("SSH端口未放行")
             all_ok=false
         fi
@@ -353,7 +379,8 @@ main() {
     # === Xray 端口检测 ===
     if command -v xray &>/dev/null && pgrep -x "xray" &>/dev/null; then
         xray_ports=""
-        xray_config_dirs=("/etc/xray/conf" "/etc/v2ray-agent/xray/conf")
+        # 包含原版路径、233boy路径、v2ray-agent路径
+        xray_config_dirs=("/etc/xray/conf" "/etc/v2ray-agent/xray/conf" "/usr/local/etc/xray")
         for config_dir in "${xray_config_dirs[@]}"; do
             if [ -d "$config_dir" ]; then
                 for config_file in "$config_dir"/*.json; do
@@ -377,29 +404,30 @@ main() {
     fi
 
     # === Sing-box 端口检测 ===
+    sb_ports=""
+    sb_config_dirs=("/etc/sing-box/conf" "/etc/v2ray-agent/sing-box/conf/config" "/etc/sing-box")
+
+    for config_dir in "${sb_config_dirs[@]}"; do
+        if [ -d "$config_dir" ]; then
+            for config_file in "$config_dir"/*.json; do
+                [ -f "$config_file" ] || continue
+                config_ports=$(jq -r '.inbounds[]?.listen_port // empty' "$config_file" 2>/dev/null | sort -u | tr '\n' ' ')
+                [ -n "$config_ports" ] && sb_ports="$sb_ports $config_ports"
+            done
+        fi
+    done
+
     if pgrep -x "sing-box" &>/dev/null; then
-        sb_ports=""
-        config_dirs=("/etc/sing-box/conf" "/etc/v2ray-agent/sing-box/conf/config")
-
-        for config_dir in "${config_dirs[@]}"; do
-            if [ -d "$config_dir" ]; then
-                for config_file in "$config_dir"/*.json; do
-                    [ -f "$config_file" ] || continue
-                    config_ports=$(jq -r '.inbounds[]?.listen_port // empty' "$config_file" 2>/dev/null | sort -u | tr '\n' ' ')
-                    [ -n "$config_ports" ] && sb_ports="$sb_ports $config_ports"
-                done
-            fi
-        done
-
         if [ -z "$sb_ports" ]; then
-            sb_ports=$(ss -tnlp 2>/dev/null | grep -w "sing-box" | awk '{print $4}' | grep -oE '[0-9]+$' | sort -u)
+            net_ports=$(ss -tnlp 2>/dev/null | grep -w "sing-box" | awk '{print $4}' | grep -oE '[0-9]+$' | sort -u)
+            sb_ports="$sb_ports $net_ports"
         fi
+    fi
 
-        sb_ports=$(echo "$sb_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
-        if [ -n "$sb_ports" ]; then
-            echo "🛡️ 检测到 Sing-box 端口: $sb_ports"
-            all_ports="$all_ports $sb_ports"
-        fi
+    sb_ports=$(echo "$sb_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+    if [ -n "$sb_ports" ]; then
+        echo "🛡️ 检测到 Sing-box 端口: $sb_ports"
+        all_ports="$all_ports $sb_ports"
     fi
 
     # === X-Panel / X-UI 端口检测 ===
@@ -417,47 +445,12 @@ main() {
         all_ports="$all_ports 80"
     fi
 
-    # === 233boy Xray 脚本端口检测 ===
-    if [ -d "/etc/xray/conf" ]; then
-        xray_config_ports=""
-        for config_file in /etc/xray/conf/*.json; do
-            [ -f "$config_file" ] || continue
-            config_ports=$(jq -r '.inbounds[]?.port // empty' "$config_file" 2>/dev/null | sort -u | tr '\n' ' ')
-            [ -n "$config_ports" ] && xray_config_ports="$xray_config_ports $config_ports"
-        done
-        if [ -n "$xray_config_ports" ]; then
-            xray_config_ports=$(echo "$xray_config_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
-            echo "🛡️ 检测到 233boy Xray 配置端口: $xray_config_ports"
-            all_ports="$all_ports $xray_config_ports"
-        fi
-    fi
-
-    # === Sing-box 纯配置端口检测 ===
-    sb_config_ports=""
-    sb_config_dirs=("/etc/sing-box/conf" "/etc/v2ray-agent/sing-box/conf/config")
-
-    for config_dir in "${sb_config_dirs[@]}"; do
-        if [ -d "$config_dir" ]; then
-            for config_file in "$config_dir"/*.json; do
-                [ -f "$config_file" ] || continue
-                config_ports=$(jq -r '.inbounds[]?.listen_port // empty' "$config_file" 2>/dev/null | sort -u | tr '\n' ' ')
-                [ -n "$config_ports" ] && sb_config_ports="$sb_config_ports $config_ports"
-            done
-        fi
-    done
-
-    if [ -n "$sb_config_ports" ]; then
-        sb_config_ports=$(echo "$sb_config_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
-        echo "🛡️ 检测到 Sing-box 配置端口: $sb_config_ports"
-        all_ports="$all_ports $sb_config_ports"
-    fi
-
     # === 最终处理 ===
     all_ports=$(echo "$all_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
     print_message "最终将保留的端口: $all_ports"
     
-    # 传递纯净的 firewall_type
-    remove_unused_rules "$all_ports" "$firewall_type"
+    # 🔥 传递 SSH 端口作为第三个参数，确保在函数内部被优先处理
+    remove_unused_rules "$all_ports" "$firewall_type" "$ssh_port"
 
     print_message "✅ 所有安全配置已成功应用！"
 }
