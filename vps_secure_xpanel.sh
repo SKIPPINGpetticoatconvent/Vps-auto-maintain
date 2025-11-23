@@ -1,16 +1,13 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------------------
-# VPS 代理服务端口检测与防火墙配置脚本（X-Panel 专用优化版 V4.0）
-# 专为 X-Panel 项目设计，兼容 mack-a v2ray-agent / X-UI / Sing-box
+# VPS 代理服务端口检测与防火墙配置脚本（V3.9.0 完整面板适配版）
+# 兼容 mack-a v2ray-agent / X-UI / Sing-box / 233boy
 #
-# 🩵 更新日志:
-# V4.0-XPanel
-#   ✅ [新增] X-Panel 面板进程检测和端口管理
-#   ✅ [优化] 集成 X-Panel 数据库端口检测
-#   ✅ [增强] X-Panel Telegram Bot 实时通知集成
-#   ✅ [改进] X-Panel SSL证书路径自动检测
-#   ✅ [完善] X-Panel 面板安全配置检查
-#   ✅ [修复] 与 X-Panel 项目设计理念完全兼容
+# 🩵 更新说明:
+# V3.9.0-XPanel-Full
+#   ✅ [X-Panel] 完美集成：同时检测“面板管理端口”和“代理入站端口”
+#   ✅ [逻辑] 优先通过 CLI 获取面板端口，失败则读取 SQLite 数据库
+#   ✅ [保持] 保留原有的 SSH、Web、Xray、Sing-box 双重扫描及防火墙配置功能
 # -----------------------------------------------------------------------------------------
 
 set -e
@@ -65,79 +62,9 @@ install_dependency() {
     fi
 }
 
-# --- X-Panel 专用检测函数 ---
-detect_xpanel_process() {
-    # 检测 X-Panel 进程
-    if pgrep -f "x-ui" >/dev/null || pgrep -f "xpanel" >/dev/null; then
-        echo "x-panel"
-    elif [ -f "/usr/local/x-ui/x-ui" ] && [ -x "/usr/local/x-ui/x-ui" ]; then
-        echo "x-panel"
-    elif systemctl is-active --quiet x-ui 2>/dev/null; then
-        echo "x-panel"
-    else
-        echo "none"
-    fi
-}
-
-get_xpanel_config() {
-    # 获取 X-Panel 面板配置信息
-    local panel_port=""
-    local web_base_path=""
-    local cert_file=""
-    local key_file=""
-    local db_path="/etc/x-ui/x-ui.db"
-    
-    # 检查面板服务是否运行并尝试获取配置
-    if systemctl is-active --quiet x-ui 2>/dev/null; then
-        # 尝试通过命令行工具获取配置
-        if [ -f "/usr/local/x-ui/x-ui" ]; then
-            # 尝试获取端口配置
-            panel_port=$(timeout 5 /usr/local/x-ui/x-ui setting -getListen true 2>/dev/null | grep -Eo 'listenIP: .+' | awk '{print $2}' || echo "")
-            
-            # 获取证书配置
-            cert_info=$(timeout 5 /usr/local/x-ui/x-ui setting -getCert true 2>/dev/null)
-            if [ -n "$cert_info" ]; then
-                cert_file=$(echo "$cert_info" | grep -Eo 'cert: .+' | awk '{print $2}' || echo "")
-                key_file=$(echo "$cert_info" | grep -Eo 'key: .+' | awk '{print $2}' || echo "")
-            fi
-            
-            # 获取面板设置信息
-            settings_info=$(timeout 5 /usr/local/x-ui/x-ui setting -show true 2>/dev/null)
-            if [ -n "$settings_info" ]; then
-                panel_port=$(echo "$settings_info" | grep -Eo 'port（端口号）: .+' | awk '{print $2}' | head -1 || echo "$panel_port")
-                web_base_path=$(echo "$settings_info" | grep -Eo 'webBasePath（访问路径）: .+' | awk '{print $2}' | head -1 || echo "")
-            fi
-        fi
-        
-        # 如果无法通过命令行获取，尝试数据库
-        if [ -z "$panel_port" ] && [ -f "$db_path" ]; then
-            panel_port=$(sqlite3 "$db_path" "SELECT value FROM xuiSettings WHERE key='port';" 2>/dev/null || echo "54321")
-            if [ -z "$panel_port" ]; then
-                panel_port="54321"  # X-Panel 默认端口
-            fi
-        fi
-        
-        # 默认值
-        if [ -z "$web_base_path" ]; then
-            web_base_path="/xui"
-        fi
-    fi
-    
-    echo "${panel_port:-54321}|${web_base_path:-/xui}|${cert_file}|${key_file}"
-}
-
-get_xpanel_inbound_ports() {
-    # 获取 X-Panel 管理的入站端口
-    local db_path="/etc/x-ui/x-ui.db"
-    local inbound_ports=""
-    
-    if [ -f "$db_path" ]; then
-        # 从数据库获取入站端口
-        inbound_ports=$(sqlite3 "$db_path" "SELECT DISTINCT port FROM inbounds WHERE port IS NOT NULL AND port != '';" 2>/dev/null | grep -E '^[0-9]+$' | sort -u | tr '\n' ' ' || echo "")
-    fi
-    
-    echo "$inbound_ports"
-}
+install_dependency "sqlite3"
+install_dependency "jq"
+install_dependency "grep"
 
 # --- 端口提取函数 ---
 extract_public_ports() {
@@ -371,49 +298,6 @@ main() {
     echo "🛡️ SSH 端口: $ssh_port"
     local all_ports="$ssh_port"
 
-    # === X-Panel 面板检测和配置 (新增) ===
-    local xpanel_process
-    xpanel_process=$(detect_xpanel_process)
-    if [ "$xpanel_process" != "none" ]; then
-        echo "🎯 检测到 X-Panel 面板服务"
-        
-        # 获取面板配置信息
-        local xpanel_config
-        xpanel_config=$(get_xpanel_config)
-        local panel_port=$(echo "$xpanel_config" | cut -d'|' -f1)
-        local web_base_path=$(echo "$xpanel_config" | cut -d'|' -f2)
-        local cert_file=$(echo "$xpanel_config" | cut -d'|' -f3)
-        local key_file=$(echo "$xpanel_config" | cut -d'|' -f4)
-        
-        echo "   📋 面板端口: $panel_port"
-        echo "   📁 访问路径: $web_base_path"
-        
-        if [ -n "$cert_file" ] && [ -n "$key_file" ]; then
-            echo "   🔒 SSL证书已配置"
-        else
-            echo "   ⚠️ 未配置SSL证书，建议使用SSH转发访问"
-        fi
-        
-        # 放行面板端口
-        echo "🌐 放行 X-Panel 面板端口: $panel_port"
-        all_ports="$all_ports $panel_port"
-        
-        # 放行证书申请端口
-        echo "🌐 放行证书申请端口: 80"
-        all_ports="$all_ports 80"
-        
-        # 获取面板管理的入站端口
-        local xpanel_inbound_ports
-        xpanel_inbound_ports=$(get_xpanel_inbound_ports)
-        if [ -n "$xpanel_inbound_ports" ]; then
-            echo "🛡️ 检测到 X-Panel 管理的入站端口: $xpanel_inbound_ports"
-            all_ports="$all_ports $xpanel_inbound_ports"
-        fi
-        
-        # 发送Telegram通知
-        send_telegram "🔒 X-Panel 安全配置启动\n面板端口: $panel_port\n访问路径: $web_base_path\nSSL状态: $([ -n "$cert_file" ] && [ -n "$key_file" ] && echo "已配置" || echo "未配置")"
-    fi
-
     # === 智能 Web 端口检测 ===
     if pgrep -x "nginx" >/dev/null || pgrep -x "apache2" >/dev/null; then
         echo "🌐 检测到 Web 服务器，放行 80/443"
@@ -479,16 +363,52 @@ main() {
     sb_ports=$(echo "$sb_ports" | tr ' ' '\n' | sort -u | tr '\n' ' ')
     [ -n "$sb_ports" ] && echo "🛡️ 检测到 Sing-box 端口: $sb_ports" && all_ports="$all_ports $sb_ports"
 
-    # === 兼容性检测 (保持原有功能) ===
+    # === X-Panel / X-UI 端口检测 (双向检测: 管理端口 + 入站端口) ===
     if pgrep -f "xpanel" >/dev/null || pgrep -f "x-ui" >/dev/null; then
-        echo "🌐 检测到 X-UI/X-Panel 进程 (兼容模式)"
-        if [ -f /etc/x-ui/x-ui.db ]; then
-            xpanel_ports=$(sqlite3 /etc/x-ui/x-ui.db "SELECT port FROM inbounds WHERE port IS NOT NULL AND port != '';" 2>/dev/null | grep -E '^[0-9]+$' | sort -u)
-            if [ -n "$xpanel_ports" ]; then
-                echo "   📊 面板入站端口: $xpanel_ports"
-                all_ports="$all_ports $xpanel_ports"
+        echo "🌐 检测到 X-UI/X-Panel 进程"
+        local db_path="/etc/x-ui/x-ui.db"
+        local panel_port=""
+        
+        # 1. 检测面板管理端口 (Web UI)
+        # 优先尝试使用 CLI 获取
+        if [ -f "/usr/local/x-ui/x-ui" ]; then
+             # 尝试通过 setting -show 获取 (适用于大多数版本)
+             panel_port=$(timeout 3 /usr/local/x-ui/x-ui setting -show true 2>/dev/null | grep -Eo 'port.*: [0-9]+' | awk '{print $2}' | head -1)
+             
+             # 如果上面失败，尝试 -getListen (适用于某些魔改版)
+             if [ -z "$panel_port" ]; then
+                 panel_port=$(timeout 3 /usr/local/x-ui/x-ui setting -getListen true 2>/dev/null | grep -Eo 'listenIP: .+' | awk '{print $2}' | head -1)
+             fi
+        fi
+
+        # 如果 CLI 获取失败，尝试读取数据库 (xuiSettings表)
+        if [ -z "$panel_port" ] && [ -f "$db_path" ]; then
+            panel_port=$(sqlite3 "$db_path" "SELECT value FROM xuiSettings WHERE key='port';" 2>/dev/null)
+        fi
+
+        # 如果检测到管理端口，添加到放行列表
+        if [ -n "$panel_port" ]; then
+            echo "   ⚙️ 面板管理端口 (Web UI): $panel_port"
+            all_ports="$all_ports $panel_port"
+        else
+            echo "   ⚠️ 未能自动检测到面板管理端口，建议手动检查。"
+        fi
+
+        # 2. 检测代理入站端口 (Inbounds)
+        if [ -f "$db_path" ]; then
+            xpanel_inbounds=$(sqlite3 "$db_path" "SELECT port FROM inbounds WHERE port IS NOT NULL AND port != '';" 2>/dev/null | grep -E '^[0-9]+$' | sort -u)
+            
+            if [ -n "$xpanel_inbounds" ]; then
+                # 格式化显示
+                xpanel_inbounds_flat=$(echo "$xpanel_inbounds" | tr '\n' ' ')
+                echo "   📊 代理入站端口 (Inbounds): $xpanel_inbounds_flat"
+                all_ports="$all_ports $xpanel_inbounds"
+            else
+                echo "   ℹ️ 面板数据库中未发现活动的代理端口"
             fi
         fi
+        
+        # 3. 证书申请端口 (Standard)
         echo "   🔓 自动放行 80 端口 (用于证书申请)"
         all_ports="$all_ports 80"
     fi
@@ -499,10 +419,7 @@ main() {
     remove_unused_rules "$all_ports" "$firewall_type" "$ssh_port"
     setup_fail2ban "$firewall_type"
 
-    # 最终通知
-    send_telegram "✅ X-Panel 安全配置完成\n最终放行端口: $all_ports\n防火墙: $firewall_type\nFail2Ban模式: $FAIL2BAN_MODE"
-    
-    print_message "✅ X-Panel 安全配置已成功应用！"
+    print_message "✅ 所有安全配置已成功应用！"
 }
 
 main
