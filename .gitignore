@@ -1,0 +1,7 @@
+# Rust - vps-tg-bot
+/Rust/vps-tg-bot/target/
+**/*.rs.bk
+
+# Runtime Data & Configuration
+jobs.json
+.env
