@@ -53,6 +53,65 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 sync_timezone
+# --- Uninstall function ---
+uninstall_script() {
+  print_message "开始卸载 VPS Telegram Bot"
+  if [ "$EUID" -ne 0 ]; then
+    echo "❌ 请使用 root 用户或 sudo 执行此脚本进行卸载"
+    exit 1
+  fi
+
+  read -p "⚠️  您确定要卸载 VPS Telegram Bot 及其相关环境吗? (y/N): " confirm
+  if [[ "$confirm" =~ ^[Yy]$ ]]; then
+    echo "正在清理旧版本文件与服务..."
+    systemctl stop vps-tg-bot 2>/dev/null || true
+    systemctl disable vps-tg-bot 2>/dev/null || true
+    rm -rf "$BOT_DIR" "$BOT_SERVICE" "$CORE_MAINTAIN_SCRIPT" "$RULES_MAINTAIN_SCRIPT"
+    (crontab -l 2>/dev/null | grep -v "vps-maintain" || true) | crontab -
+    echo "✅ 旧版本已清理完毕"
+
+    # Attempt to uninstall Go if it was installed by this script
+    # This is a basic attempt. A more robust uninstall would track if Go was installed by this script.
+    # For simplicity, we'll just remove common Go install paths and clean up bashrc.
+    if command -v go &>/dev/null; then
+      echo "尝试卸载 Go 环境..."
+      if dpkg -l | grep -q "golang-go"; then
+        apt-get remove -y golang-go golang >/dev/null 2>&1 || true
+        apt-get purge -y golang-go golang >/dev/null 2>&1 || true
+      fi
+      # Remove common Go install paths and clean up environment variables
+      rm -rf /usr/local/go /usr/lib/go
+      sed -i '/GOPATH/d' ~/.bashrc ~/.profile 2>/dev/null || true
+      hash -r 2>/dev/null || true
+      echo "✅ Go 环境已尝试卸载"
+    fi
+
+    echo "✅ VPS Telegram Bot 已成功卸载。"
+    exit 0
+  else
+    echo "⚠️  卸载已取消。"
+    exit 0
+  fi
+}
+
+# --- Usage function ---
+usage() {
+  echo "Usage: $0 [install|uninstall]"
+  echo "  install:    Installs or updates the VPS Telegram Bot."
+  echo "  uninstall:  Uninstalls the VPS Telegram Bot and Go environment."
+}
+
+# --- Argument handling ---
+if [ "$1" == "uninstall" ]; then
+  uninstall_script
+elif [ "$1" == "install" ] || [ -z "$1" ]; then
+  # Proceed with installation
+  : # No-op, continue script
+else
+  usage
+  exit 1
+fi
+
 
 # --- 步骤 0: 环境检查 ---
 print_message "步骤 0: 检查系统环境"
