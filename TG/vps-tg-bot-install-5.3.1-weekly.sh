@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------------
 # VPS Telegram Bot 管理系统 - 一键部署脚本 (使用 uv)
 #
-# 版本: 5.3.3-stable
+# 版本: 5.3.4-stable
 # 作者: FTDRTD
 # 功能:
 #   ✅ 自动同步 VPS 时区
@@ -11,6 +11,7 @@
 #   ✅ 使用 .venv/bin/python 启动
 #   ✅ 新增 ♻️ 一键重启 功能
 #   ✅ 新增 🧹 一键卸载模式 (--uninstall)
+#   ✅ 修复导入和函数定义问题
 # -----------------------------------------------------------------------------
 
 set -e
@@ -214,11 +215,18 @@ print_message "步骤 5: 创建 Telegram Bot 主程序"
 cat > "$BOT_SCRIPT" <<'EOF'
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import logging, subprocess, os, time, pytz
+import logging
+import subprocess
+import os
+import time
+import pytz
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
-[new content to replace with]
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from telegram.utils.helpers import escape_markdown
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -248,34 +256,56 @@ def send_message(text):
 
 def start(update: Update, context: CallbackContext):
     if str(update.effective_chat.id) != ADMIN_CHAT_ID:
-        update.message.reply_text("❌ 无权限访问此 Bot"); return
+        update.message.reply_text("❌ 无权限访问此 Bot")
+        return
     keyboard = [
         [InlineKeyboardButton("📊 系统状态", callback_data='status')],
         [InlineKeyboardButton("🔧 立即维护", callback_data='maintain_core')],
         [InlineKeyboardButton("📋 查看日志", callback_data='logs')],
         [InlineKeyboardButton("♻️ 重启 VPS", callback_data='reboot')]
     ]
-    update.message.reply_text("🤖 *VPS 管理 Bot*\n\n请选择操作：", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
+    update.message.reply_text(
+        "🤖 *VPS 管理 Bot*\n\n请选择操作：",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode=ParseMode.MARKDOWN
+    )
 
 def button(update: Update, context: CallbackContext):
-    query = update.callback_query; query.answer()
+    query = update.callback_query
+    query.answer()
     if str(query.message.chat.id) != ADMIN_CHAT_ID:
-        query.edit_message_text("❌ 无权限访问"); return
+        query.edit_message_text("❌ 无权限访问")
+        return
+
     if query.data == 'status':
         info = subprocess.getoutput("uptime && date")
-        query.edit_message_text(f"📊 *系统状态*\n\n```\n{escape_markdown(info, version=2)}\n```", parse_mode=ParseMode.MARKDOWN_V2)
+        query.edit_message_text(
+            f"📊 *系统状态*\n\n```\n{escape_markdown(info, version=2)}\n```",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
     elif query.data == 'maintain_core':
         query.edit_message_text("⏳ 正在执行维护，请稍候...")
         subprocess.run([CORE_SCRIPT], check=False)
-        result = open("/tmp/vps_maintain_result.txt").read()
-        query.edit_message_text(f"✅ *维护完成*\n\n```\n{escape_markdown(result, version=2)}\n```\n\n⚠️ 系统将在 5 秒后重启", parse_mode=ParseMode.MARKDOWN_V2)
-        time.sleep(5); reboot_system()
+        try:
+            result = open("/tmp/vps_maintain_result.txt").read()
+        except FileNotFoundError:
+            result = "维护脚本执行完成，但未找到结果文件"
+        query.edit_message_text(
+            f"✅ *维护完成*\n\n```\n{escape_markdown(result, version=2)}\n```\n\n⚠️ 系统将在 5 秒后重启",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        time.sleep(5)
+        reboot_system()
     elif query.data == 'logs':
         logs = subprocess.getoutput("journalctl -u vps-tg-bot -n 20 --no-pager")
-        query.edit_message_text(f"📋 *日志*\n\n```\n{escape_markdown(logs[-2000:], version=2)}\n```", parse_mode=ParseMode.MARKDOWN_V2)
+        query.edit_message_text(
+            f"📋 *日志*\n\n```\n{escape_markdown(logs[-2000:], version=2)}\n```",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
     elif query.data == 'reboot':
         query.edit_message_text("⚠️ 系统将在 5 秒后重启...")
-        time.sleep(5); reboot_system()
+        time.sleep(5)
+        reboot_system()
 
 def reboot_system():
     if os.path.exists("/sbin/reboot"):
@@ -287,17 +317,24 @@ def scheduled_task():
     subprocess.run([RULES_SCRIPT], check=False)
     subprocess.run([CORE_SCRIPT], check=False)
     send_message("🕒 定时维护已执行，系统将在 5 秒后自动重启")
-    time.sleep(5); reboot_system()
+    time.sleep(5)
+    reboot_system()
 
 def main():
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CallbackQueryHandler(button))
-    scheduler.add_job(scheduled_task, CronTrigger(day_of_week='sun', hour=4, minute=0), id='weekly_task', replace_existing=True)
+    scheduler.add_job(
+        scheduled_task,
+        CronTrigger(day_of_week='sun', hour=4, minute=0),
+        id='weekly_task',
+        replace_existing=True
+    )
     scheduler.start()
     send_message("🤖 *VPS 管理 Bot 已启动*\n\n使用 /start 打开管理面板")
-    updater.start_polling(); updater.idle()
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == '__main__':
     main()
@@ -346,3 +383,9 @@ echo "✅ 每周维护任务已自动设置 (每周日 04:00)"
 echo "📱 前往 Telegram 发送 /start 开始使用"
 echo "♻️ 新增按钮：重启 VPS"
 echo "🧹 支持 --uninstall 模式安全卸载"
+echo ""
+echo "📝 常用命令："
+echo "  - 查看服务状态: systemctl status vps-tg-bot"
+echo "  - 查看日志: journalctl -u vps-tg-bot -f"
+echo "  - 重启服务: systemctl restart vps-tg-bot"
+echo "  - 卸载系统: bash $0 --uninstall"
