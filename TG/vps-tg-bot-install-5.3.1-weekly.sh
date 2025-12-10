@@ -261,6 +261,7 @@ def start(update: Update, context: CallbackContext):
     keyboard = [
         [InlineKeyboardButton("📊 系统状态", callback_data='status')],
         [InlineKeyboardButton("🔧 立即维护", callback_data='maintain_core')],
+        [InlineKeyboardButton("📦 更新规则", callback_data='maintain_rules')],
         [InlineKeyboardButton("📋 查看日志", callback_data='logs')],
         [InlineKeyboardButton("♻️ 重启 VPS", callback_data='reboot')]
     ]
@@ -296,6 +297,17 @@ def button(update: Update, context: CallbackContext):
         )
         time.sleep(5)
         reboot_system()
+    elif query.data == 'maintain_rules':
+        query.edit_message_text("⏳ 正在更新 Xray 规则，请稍候...")
+        subprocess.run([RULES_SCRIPT], check=False)
+        try:
+            result = open("/tmp/vps_rules_result.txt").read()
+        except FileNotFoundError:
+            result = "规则更新脚本执行完成，但未找到结果文件"
+        query.edit_message_text(
+            f"✅ *规则更新完成*\n\n```\n{escape_markdown(result, version=2)}\n```",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
     elif query.data == 'logs':
         logs = subprocess.getoutput("journalctl -u vps-tg-bot -n 20 --no-pager")
         query.edit_message_text(
