@@ -10,7 +10,7 @@ on:
   workflow_dispatch:  # ✅ 手动触发
 
 env:
-  GO_VERSION: '1.21'
+  GO_VERSION: '1.25'
 
 jobs:
   # ==============================
@@ -54,7 +54,7 @@ jobs:
     - name: 运行测试
       run: |
         if find . -name "*_test.go" -type f | grep -q .; then
-          go test -v -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+          go test -v -coverprofile=coverage.out ./...
         else
           echo "⚠️  没有找到测试文件，跳过测试"
         fi
