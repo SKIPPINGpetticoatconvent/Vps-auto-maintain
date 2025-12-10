@@ -223,6 +223,8 @@ cd "$BOT_DIR"
 # 初始化 uv 项目
 echo "📦 初始化 uv 项目..."
 "$UV_BIN" init --no-readme --name vps-tg-bot
+# Ensure pyproject.toml's requires-python is set to >=3.12
+sed -i '/^requires-python =/c\requires-python = ">=3.12"' pyproject.toml
 
 # 创建 Python 3.12 虚拟环境
 echo "📦 创建 Python 3.12 虚拟环境..."

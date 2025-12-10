@@ -194,6 +194,8 @@ mkdir -p "$BOT_DIR"
 cd "$BOT_DIR"
 
 "$UV_BIN" init --no-readme --name vps-tg-bot
+# 确保 pyproject.toml 中的 requires-python 设置为 >=3.12
+sed -i '/^requires-python =/c\requires-python = ">=3.12"' pyproject.toml
 "$UV_BIN" venv --python 3.12 .venv
 "$UV_BIN" add --frozen \
   "python-telegram-bot==13.15" \
