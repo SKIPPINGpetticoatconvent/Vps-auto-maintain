@@ -218,10 +218,7 @@ import logging, subprocess, os, time, pytz
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
-from telegram.helpers import escape_markdown
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+[new content to replace with]
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
