@@ -1,8 +1,10 @@
 package bot
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 	"vps-tg-bot/pkg/config"
 	"vps-tg-bot/pkg/scheduler"
@@ -20,11 +22,14 @@ type BotHandler interface {
 
 // TGBotHandler 实现 BotHandler 接口
 type TGBotHandler struct {
-	api         TelegramAPI
-	config      *config.Config
-	systemExec  system.SystemExecutor
-	jobManager  scheduler.JobManager
-	adminChatID int64
+	api                 TelegramAPI
+	config              *config.Config
+	systemExec          system.SystemExecutor
+	jobManager          scheduler.JobManager
+	adminChatID         int64
+	// 维护状态管理
+	isMaintenanceRunning bool
+	maintenanceMutex     sync.Mutex
 }
 
 // TelegramAPI 定义 Telegram API 的接口
@@ -239,29 +244,84 @@ func (t *TGBotHandler) handleRulesMaintain(query *tgbotapi.CallbackQuery) error 
 
 // handleFullMaintain 处理完整维护
 func (t *TGBotHandler) handleFullMaintain(query *tgbotapi.CallbackQuery) error {
+	// 检查维护状态
+	t.maintenanceMutex.Lock()
+	if t.isMaintenanceRunning {
+		t.maintenanceMutex.Unlock()
+		return t.SendMessage(query.Message.Chat.ID, "⏳ 维护任务正在进行中，请稍候...")
+	}
+	t.isMaintenanceRunning = true
+	t.maintenanceMutex.Unlock()
+
+	// 确保在函数结束时重置状态
+	defer func() {
+		t.maintenanceMutex.Lock()
+		t.isMaintenanceRunning = false
+		t.maintenanceMutex.Unlock()
+	}()
+
 	// 在后台执行完整维护
 	go func() {
-		coreResult, err := t.systemExec.RunCoreMaintain()
+		// 设置30分钟超时
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+
+		// 发送开始消息
+		t.SendMessage(query.Message.Chat.ID, "⏳ 正在执行完整维护（超时时间：30分钟），请稍候...")
+
+		// 执行核心维护
+		coreResult, err := t.runWithTimeout(ctx, func() (string, error) {
+			return t.systemExec.RunCoreMaintain()
+		})
 		if err != nil {
-			t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ 核心维护失败: %v", err))
+			if ctx.Err() == context.DeadlineExceeded {
+				t.SendMessage(query.Message.Chat.ID, "❌ 维护任务超时，已取消")
+			} else {
+				t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ 核心维护失败: %v", err))
+			}
 			return
 		}
-		
-		rulesResult, err := t.systemExec.RunRulesMaintain()
+
+		// 执行规则维护
+		rulesResult, err := t.runWithTimeout(ctx, func() (string, error) {
+			return t.systemExec.RunRulesMaintain()
+		})
 		if err != nil {
-			t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ 规则维护失败: %v", err))
+			if ctx.Err() == context.DeadlineExceeded {
+				t.SendMessage(query.Message.Chat.ID, "❌ 维护任务超时，已取消")
+			} else {
+				t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ 规则维护失败: %v", err))
+			}
 			return
 		}
-		
+
 		result := fmt.Sprintf("核心维护:\n%s\n\n规则维护:\n%s", coreResult, rulesResult)
-		t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("✅ *完整维护完成*\n\n```\n%s\n```", result))
+		t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("✅ *完整维护已完成*\n\n```\n%s\n```", result))
 	}()
-	
-	text := "⏳ 正在执行完整维护，请稍候..."
-	
-	msg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, text)
-	_, err := t.api.Send(msg)
-	return err
+
+	return nil
+}
+
+// runWithTimeout 带超时的函数执行
+func (t *TGBotHandler) runWithTimeout(ctx context.Context, fn func() (string, error)) (string, error) {
+	done := make(chan struct{})
+	var result string
+	var err error
+
+	go func() {
+		defer close(done)
+		result, err = fn()
+	}()
+
+	select {
+	case <-ctx.Done():
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("任务执行超时")
+		}
+		return "", ctx.Err()
+	case <-done:
+		return result, err
+	}
 }
 
 // handleSetCoreSchedule 处理设置核心维护调度
