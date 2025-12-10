@@ -224,6 +224,10 @@ cd "$BOT_DIR"
 echo "📦 初始化 uv 项目..."
 "$UV_BIN" init --no-readme --name vps-tg-bot
 
+# 创建 Python 3.12 虚拟环境
+echo "📦 创建 Python 3.12 虚拟环境..."
+"$UV_BIN" venv --python 3.12 .venv
+
 # 添加依赖（固定兼容版本）
 echo "📦 添加所有 Python 依赖并锁定兼容版本..."
 "$UV_BIN" add \

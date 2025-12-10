@@ -194,7 +194,7 @@ mkdir -p "$BOT_DIR"
 cd "$BOT_DIR"
 
 "$UV_BIN" init --no-readme --name vps-tg-bot
-"$UV_BIN" venv .venv
+"$UV_BIN" venv --python 3.12 .venv
 "$UV_BIN" add --frozen \
   "python-telegram-bot==13.15" \
   "urllib3<2.0" \
