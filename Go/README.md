@@ -90,8 +90,15 @@ export TG_CHAT_ID="your_chat_id"
 
 ```bash
 cd Go
-go mod download
-go build -o vps-tg-bot ./cmd/vps-tg-bot
+go mod tidy          # 确保依赖整洁
+go test ./...        # 运行所有测试
+go build -o vps-tg-bot ./cmd/vps-tg-bot  # 构建可执行文件
+```
+
+构建成功后会在当前目录生成 `vps-tg-bot` 可执行文件（约9MB），可以直接运行：
+
+```bash
+./vps-tg-bot
 ```
 
 ## 环境变量

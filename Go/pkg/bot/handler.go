@@ -5,139 +5,333 @@ import (
 	"log"
 	"time"
 	"vps-tg-bot/pkg/config"
+	"vps-tg-bot/pkg/scheduler"
 	"vps-tg-bot/pkg/system"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-// Bot 结构体
-type Bot struct {
-	api     *tgbotapi.BotAPI
-	config  *config.Config
-	updates tgbotapi.UpdatesChannel
+// BotHandler 接口定义
+type BotHandler interface {
+	HandleUpdate(update tgbotapi.Update) error
+	SendMessage(chatID int64, text string) error
+	SendInlineKeyboard(chatID int64, text string, keyboard [][]tgbotapi.InlineKeyboardButton) error
 }
 
-// NewBot 创建新的 Bot 实例
-func NewBot(cfg *config.Config) (*Bot, error) {
-	api, err := tgbotapi.NewBotAPI(cfg.Token)
-	if err != nil {
-		return nil, fmt.Errorf("创建 Bot API 失败: %v", err)
+// TGBotHandler 实现 BotHandler 接口
+type TGBotHandler struct {
+	api         TelegramAPI
+	config      *config.Config
+	systemExec  system.SystemExecutor
+	jobManager  scheduler.JobManager
+	adminChatID int64
+}
+
+// TelegramAPI 定义 Telegram API 的接口
+type TelegramAPI interface {
+	Send(c tgbotapi.Chattable) (tgbotapi.Message, error)
+	Request(c tgbotapi.Chattable) (*tgbotapi.APIResponse, error)
+}
+
+// NewTGBotHandler 创建新的 TGBotHandler
+func NewTGBotHandler(api TelegramAPI, systemExec system.SystemExecutor, jobManager scheduler.JobManager, adminChatID int64) BotHandler {
+	return &TGBotHandler{
+		api:         api,
+		systemExec:  systemExec,
+		jobManager:  jobManager,
+		adminChatID: adminChatID,
 	}
-
-	api.Debug = false
-	log.Printf("已授权为: %s", api.Self.UserName)
-
-	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 60
-	updates := api.GetUpdatesChan(u)
-
-	return &Bot{
-		api:     api,
-		config:  cfg,
-		updates: updates,
-	}, nil
 }
 
-// SendMessage 发送消息给管理员
-func (b *Bot) SendMessage(text string) error {
-	return b.SendMessageToChat(b.config.AdminChatID, text)
+// HandleUpdate 处理 Telegram 更新
+func (t *TGBotHandler) HandleUpdate(update tgbotapi.Update) error {
+	if update.Message != nil {
+		return t.handleMessage(update.Message)
+	}
+	
+	if update.CallbackQuery != nil {
+		return t.handleCallback(update.CallbackQuery)
+	}
+	
+	return nil
 }
 
-// SendMessageToChat 发送消息到指定聊天
-func (b *Bot) SendMessageToChat(chatID int64, text string) error {
+// handleMessage 处理消息
+func (t *TGBotHandler) handleMessage(message *tgbotapi.Message) error {
+	// 权限验证
+	if message.Chat.ID != t.adminChatID {
+		return t.SendMessage(message.Chat.ID, "❌ 无权限访问此 Bot")
+	}
+	
+	// 处理命令
+	if message.IsCommand() {
+		switch message.Command() {
+		case "start":
+			return t.ShowMainMenu(message.Chat.ID)
+		case "help":
+			return t.SendMessage(message.Chat.ID, "📖 *帮助信息*\n\n使用按钮进行操作，或发送 /start 打开菜单")
+		}
+	}
+	
+	return nil
+}
+
+// handleCallback 处理回调查询
+func (t *TGBotHandler) handleCallback(query *tgbotapi.CallbackQuery) error {
+	// 权限验证
+	if query.Message.Chat.ID != t.adminChatID {
+		callback := tgbotapi.NewCallback(query.ID, "❌ 无权限访问")
+		t.api.Request(callback)
+		return nil
+	}
+	
+	// 确认回调查询
+	callback := tgbotapi.NewCallback(query.ID, "")
+	t.api.Request(callback)
+	
+	// 处理回调数据
+	switch query.Data {
+	case "status":
+		return t.handleStatusCallback(query)
+	case "maintain_now":
+		return t.handleMaintainMenu(query)
+	case "maintain_core":
+		return t.handleCoreMaintain(query)
+	case "maintain_rules":
+		return t.handleRulesMaintain(query)
+	case "maintain_full":
+		return t.handleFullMaintain(query)
+	case "schedule_menu":
+		return t.handleScheduleMenu(query)
+	case "schedule_core":
+		return t.handleSetCoreSchedule(query)
+	case "schedule_rules":
+		return t.handleSetRulesSchedule(query)
+	case "schedule_clear":
+		return t.handleClearSchedule(query)
+	case "view_logs":
+		return t.handleViewLogs(query)
+	case "reboot_confirm":
+		return t.handleRebootConfirm(query)
+	case "back_main":
+		return t.handleBackToMain(query)
+	default:
+		log.Printf("未知的回调数据: %s", query.Data)
+	}
+	
+	return nil
+}
+
+// SendMessage 发送消息
+func (t *TGBotHandler) SendMessage(chatID int64, text string) error {
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = tgbotapi.ModeMarkdown
-	_, err := b.api.Send(msg)
+	_, err := t.api.Send(msg)
 	return err
 }
 
-// IsAdmin 检查用户是否为管理员
-func (b *Bot) IsAdmin(chatID int64) bool {
-	return chatID == b.config.AdminChatID
-}
-
-// Start 启动 Bot 并处理消息
-func (b *Bot) Start() {
-	log.Println("Bot 开始运行...")
-
-	router := NewRouter(b)
-
-	for update := range b.updates {
-		if update.Message != nil {
-			router.HandleMessage(update.Message)
-		} else if update.CallbackQuery != nil {
-			router.HandleCallback(update.CallbackQuery)
-		}
-	}
+// SendInlineKeyboard 发送内联键盘
+func (t *TGBotHandler) SendInlineKeyboard(chatID int64, text string, keyboard [][]tgbotapi.InlineKeyboardButton) error {
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = tgbotapi.ModeMarkdown
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(keyboard...)
+	_, err := t.api.Send(msg)
+	return err
 }
 
 // ShowMainMenu 显示主菜单
-func (b *Bot) ShowMainMenu(chatID int64) error {
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("📊 系统状态", "status"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔧 立即维护", "maintain_core"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("📋 查看日志", "logs"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("♻️ 重启 VPS", "reboot"),
-		),
-	)
+func (t *TGBotHandler) ShowMainMenu(chatID int64) error {
+	keyboard := [][]tgbotapi.InlineKeyboardButton{
+		{tgbotapi.NewInlineKeyboardButtonData("📊 系统状态", "status")},
+		{tgbotapi.NewInlineKeyboardButtonData("🔧 立即维护", "maintain_now"), tgbotapi.NewInlineKeyboardButtonData("⚙️ 调度设置", "schedule_menu")},
+		{tgbotapi.NewInlineKeyboardButtonData("📋 查看日志", "view_logs"), tgbotapi.NewInlineKeyboardButtonData("🔄 重启 VPS", "reboot_confirm")},
+	}
+	
+	text := "🤖 *VPS 管理 Bot*\n\n请选择操作："
+	return t.SendInlineKeyboard(chatID, text, keyboard)
+}
 
-	msg := tgbotapi.NewMessage(chatID, "🤖 *VPS 管理 Bot*\n\n请选择操作：")
-	msg.ReplyMarkup = keyboard
+// handleMaintainMenu 显示维护菜单
+func (t *TGBotHandler) handleMaintainMenu(query *tgbotapi.CallbackQuery) error {
+	keyboard := [][]tgbotapi.InlineKeyboardButton{
+		{tgbotapi.NewInlineKeyboardButtonData("🔧 核心维护", "maintain_core"), tgbotapi.NewInlineKeyboardButtonData("📜 规则更新", "maintain_rules")},
+		{tgbotapi.NewInlineKeyboardButtonData("🔄 完整维护", "maintain_full"), tgbotapi.NewInlineKeyboardButtonData("🔙 返回", "back_main")},
+	}
+	
+	text := "🔧 *维护菜单*\n\n请选择维护类型："
+	
+	msg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, text)
 	msg.ParseMode = tgbotapi.ModeMarkdown
-	_, err := b.api.Send(msg)
+	keyboardMarkup := tgbotapi.NewInlineKeyboardMarkup(keyboard...)
+	msg.ReplyMarkup = &keyboardMarkup
+	_, err := t.api.Send(msg)
 	return err
 }
 
-// ExecuteMaintenance 执行维护
-func (b *Bot) ExecuteMaintenance(chatID int64) error {
-	msg := tgbotapi.NewMessage(chatID, "⏳ 正在执行维护，请稍候...")
-	b.api.Send(msg)
+// handleScheduleMenu 显示调度菜单
+func (t *TGBotHandler) handleScheduleMenu(query *tgbotapi.CallbackQuery) error {
+	keyboard := [][]tgbotapi.InlineKeyboardButton{
+		{tgbotapi.NewInlineKeyboardButtonData("⏰ 设置核心 (每日04:00)", "schedule_core")},
+		{tgbotapi.NewInlineKeyboardButtonData("📅 设置规则 (周日07:00)", "schedule_rules")},
+		{tgbotapi.NewInlineKeyboardButtonData("🗑️ 清除所有", "schedule_clear"), tgbotapi.NewInlineKeyboardButtonData("🔙 返回", "back_main")},
+	}
+	
+	text := "⚙️ *调度菜单*\n\n配置定时维护任务："
+	
+	msg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, text)
+	msg.ParseMode = tgbotapi.ModeMarkdown
+	keyboardMarkup := tgbotapi.NewInlineKeyboardMarkup(keyboard...)
+	msg.ReplyMarkup = &keyboardMarkup
+	_, err := t.api.Send(msg)
+	return err
+}
 
-	// 在goroutine中执行维护，避免阻塞Bot响应
+// handleStatusCallback 处理状态查询
+func (t *TGBotHandler) handleStatusCallback(query *tgbotapi.CallbackQuery) error {
+	// 获取系统时间
+	systemTime, timezone := t.systemExec.GetSystemTime()
+	
+	text := fmt.Sprintf("📊 *系统状态*\n\n时间: %s %s\n状态: 🟢 运行正常", 
+		systemTime.Format("2006-01-02 15:04:05"), timezone)
+	
+	return t.SendMessage(query.Message.Chat.ID, text)
+}
+
+// handleCoreMaintain 处理核心维护
+func (t *TGBotHandler) handleCoreMaintain(query *tgbotapi.CallbackQuery) error {
+	// 在后台执行维护
 	go func() {
-		result, err := system.RunMaintenance(b.config.CoreScript)
+		result, err := t.systemExec.RunCoreMaintain()
 		if err != nil {
-			replyMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("❌ 维护失败: %v", err))
-			b.api.Send(replyMsg)
+			t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ 核心维护失败: %v", err))
 			return
 		}
-
-		replyMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ *维护完成*\n\n```\n%s\n```\n\n⚠️ 系统将在 5 秒后重启", result))
-		replyMsg.ParseMode = tgbotapi.ModeMarkdown
-		b.api.Send(replyMsg)
-
-		// 延迟5秒后重启
-		time.Sleep(5 * time.Second)
-		if err := system.RebootVPS(); err != nil {
-			log.Printf("重启失败: %v", err)
-		}
+		
+		t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("✅ *核心维护完成*\n\n```\n%s\n```", result))
 	}()
-
-	return nil
+	
+	text := "⏳ 正在执行核心维护，请稍候..."
+	
+	msg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, text)
+	_, err := t.api.Send(msg)
+	return err
 }
 
-// ExecuteReboot 执行重启
-func (b *Bot) ExecuteReboot(chatID int64) error {
-	msg := tgbotapi.NewMessage(chatID, "⚠️ 系统将在 5 秒后重启...")
-	b.api.Send(msg)
-
+// handleRulesMaintain 处理规则维护
+func (t *TGBotHandler) handleRulesMaintain(query *tgbotapi.CallbackQuery) error {
+	// 在后台执行维护
 	go func() {
-		if err := system.RebootVPS(); err != nil {
-			log.Printf("重启失败: %v", err)
+		result, err := t.systemExec.RunRulesMaintain()
+		if err != nil {
+			t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ 规则维护失败: %v", err))
+			return
 		}
+		
+		t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("✅ *规则维护完成*\n\n```\n%s\n```", result))
 	}()
-
-	return nil
+	
+	text := "⏳ 正在执行规则维护，请稍候..."
+	
+	msg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, text)
+	_, err := t.api.Send(msg)
+	return err
 }
 
-// GetAPI 获取 Bot API 实例（用于定时任务发送消息）
-func (b *Bot) GetAPI() *tgbotapi.BotAPI {
-	return b.api
+// handleFullMaintain 处理完整维护
+func (t *TGBotHandler) handleFullMaintain(query *tgbotapi.CallbackQuery) error {
+	// 在后台执行完整维护
+	go func() {
+		coreResult, err := t.systemExec.RunCoreMaintain()
+		if err != nil {
+			t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ 核心维护失败: %v", err))
+			return
+		}
+		
+		rulesResult, err := t.systemExec.RunRulesMaintain()
+		if err != nil {
+			t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ 规则维护失败: %v", err))
+			return
+		}
+		
+		result := fmt.Sprintf("核心维护:\n%s\n\n规则维护:\n%s", coreResult, rulesResult)
+		t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("✅ *完整维护完成*\n\n```\n%s\n```", result))
+	}()
+	
+	text := "⏳ 正在执行完整维护，请稍候..."
+	
+	msg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, text)
+	_, err := t.api.Send(msg)
+	return err
+}
+
+// handleSetCoreSchedule 处理设置核心维护调度
+func (t *TGBotHandler) handleSetCoreSchedule(query *tgbotapi.CallbackQuery) error {
+	// 设置每日04:00执行核心维护
+	task := func() {
+		result, err := t.systemExec.RunCoreMaintain()
+		if err != nil {
+			log.Printf("定时核心维护失败: %v", err)
+		} else {
+			log.Printf("定时核心维护完成: %s", result)
+		}
+	}
+	
+	err := t.jobManager.SetJob("core_maintain", "0 0 4 * * *", task)
+	if err != nil {
+		return t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ 设置调度失败: %v", err))
+	}
+	
+	return t.SendMessage(query.Message.Chat.ID, "✅ 已设置核心维护调度：每日 04:00")
+}
+
+// handleSetRulesSchedule 处理设置规则维护调度
+func (t *TGBotHandler) handleSetRulesSchedule(query *tgbotapi.CallbackQuery) error {
+	// 设置每周日07:00执行规则维护
+	task := func() {
+		result, err := t.systemExec.RunRulesMaintain()
+		if err != nil {
+			log.Printf("定时规则维护失败: %v", err)
+		} else {
+			log.Printf("定时规则维护完成: %s", result)
+		}
+	}
+	
+	err := t.jobManager.SetJob("rules_maintain", "0 0 7 * * 0", task)
+	if err != nil {
+		return t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ 设置调度失败: %v", err))
+	}
+	
+	return t.SendMessage(query.Message.Chat.ID, "✅ 已设置规则维护调度：每周日 07:00")
+}
+
+// handleClearSchedule 处理清除调度
+func (t *TGBotHandler) handleClearSchedule(query *tgbotapi.CallbackQuery) error {
+	t.jobManager.ClearAll()
+	return t.SendMessage(query.Message.Chat.ID, "✅ 已清除所有调度任务")
+}
+
+// handleViewLogs 处理查看日志
+func (t *TGBotHandler) handleViewLogs(query *tgbotapi.CallbackQuery) error {
+	logs, err := t.systemExec.GetLogs(20)
+	if err != nil {
+		return t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ 获取日志失败: %v", err))
+	}
+	
+	return t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("📋 *服务日志*\n\n```\n%s\n```", logs))
+}
+
+// handleRebootConfirm 处理重启确认
+func (t *TGBotHandler) handleRebootConfirm(query *tgbotapi.CallbackQuery) error {
+	// 在后台执行重启
+	go func() {
+		time.Sleep(5 * time.Second)
+		t.systemExec.Reboot()
+	}()
+	
+	return t.SendMessage(query.Message.Chat.ID, "⚠️ 系统将在 5 秒后重启...")
+}
+
+// handleBackToMain 处理返回主菜单
+func (t *TGBotHandler) handleBackToMain(query *tgbotapi.CallbackQuery) error {
+	return t.ShowMainMenu(query.Message.Chat.ID)
 }

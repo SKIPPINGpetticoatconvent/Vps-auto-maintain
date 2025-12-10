@@ -2,210 +2,309 @@
 
 ## 概述
 
-本项目采用模块化设计，将 Telegram Bot 逻辑、系统命令封装和定时任务分离，便于维护和扩展。
+本项目采用模块化设计，将 Telegram Bot 逻辑、系统命令封装和定时任务分离，基于 Go 语言实现 VPS 维护自动化系统。架构设计遵循清晰接口定义、依赖注入和可测试性原则。
 
-## 模块结构
+## 核心模块
 
 ### 1. 配置模块 (`pkg/config`)
 
-负责加载和管理配置信息。
+**职责**: 加载和管理应用程序配置
 
-- **Config**: 配置结构体
-  - `Token`: Telegram Bot Token
-  - `AdminChatID`: 管理员 Chat ID
-  - `CoreScript`: 核心维护脚本路径
-  - `RulesScript`: 规则更新脚本路径
-
-- **Load()**: 从环境变量加载配置
-
-### 2. 系统命令模块 (`pkg/system`)
-
-封装系统命令执行，提供统一的接口。
-
-#### 2.1 命令执行器 (`executor.go`)
-
-- **CommandExecutor**: 命令执行器
-  - 支持超时控制
-  - 支持 Shell/Bash 命令执行
-  - 自动错误处理
-
-- **主要方法**:
-  - `Execute()`: 执行命令（带超时）
-  - `ExecuteShell()`: 执行 Shell 命令
-  - `ExecuteBash()`: 执行 Bash 命令
-  - `CheckCommandExists()`: 检查命令是否存在
-
-#### 2.2 系统操作 (`actions.go`)
-
-- **CheckUptime()**: 检查系统运行时间
-- **GetDetailedStatus()**: 获取详细系统状态（内存、磁盘、CPU等）
-- **RunMaintenance()**: 执行系统维护脚本
-- **RunRulesMaintenance()**: 执行规则更新脚本
-- **RebootVPS()**: 重启 VPS
-- **ShutdownVPS()**: 关闭 VPS
-- **GetLogs()**: 获取服务日志
-
-### 3. Telegram Bot 模块 (`pkg/bot`)
-
-#### 3.1 Bot 核心 (`handler.go`)
-
-- **Bot**: Bot 主结构体
-  - 管理 Telegram API 连接
-  - 处理消息更新
-  - 提供消息发送接口
-
-- **主要方法**:
-  - `NewBot()`: 创建 Bot 实例
-  - `Start()`: 启动 Bot
-  - `SendMessage()`: 发送消息给管理员
-  - `SendMessageToChat()`: 发送消息到指定聊天
-  - `IsAdmin()`: 检查管理员权限
-  - `ShowMainMenu()`: 显示主菜单
-  - `ExecuteMaintenance()`: 执行维护
-  - `ExecuteReboot()`: 执行重启
-
-#### 3.2 命令路由 (`router.go`)
-
-- **Router**: 命令路由器
-  - 统一管理命令和回调处理
-  - 支持动态注册处理器
-  - 统一的错误处理
-
-- **主要方法**:
-  - `RegisterCommand()`: 注册命令处理器
-  - `RegisterCallback()`: 注册回调处理器
-  - `HandleMessage()`: 处理消息
-  - `HandleCallback()`: 处理回调
-
-- **已注册命令**:
-  - `/start`: 显示主菜单
-  - `/status`: 查看系统状态
-  - `/maintain`: 执行维护
-  - `/reboot`: 重启 VPS
-  - `/help`: 显示帮助
-
-- **已注册回调**:
-  - `status`: 系统状态
-  - `status_detail`: 详细状态
-  - `maintain_core`: 执行维护
-  - `logs`: 查看日志
-  - `reboot`: 重启 VPS
-  - `back`: 返回主菜单
-
-### 4. 定时任务模块 (`pkg/scheduler`)
-
-- **Scheduler**: 定时任务调度器
-  - 基于 cron 表达式
-  - 支持多任务管理
-  - 自动发送通知
-
-- **主要方法**:
-  - `NewScheduler()`: 创建调度器
-  - `Start()`: 启动调度器（默认每周日 04:00 执行维护）
-  - `Stop()`: 停止调度器
-  - `AddTask()`: 添加自定义任务
-  - `GetTasks()`: 获取任务列表
-
-- **默认任务**:
-  - 每周日 04:00 执行系统维护
-  - 自动执行规则更新
-  - 维护完成后自动重启
-
-## 数据流
-
-```
-用户消息/回调
-    ↓
-Router (路由分发)
-    ↓
-CommandHandler / CallbackHandler
-    ↓
-Bot (执行操作)
-    ↓
-System (系统命令封装)
-    ↓
-CommandExecutor (执行命令)
-    ↓
-返回结果给用户
-```
-
-## 特性
-
-### 1. 命令执行
-
-- ✅ 超时控制（防止命令卡死）
-- ✅ 错误处理（统一的错误处理机制）
-- ✅ 日志记录（记录所有操作）
-- ✅ 结果缓存（读取脚本输出文件）
-
-### 2. Bot 功能
-
-- ✅ 权限验证（仅管理员可访问）
-- ✅ 命令路由（统一的路由管理）
-- ✅ 错误处理（友好的错误提示）
-- ✅ 交互式菜单（内联键盘）
-
-### 3. 定时任务
-
-- ✅ Cron 表达式支持
-- ✅ 多任务管理
-- ✅ 自动通知
-- ✅ 任务列表查询
-
-## 扩展指南
-
-### 添加新命令
-
-1. 在 `router.go` 中注册命令：
+**数据结构**:
 ```go
-r.RegisterCommand("newcmd", r.handleNewCommand)
-```
-
-2. 实现处理函数：
-```go
-func (r *Router) handleNewCommand(message *tgbotapi.Message) error {
-    // 处理逻辑
-    return nil
+type Config struct {
+    TelegramToken string // 从 TG_TOKEN 环境变量或标志加载
+    AdminChatID   int64  // 从 TG_CHAT_ID 环境变量或标志加载
+    StateFile     string // 状态持久化文件路径 (默认: state.json)
 }
 ```
 
-### 添加新系统命令
+**核心接口**:
+- `Load() error`: 从环境变量和命令行标志加载配置
+- `Validate() error`: 验证必需字段
 
-1. 在 `actions.go` 中添加函数：
+**设计原则**:
+- 无硬编码密钥，所有敏感信息从环境变量获取
+- 支持命令行标志覆盖环境变量
+- 配置验证确保必需字段存在
+
+### 2. 系统执行模块 (`pkg/system`)
+
+**职责**: 抽象操作系统级操作，提供统一的系统接口
+
+**核心接口 - SystemExecutor**:
 ```go
-func NewSystemCommand() (string, error) {
-    ctx := context.Background()
-    output, err := defaultExecutor.ExecuteShell(ctx, "your command")
-    return output, err
+type SystemExecutor interface {
+    // 检查指定程序是否已安装
+    IsInstalled(program string) bool
+    
+    // 获取当前系统时间和时区
+    GetSystemTime() (time.Time, string)
+    
+    // 执行 shell 命令
+    RunCommand(cmd string, args ...string) (string, error)
+    
+    // 特定的维护任务包装器
+    RunCoreMaintain() (string, error)
+    RunRulesMaintain() (string, error)
+    
+    // 系统操作
+    Reboot() error
+    GetLogs(lines int) (string, error)
 }
 ```
 
-### 添加新定时任务
+**实现策略**:
+- `IsInstalled`: 检查 `/usr/local/bin/` 和 PATH 环境变量
+- `RunCoreMaintain`: 调用 `/usr/local/bin/vps-maintain-core.sh`
+- `RunRulesMaintain`: 调用 `/usr/local/bin/vps-maintain-rules.sh`
+- `GetLogs`: 执行 `journalctl -u vps-tg-bot -n lines --no-pager`
 
+**测试策略**:
+- 提供 Mock 实现用于单元测试
+- 文件系统操作可模拟
+- 命令执行可拦截和验证
+
+### 3. 调度器模块 (`pkg/scheduler`)
+
+**职责**: 管理 cron 作业并提供状态持久化
+
+**核心接口 - JobManager**:
 ```go
-scheduler.AddTask("0 0 12 * * *", func() {
-    // 每天中午12点执行
-})
+type JobManager interface {
+    Start()
+    Stop()
+    
+    // 添加或更新作业
+    SetJob(name string, cronExp string, task func()) error
+    
+    // 移除作业
+    RemoveJob(name string)
+    
+    // 清除所有作业
+    ClearAll()
+    
+    // 获取作业状态
+    GetJobStatus(name string) string // 返回 "✅ Schedule" 或 "❌ Not Set"
+    
+    // 状态持久化
+    SaveState() error
+    LoadState() error
+}
 ```
 
-## 最佳实践
+**状态持久化格式**:
+```json
+{
+  "core_maintain": "0 4 * * *",
+  "rules_maintain": "0 7 * * 0"
+}
+```
 
-1. **错误处理**: 所有函数都应返回错误，并在调用处处理
-2. **超时控制**: 长时间运行的命令应设置超时
-3. **日志记录**: 重要操作应记录日志
-4. **权限验证**: 所有用户操作都应验证权限
-5. **资源清理**: 使用 defer 确保资源正确释放
+**核心逻辑**:
+- 使用 `github.com/robfig/cron/v3` 作为 cron 调度器
+- 作业注册表维护任务函数映射
+- 启动时自动加载持久化状态
+- 状态变更时自动保存
 
-## 性能优化
+**默认作业**:
+- `core_maintain`: 每天 04:00 执行核心维护
+- `rules_maintain`: 每周日 07:00 执行规则更新
 
-- 使用 goroutine 处理异步操作（如重启）
-- 命令执行器支持超时，防止资源泄漏
-- 日志长度限制，避免消息过长
-- 结果缓存，减少重复执行
+### 4. Telegram Bot 模块 (`pkg/bot`)
+
+**职责**: 处理 Telegram 用户界面和交互逻辑
+
+**核心组件**:
+
+#### 4.1 Bot 处理器
+```go
+type BotHandler interface {
+    HandleUpdate(update tgbotapi.Update) error
+    SendMessage(chatID int64, text string) error
+    SendInlineKeyboard(chatID int64, text string, keyboard [][]tgbotapi.InlineKeyboardButton) error
+}
+```
+
+#### 4.2 认证中间件
+- 验证用户 Chat ID 与配置的管理员 Chat ID 匹配
+- 未授权用户收到访问拒绝消息
+
+#### 4.3 菜单系统
+
+**主菜单**:
+- 📊 System Status (`status`)
+- 🔧 Maintain Now (`maintain_now`)
+- ⚙️ Schedule Settings (`schedule_menu`)
+- 📋 View Logs (`view_logs`)
+- 🔄 Reboot VPS (`reboot_confirm`)
+
+**维护菜单**:
+- 🔧 Core Maintain (`maintain_core`)
+- 📜 Rules Update (`maintain_rules`)
+- 🔄 Full Maintain (`maintain_full`)
+- 🔙 Back (`back_main`)
+
+**调度菜单**:
+- ⏰ Set Core (Daily 04:00) (`schedule_core`)
+- 📅 Set Rules (Sun 07:00) (`schedule_rules`)
+- 🗑️ Clear All (`schedule_clear`)
+- 🔙 Back (`back_main`)
+
+**消息处理流程**:
+1. `/start` 命令 → 显示主菜单
+2. 回调查询 → 根据 data 字段路由到对应处理器
+3. 权限验证 → 确保操作来自管理员
+4. 执行操作 → 调用相应模块接口
+5. 响应用户 → 发送结果消息或更新菜单
+
+## 目录结构
+
+```
+pkg/
+├── config/
+│   ├── config.go          # 配置结构体和加载逻辑
+│   └── config_test.go     # 配置测试
+├── system/
+│   ├── executor.go        # SystemExecutor 接口定义
+│   ├── executor_impl.go   # 系统执行器实现
+│   └── executor_test.go   # 系统执行器测试
+├── scheduler/
+│   ├── scheduler.go       # JobManager 接口和实现
+│   └── scheduler_test.go  # 调度器测试
+└── bot/
+    ├── handler.go         # Bot 处理器
+    ├── menu.go           # 菜单生成逻辑
+    └── bot_test.go       # Bot 测试
+```
+
+## 数据流架构
+
+```
+Telegram Update
+    ↓
+Bot Handler (认证 + 路由)
+    ↓
+┌─────────────────────────────────┐
+│  Menu Handler  │  Action Handler │
+└─────────────────────────────────┘
+    ↓                    ↓
+┌─────────────────────────────────┐
+│   System Exec   │   Scheduler    │
+│   (Commands)    │   (Cron Jobs)  │
+└─────────────────────────────────┘
+    ↓                    ↓
+Response Message    Persistent State
+```
+
+## 依赖关系
+
+```
+main.go
+    ├── Config (pkg/config)
+    ├── System Executor (pkg/system)
+    ├── Job Manager (pkg/scheduler)
+    └── Bot Handler (pkg/bot)
+        └── Depends on: Config, System, Scheduler
+```
+
+## 扩展性设计
+
+### 添加新维护任务
+1. 在 `pkg/system` 中实现新的 `RunXXXMaintain() (string, error)` 方法
+2. 在 `pkg/scheduler` 中注册任务函数
+3. 在 `pkg/bot` 中添加菜单项和处理器
+
+### 添加新系统操作
+1. 扩展 `SystemExecutor` 接口
+2. 实现具体方法
+3. 在 Bot 处理器中添加调用逻辑
+
+### 添加新 Bot 命令
+1. 在菜单定义中添加新按钮
+2. 实现回调处理器
+3. 添加相应的系统或调度器调用
+
+## 测试策略
+
+### 单元测试
+- **Config**: 测试环境变量加载和验证
+- **System**: 使用 Mock 验证命令执行逻辑
+- **Scheduler**: 测试作业管理和持久化
+- **Bot**: 测试消息路由和菜单生成
+
+### 集成测试
+- 端到端 Bot 交互测试
+- 调度器与系统命令集成测试
+- 配置加载到 Bot 启动的完整流程
+
+## 部署架构
+
+### 运行时要求
+- Go 1.21+
+- systemd 服务管理
+- Telegram Bot Token (环境变量)
+- 管理员 Chat ID (环境变量)
+
+### 部署步骤
+1. 编译 Go 应用: `go build -o vps-tg-bot ./cmd/vps-tg-bot`
+2. 安装到系统路径: `/usr/local/bin/vps-tg-bot`
+3. 配置 systemd 服务
+4. 设置环境变量
+5. 启动服务: `systemctl start vps-tg-bot`
 
 ## 安全考虑
 
-- 仅管理员可访问 Bot
-- 命令执行前验证脚本存在
+### 访问控制
+- 仅管理员 Chat ID 可访问 Bot 功能
+- 所有操作都需要权限验证
+
+### 命令安全
+- 系统命令执行前验证脚本存在
 - 超时控制防止恶意命令
-- 错误信息不泄露敏感信息
+- 错误信息不泄露系统敏感信息
+
+### 状态安全
+- 状态文件权限限制 (0600)
+- JSON 序列化错误处理
+- 调度器状态一致性验证
+
+## 性能优化
+
+### 并发处理
+- Bot 更新使用 goroutine 并发处理
+- 长时间运行的维护任务异步执行
+
+### 资源管理
+- 命令执行器超时控制
+- 日志获取限制行数
+- 消息长度限制避免 Telegram 限制
+
+### 缓存策略
+- 系统状态缓存 (60秒)
+- 菜单生成结果缓存
+- 命令执行结果临时缓存
+
+## 监控和日志
+
+### 应用日志
+- 结构化日志记录所有操作
+- 错误级别分类 (ERROR, WARN, INFO, DEBUG)
+- 操作审计跟踪
+
+### 系统集成
+- 日志输出到 systemd journal
+- 维护任务执行日志记录
+- Bot 交互历史记录
+
+## 故障恢复
+
+### 状态恢复
+- 启动时自动加载调度器状态
+- 状态文件损坏时的回退机制
+- 作业注册失败时的重试逻辑
+
+### 错误处理
+- 网络连接重试机制
+- 命令执行失败的友好提示
+- 系统重启后的自动恢复
