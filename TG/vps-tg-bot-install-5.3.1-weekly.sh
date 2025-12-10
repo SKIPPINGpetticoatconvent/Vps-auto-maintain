@@ -332,11 +332,105 @@ def scheduled_task():
     time.sleep(5)
     reboot_system()
 
+def cmd_status(update: Update, context: CallbackContext):
+    """命令: /status - 查看系统状态"""
+    if str(update.effective_chat.id) != ADMIN_CHAT_ID:
+        update.message.reply_text("❌ 无权限访问")
+        return
+    info = subprocess.getoutput("uptime && date")
+    update.message.reply_text(
+        f"📊 *系统状态*\n\n```\n{escape_markdown(info, version=2)}\n```",
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+
+def cmd_maintain(update: Update, context: CallbackContext):
+    """命令: /maintain - 立即执行维护"""
+    if str(update.effective_chat.id) != ADMIN_CHAT_ID:
+        update.message.reply_text("❌ 无权限访问")
+        return
+    update.message.reply_text("⏳ 正在执行维护，请稍候...")
+    subprocess.run([CORE_SCRIPT], check=False)
+    try:
+        result = open("/tmp/vps_maintain_result.txt").read()
+    except FileNotFoundError:
+        result = "维护脚本执行完成，但未找到结果文件"
+    update.message.reply_text(
+        f"✅ *维护完成*\n\n```\n{escape_markdown(result, version=2)}\n```\n\n⚠️ 系统将在 5 秒后重启",
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+    time.sleep(5)
+    reboot_system()
+
+def cmd_rules(update: Update, context: CallbackContext):
+    """命令: /rules - 更新 Xray 规则"""
+    if str(update.effective_chat.id) != ADMIN_CHAT_ID:
+        update.message.reply_text("❌ 无权限访问")
+        return
+    update.message.reply_text("⏳ 正在更新 Xray 规则，请稍候...")
+    subprocess.run([RULES_SCRIPT], check=False)
+    try:
+        result = open("/tmp/vps_rules_result.txt").read()
+    except FileNotFoundError:
+        result = "规则更新脚本执行完成，但未找到结果文件"
+    update.message.reply_text(
+        f"✅ *规则更新完成*\n\n```\n{escape_markdown(result, version=2)}\n```",
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+
+def cmd_logs(update: Update, context: CallbackContext):
+    """命令: /logs - 查看运行日志"""
+    if str(update.effective_chat.id) != ADMIN_CHAT_ID:
+        update.message.reply_text("❌ 无权限访问")
+        return
+    logs = subprocess.getoutput("journalctl -u vps-tg-bot -n 20 --no-pager")
+    update.message.reply_text(
+        f"📋 *日志*\n\n```\n{escape_markdown(logs[-2000:], version=2)}\n```",
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+
+def cmd_reboot(update: Update, context: CallbackContext):
+    """命令: /reboot - 重启 VPS"""
+    if str(update.effective_chat.id) != ADMIN_CHAT_ID:
+        update.message.reply_text("❌ 无权限访问")
+        return
+    update.message.reply_text("⚠️ 系统将在 5 秒后重启...")
+    time.sleep(5)
+    reboot_system()
+
+def setup_bot_menu(bot):
+    """设置 Telegram Bot 菜单"""
+    from telegram import BotCommand
+    commands = [
+        BotCommand("start", "📱 打开管理面板"),
+        BotCommand("status", "📊 查看系统状态"),
+        BotCommand("maintain", "🔧 立即执行维护"),
+        BotCommand("rules", "📦 更新 Xray 规则"),
+        BotCommand("logs", "📋 查看运行日志"),
+        BotCommand("reboot", "♻️ 重启 VPS")
+    ]
+    try:
+        bot.set_my_commands(commands)
+        logger.info("✅ Bot 菜单注册成功")
+    except Exception as e:
+        logger.error(f"❌ Bot 菜单注册失败: {e}")
+
 def main():
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
+
+    # 注册命令处理器
     dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("status", cmd_status))
+    dp.add_handler(CommandHandler("maintain", cmd_maintain))
+    dp.add_handler(CommandHandler("rules", cmd_rules))
+    dp.add_handler(CommandHandler("logs", cmd_logs))
+    dp.add_handler(CommandHandler("reboot", cmd_reboot))
     dp.add_handler(CallbackQueryHandler(button))
+
+    # 设置 Bot 菜单
+    setup_bot_menu(updater.bot)
+
+    # 启动定时任务
     scheduler.add_job(
         scheduled_task,
         CronTrigger(day_of_week='sun', hour=4, minute=0),
@@ -344,6 +438,7 @@ def main():
         replace_existing=True
     )
     scheduler.start()
+
     send_message("🤖 *VPS 管理 Bot 已启动*\n\n使用 /start 打开管理面板")
     updater.start_polling()
     updater.idle()
@@ -393,8 +488,13 @@ fi
 print_message "🎉 部署完成！"
 echo "✅ 每周维护任务已自动设置 (每周日 04:00)"
 echo "📱 前往 Telegram 发送 /start 开始使用"
-echo "♻️ 新增按钮：重启 VPS"
-echo "🧹 支持 --uninstall 模式安全卸载"
+echo ""
+echo "📋 功能列表："
+echo "  - 📊 系统状态：查看 VPS 运行状态"
+echo "  - 🔧 立即维护：执行系统更新+核心更新+重启"
+echo "  - 📦 更新规则：单独更新 Xray 规则文件 (xray up dat)"
+echo "  - 📋 查看日志：查看 Bot 运行日志"
+echo "  - ♻️ 重启 VPS：立即重启服务器"
 echo ""
 echo "📝 常用命令："
 echo "  - 查看服务状态: systemctl status vps-tg-bot"
