@@ -77,15 +77,15 @@ impl Scheduler {
         Ok(scheduler)
     }
 
-    pub fn add_job(&mut self, job: ScheduledJob) {
+    pub fn add_job(&mut self, job: ScheduledJob) -> Result<(), SchedulerError> {
         self.jobs.insert(job.job_type, job);
-        let _ = self.save_jobs();
+        self.save_jobs()
     }
 
-    pub fn remove_job(&mut self, job_type: JobType) -> Option<ScheduledJob> {
+    pub fn remove_job(&mut self, job_type: JobType) -> Result<Option<ScheduledJob>, SchedulerError> {
         let job = self.jobs.remove(&job_type);
-        let _ = self.save_jobs();
-        job
+        self.save_jobs()?;
+        Ok(job)
     }
 
     fn save_jobs(&self) -> Result<(), SchedulerError> {
@@ -179,7 +179,9 @@ impl Scheduler {
             }
             
             if !jobs_to_run.is_empty() {
-                let _ = self.save_jobs();
+                if let Err(e) = self.save_jobs() {
+                    error!("Failed to save jobs after running scheduled jobs: {}", e);
+                }
             }
 
             std::thread::sleep(Duration::from_secs(10));
@@ -191,20 +193,26 @@ impl Scheduler {
             SchedulerCommand::StartJob(t) => {
                 if let Some(job) = self.jobs.get_mut(&t) {
                     job.enabled = true;
-                    let _ = self.save_jobs();
+                    if let Err(e) = self.save_jobs() {
+                        error!("Failed to save jobs after enabling job {:?}: {}", t, e);
+                    }
                 }
             },
             SchedulerCommand::StopJob(t) => {
                 if let Some(job) = self.jobs.get_mut(&t) {
                     job.enabled = false;
-                    let _ = self.save_jobs();
+                    if let Err(e) = self.save_jobs() {
+                        error!("Failed to save jobs after disabling job {:?}: {}", t, e);
+                    }
                 }
             },
             SchedulerCommand::UpdateSchedule(t, s) => {
                 if let Ok(schedule) = s.parse::<Schedule>() {
                     if let Some(job) = self.jobs.get_mut(&t) {
                         job.schedule = schedule;
-                        let _ = self.save_jobs();
+                        if let Err(e) = self.save_jobs() {
+                            error!("Failed to save jobs after updating schedule for job {:?}: {}", t, e);
+                        }
                     }
                 }
             },

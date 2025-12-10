@@ -198,7 +198,7 @@ async fn test_scheduler_add_job() {
         last_run: None,
     };
     
-    scheduler.add_job(job.clone());
+    scheduler.add_job(job.clone()).unwrap();
     
     assert_eq!(scheduler.jobs.len(), 1);
     assert!(scheduler.jobs.contains_key(&JobType::CoreMaintain));
@@ -224,15 +224,15 @@ async fn test_scheduler_remove_job() {
         last_run: None,
     };
     
-    scheduler.add_job(job);
+    scheduler.add_job(job).unwrap();
     
     // 移除任务
-    let removed = scheduler.remove_job(JobType::CoreMaintain);
+    let removed = scheduler.remove_job(JobType::CoreMaintain).unwrap();
     assert!(removed.is_some());
     assert_eq!(scheduler.jobs.len(), 0);
     
     // 尝试移除不存在的任务
-    let removed = scheduler.remove_job(JobType::RulesUpdate);
+    let removed = scheduler.remove_job(JobType::RulesUpdate).unwrap();
     assert!(removed.is_none());
 }
 
@@ -259,8 +259,8 @@ async fn test_scheduler_job_management() {
         last_run: None,
     };
     
-    scheduler.add_job(core_job);
-    scheduler.add_job(rules_job);
+    scheduler.add_job(core_job).unwrap();
+    scheduler.add_job(rules_job).unwrap();
     
     assert_eq!(scheduler.jobs.len(), 2);
     
@@ -316,8 +316,8 @@ async fn test_full_integration_flow() {
         last_run: None,
     };
     
-    scheduler.add_job(core_job);
-    scheduler.add_job(rules_job);
+    scheduler.add_job(core_job).unwrap();
+    scheduler.add_job(rules_job).unwrap();
     
     // 验证组件初始化
     assert!(bot.is_authorized(chat_id));
@@ -371,7 +371,7 @@ async fn test_concurrent_operations() {
             enabled: true,
             last_run: None,
         };
-        scheduler.add_job(job);
+        scheduler.add_job(job).unwrap();
     }
     
     // 验证所有任务都被添加
@@ -477,7 +477,7 @@ async fn test_performance_multiple_operations() {
             enabled: i % 3 == 0, // 每3个启用1个
             last_run: None,
         };
-        scheduler.add_job(job);
+        scheduler.add_job(job).unwrap();
     }
     
     // 由于调度器使用HashMap存储任务，相同类型的任务会相互覆盖
@@ -531,7 +531,7 @@ async fn test_state_persistence() {
             enabled: true,
             last_run: None,
         };
-        scheduler.add_job(job);
+        scheduler.add_job(job).unwrap();
     }
     
     // 创建第二个调度器实例，应该能加载之前保存的状态
