@@ -6,8 +6,9 @@ This project ports the functionality of the existing Python-based VPS Telegram B
 **Key Constraints:**
 - **Language:** Go (Golang)
 - **Persistence:** Scheduled tasks must survive bot restarts.
-- **Security:** No hardcoded secrets. Token and Chat ID must be loaded from environment variables or a config file.
-- **Architecture:** Modular design with TDD anchors.
+- **Security:** No hardcoded secrets. Token and Chat ID must be loaded from environment variables or a config file. Strict input validation and permission control.
+- **Architecture:** Modular design with TDD anchors, Dependency Injection, and Interface-based design.
+- **Reliability:** Comprehensive unit and integration tests.
 
 ## 2. Architecture & Modules
 
@@ -20,21 +21,29 @@ The application is divided into the following core modules:
 
 ### 2.1 Module: Config (`pkg/config`)
 
-**Responsibility:** Load application configuration.
+**Responsibility:** Load application configuration with priority handling (Flags > Env Vars > Interactive Input).
 
 **Fields:**
 - `TelegramToken` (string): From `TG_TOKEN` env or flag.
 - `AdminChatID` (int64): From `TG_CHAT_ID` env or flag.
 - `StateFile` (string): Path to JSON file for persisting scheduler state (default: `state.json`).
+- `CoreScript` (string): Path to core maintenance script.
+- `RulesScript` (string): Path to rules update script.
+
+**Features:**
+- **Priority Loading:** Command line flags override environment variables.
+- **Interactive Fallback:** Prompts user for input if config is missing and running in interactive terminal.
+- **Validation:** Strict validation of Token format and Chat ID.
 
 **TDD Anchors:**
 - `TestLoadConfig_EnvVars`: Verify loading from environment variables.
 - `TestLoadConfig_Flags`: Verify loading from command-line flags.
 - `TestLoadConfig_Validation`: Verify error when required fields are missing.
+- `TestLoadConfig_Interactive`: Verify interactive input handling (mocked).
 
 ### 2.2 Module: System (`pkg/system`)
 
-**Responsibility:** Execute shell commands and query system state.
+**Responsibility:** Execute shell commands, query system state, and ensure script security.
 
 **Interfaces:**
 ```go
@@ -55,8 +64,15 @@ type SystemExecutor interface {
     // System operations
     Reboot() error
     GetLogs(lines int) (string, error)
+    
+    // Security
+    ValidateScript(path string) error
 }
 ```
+
+**Security Features:**
+- **Script Validation:** Checks if script exists and is executable before running.
+- **Path Sanitization:** Prevents directory traversal attacks.
 
 **Pseudocode:**
 ```go
@@ -144,12 +160,14 @@ FUNCTION LoadState():
 
 ### 2.4 Module: Bot (`pkg/bot`)
 
-**Responsibility:** Handle Telegram UI logic.
+**Responsibility:** Handle Telegram UI logic and interaction flow.
 
 **Key Components:**
-- **Menu Handler:** Generates Inline Keyboards.
+- **Handler Injection:** Dependencies (System, Scheduler) are injected into the Bot handler.
+- **Menu Handler:** Generates Inline Keyboards dynamically based on state.
 - **Callback Handler:** Routes button clicks to actions.
 - **Auth Middleware:** Ensures only `AdminChatID` can interact.
+- **Input Sanitization:** Cleans user input to prevent command injection.
 
 **Menu Structure:**
 - **Main Menu:**
@@ -194,14 +212,35 @@ FUNCTION HandleUpdate(update):
 - `TestCallback_Status`: Verify status message format.
 - `TestCallback_Schedule`: Verify scheduler is called.
 
-## 3. Implementation Steps
+## 3. Security Specification
 
-1.  **Setup:** Initialize Go module structure (already done).
-2.  **Config:** Implement `pkg/config`.
-3.  **System:** Implement `pkg/system` with real and mock implementations.
-4.  **Scheduler:** Implement `pkg/scheduler` with persistence logic.
-5.  **Bot Logic:** Implement `pkg/bot` connecting all pieces.
-6.  **Integration:** Wire everything in `main.go`.
+### 3.1 Input Validation
+- **Chat ID:** Must be strictly numeric.
+- **Token:** Validated against Telegram Bot Token format.
+- **Commands:** Whitelisted commands only.
+
+### 3.2 Script Execution
+- **Path Verification:** Scripts must exist and be executable.
+- **Execution Context:** Scripts run with the permissions of the bot process (root recommended for maintenance).
+
+### 3.3 Access Control
+- **Whitelist:** Only the configured `AdminChatID` can trigger actions.
+- **Silent Drop:** Unauthorized messages are logged but not replied to (to prevent enumeration).
+
+## 4. Testing Strategy
+
+- **Unit Tests:** Each module (`config`, `system`, `scheduler`, `bot`) has dedicated unit tests with >80% coverage.
+- **Integration Tests:** `cmd/vps-tg-bot/integration_test.go` verifies the wiring of modules.
+- **Mocks:** `SystemExecutor` and `JobManager` are mocked for deterministic testing.
+
+## 5. Implementation Steps
+
+1.  **Setup:** Initialize Go module structure.
+2.  **Config:** Implement `pkg/config` with env/flag/interactive support.
+3.  **System:** Implement `pkg/system` with security checks.
+4.  **Scheduler:** Implement `pkg/scheduler` with persistence.
+5.  **Bot Logic:** Implement `pkg/bot` with dependency injection.
+6.  **Integration:** Wire everything in `main.go` and verify with integration tests.
 
 ## 4. Environment Variables
 

@@ -22,8 +22,24 @@ func main() {
 		log.Fatalf("加载配置失败: %v", err)
 	}
 
-	// 创建系统执行器
-	systemExec := system.NewRealSystemExecutor()
+	// 验证配置
+	validator := config.NewConfigValidator(cfg)
+	if err := validator.Validate(); err != nil {
+		log.Fatalf("配置验证失败: %v", err)
+	}
+
+	// 打印配置摘要（隐藏敏感信息）
+	summary := validator.GetValidationSummary()
+	log.Printf("配置加载成功:")
+	log.Printf("  - Telegram Token: %s", summary["telegram_token_set"])
+	log.Printf("  - Admin Chat ID: %s", summary["admin_chat_id_set"])
+	log.Printf("  - 状态文件: %s", summary["state_file"])
+	log.Printf("  - 核心脚本: %s", summary["core_script"])
+	log.Printf("  - 规则脚本: %s", summary["rules_script"])
+	log.Printf("  - 命令超时: %d秒", summary["command_timeout"])
+
+	// 创建系统执行器（使用配置）
+	systemExec := system.NewRealSystemExecutorWithConfig(cfg)
 
 	// 创建调度器管理器
 	jobManager := scheduler.NewCronJobManager(cfg.StateFile)
@@ -34,8 +50,8 @@ func main() {
 		log.Fatalf("创建 Bot API 失败: %v", err)
 	}
 
-	// 创建 Bot 处理器
-	botHandler := bot.NewTGBotHandler(api, systemExec, jobManager, cfg.AdminChatID)
+	// 创建 Bot 处理器（传递完整配置）
+	botHandler := bot.NewTGBotHandler(api, cfg, systemExec, jobManager)
 
 	// 启动调度器
 	jobManager.Start()

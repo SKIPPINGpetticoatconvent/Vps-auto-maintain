@@ -74,13 +74,14 @@ Environment="RULES_SCRIPT=/usr/local/bin/vps-maintain-rules.sh"
 
 ## 配置文件示例
 
-### 使用 .env 文件（需要额外支持）
+### 使用 .env 文件
 
-如果使用 `godotenv` 等库，可以创建 `.env` 文件：
+程序支持自动加载 `.env` 文件（如果存在）：
 
 ```bash
-TG_TOKEN=your_bot_token
-TG_CHAT_ID=your_chat_id
+# .env 文件示例
+TG_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+TG_CHAT_ID=123456789
 CORE_SCRIPT=/usr/local/bin/vps-maintain-core.sh
 RULES_SCRIPT=/usr/local/bin/vps-maintain-rules.sh
 ```
@@ -129,6 +130,14 @@ WantedBy=multi-user.target
 **原因**：Chat ID 必须是数字
 
 **解决**：确保输入的是纯数字，不包含其他字符
+
+### 问题：脚本权限错误
+
+**原因**：维护脚本没有执行权限或路径错误
+
+**解决**：
+1. 检查脚本路径是否正确
+2. 赋予执行权限：`chmod +x /path/to/script.sh`
 
 ## 验证配置
 

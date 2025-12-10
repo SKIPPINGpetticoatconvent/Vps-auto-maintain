@@ -2,6 +2,7 @@ package system
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -31,21 +32,28 @@ func (m *MockSystemExecutor) GetSystemTime() (time.Time, string) {
 }
 
 func (m *MockSystemExecutor) RunCommand(cmd string, args ...string) (string, error) {
-	// Simple key generation for mock map: just the command, or cmd+args?
-	// For simplicity, let's use the command name, or we could join args.
-	// But the test setup used "core_maintain" which is not a real command usually.
-	// Let's check exact match first, then cmd only.
-	
-	key := cmd
-	// In the test I wrote: m.RunCommand("core_maintain") -> keys "core_maintain"
-	
-	if val, ok := m.CommandError[key]; ok {
+	// Try exact match with args first
+	fullCmd := cmd
+	if len(args) > 0 {
+		fullCmd = cmd + " " + strings.Join(args, " ") // Simple join, not shell escaping
+	}
+
+	if val, ok := m.CommandError[fullCmd]; ok {
 		return "", val
 	}
-	if val, ok := m.CommandOutput[key]; ok {
+	if val, ok := m.CommandOutput[fullCmd]; ok {
 		return val, nil
 	}
-	return "", errors.New("command not mocked: " + key)
+
+	// Fallback to just command name
+	if val, ok := m.CommandError[cmd]; ok {
+		return "", val
+	}
+	if val, ok := m.CommandOutput[cmd]; ok {
+		return val, nil
+	}
+
+	return "", errors.New("command not mocked: " + fullCmd)
 }
 
 func (m *MockSystemExecutor) RunCoreMaintain() (string, error) {
@@ -63,4 +71,44 @@ func (m *MockSystemExecutor) Reboot() error {
 
 func (m *MockSystemExecutor) GetLogs(lines int) (string, error) {
 	return m.RunCommand("journalctl")
+}
+
+func (m *MockSystemExecutor) GetSystemStatus() (*SystemStatus, error) {
+	return &SystemStatus{
+		Uptime:       "1 day",
+		LoadAverage:  "0.5 0.3 0.1",
+		MemoryUsage:  "1024MB/2048MB",
+		DiskUsage:    "10GB/20GB (50%)",
+		CPUUsage:     "10%",
+		ProcessCount: 100,
+	}, nil
+}
+
+func (m *MockSystemExecutor) GetServiceStatus(service string) (string, error) {
+	return "active", nil
+}
+
+func (m *MockSystemExecutor) GetResourceUsage() (*ResourceUsage, error) {
+	return &ResourceUsage{
+		MemoryTotal:   "2048MB",
+		MemoryUsed:    "1024MB",
+		MemoryFree:    "1024MB",
+		MemoryPercent: 50.0,
+		DiskTotal:     "20GB",
+		DiskUsed:      "10GB",
+		DiskFree:      "10GB",
+		DiskPercent:   50.0,
+		CPUPercent:    10.0,
+		ProcessCount:  100,
+	}, nil
+}
+
+func (m *MockSystemExecutor) GetNetworkStatus() (*NetworkStatus, error) {
+	return &NetworkStatus{
+		Interfaces: []NetworkInterface{
+			{Name: "eth0", IPAddress: "192.168.1.1", Status: "UP"},
+		},
+		Connections:    10,
+		ActiveServices: []string{"ssh", "nginx"},
+	}, nil
 }

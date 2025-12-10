@@ -27,6 +27,7 @@ type TGBotHandler struct {
 	systemExec          system.SystemExecutor
 	jobManager          scheduler.JobManager
 	adminChatID         int64
+	historyRecorder     system.HistoryRecorder
 	// 维护状态管理
 	isMaintenanceRunning bool
 	maintenanceMutex     sync.Mutex
@@ -39,12 +40,14 @@ type TelegramAPI interface {
 }
 
 // NewTGBotHandler 创建新的 TGBotHandler
-func NewTGBotHandler(api TelegramAPI, systemExec system.SystemExecutor, jobManager scheduler.JobManager, adminChatID int64) BotHandler {
+func NewTGBotHandler(api TelegramAPI, config *config.Config, systemExec system.SystemExecutor, jobManager scheduler.JobManager) BotHandler {
 	return &TGBotHandler{
-		api:         api,
-		systemExec:  systemExec,
-		jobManager:  jobManager,
-		adminChatID: adminChatID,
+		api:             api,
+		config:          config,
+		systemExec:      systemExec,
+		jobManager:      jobManager,
+		adminChatID:     config.AdminChatID,
+		historyRecorder: system.NewFileHistoryRecorder("maintain_history.json"),
 	}
 }
 
@@ -116,6 +119,8 @@ func (t *TGBotHandler) handleCallback(query *tgbotapi.CallbackQuery) error {
 		return t.handleClearSchedule(query)
 	case "view_logs":
 		return t.handleViewLogs(query)
+	case "view_history":
+		return t.handleViewHistory(query)
 	case "reboot_confirm":
 		return t.handleRebootConfirm(query)
 	case "back_main":
@@ -129,6 +134,11 @@ func (t *TGBotHandler) handleCallback(query *tgbotapi.CallbackQuery) error {
 
 // SendMessage 发送消息
 func (t *TGBotHandler) SendMessage(chatID int64, text string) error {
+	// 简单的 Markdown 转义，防止格式错误
+	// 注意：这里假设 text 已经是 Markdown 格式，或者需要被转义
+	// 为了安全起见，如果 text 包含用户输入，应该进行转义。
+	// 但由于这是 Admin Bot，且大部分 text 是系统生成的，我们主要关注防止意外的格式错误。
+	// 更好的做法是使用 MarkdownV2 并转义所有特殊字符，或者提供一个 SafeSendMessage 方法。
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = tgbotapi.ModeMarkdown
 	_, err := t.api.Send(msg)
@@ -149,7 +159,8 @@ func (t *TGBotHandler) ShowMainMenu(chatID int64) error {
 	keyboard := [][]tgbotapi.InlineKeyboardButton{
 		{tgbotapi.NewInlineKeyboardButtonData("📊 系统状态", "status")},
 		{tgbotapi.NewInlineKeyboardButtonData("🔧 立即维护", "maintain_now"), tgbotapi.NewInlineKeyboardButtonData("⚙️ 调度设置", "schedule_menu")},
-		{tgbotapi.NewInlineKeyboardButtonData("📋 查看日志", "view_logs"), tgbotapi.NewInlineKeyboardButtonData("🔄 重启 VPS", "reboot_confirm")},
+		{tgbotapi.NewInlineKeyboardButtonData("📋 查看日志", "view_logs"), tgbotapi.NewInlineKeyboardButtonData("📜 维护历史", "view_history")},
+		{tgbotapi.NewInlineKeyboardButtonData("🔄 重启 VPS", "reboot_confirm")},
 	}
 	
 	text := "🤖 *VPS 管理 Bot*\n\n请选择操作："
@@ -175,13 +186,16 @@ func (t *TGBotHandler) handleMaintainMenu(query *tgbotapi.CallbackQuery) error {
 
 // handleScheduleMenu 显示调度菜单
 func (t *TGBotHandler) handleScheduleMenu(query *tgbotapi.CallbackQuery) error {
+	coreStatus := t.jobManager.GetJobStatus("core_maintain")
+	rulesStatus := t.jobManager.GetJobStatus("rules_maintain")
+
 	keyboard := [][]tgbotapi.InlineKeyboardButton{
 		{tgbotapi.NewInlineKeyboardButtonData("⏰ 设置核心 (每日04:00)", "schedule_core")},
 		{tgbotapi.NewInlineKeyboardButtonData("📅 设置规则 (周日07:00)", "schedule_rules")},
 		{tgbotapi.NewInlineKeyboardButtonData("🗑️ 清除所有", "schedule_clear"), tgbotapi.NewInlineKeyboardButtonData("🔙 返回", "back_main")},
 	}
 	
-	text := "⚙️ *调度菜单*\n\n配置定时维护任务："
+	text := fmt.Sprintf("⚙️ *调度菜单*\n\n核心维护: %s\n规则更新: %s\n\n配置定时维护任务：", coreStatus, rulesStatus)
 	
 	msg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, text)
 	msg.ParseMode = tgbotapi.ModeMarkdown
@@ -196,22 +210,77 @@ func (t *TGBotHandler) handleStatusCallback(query *tgbotapi.CallbackQuery) error
 	// 获取系统时间
 	systemTime, timezone := t.systemExec.GetSystemTime()
 	
-	text := fmt.Sprintf("📊 *系统状态*\n\n时间: %s %s\n状态: 🟢 运行正常", 
-		systemTime.Format("2006-01-02 15:04:05"), timezone)
+	// 获取详细系统状态
+	status, err := t.systemExec.GetSystemStatus()
+	if err != nil {
+		log.Printf("获取系统状态失败: %v", err)
+		// 降级显示
+		text := fmt.Sprintf("📊 *系统状态*\n\n时间: %s %s\n状态: ⚠️ 获取详细信息失败",
+			systemTime.Format("2006-01-02 15:04:05"), timezone)
+		return t.SendMessage(query.Message.Chat.ID, text)
+	}
+
+	// 获取服务状态
+	xrayStatus, _ := t.systemExec.GetServiceStatus("xray")
+	sbStatus, _ := t.systemExec.GetServiceStatus("sing-box")
+	
+	text := fmt.Sprintf("📊 *系统状态*\n\n"+
+		"🕒 时间: %s %s\n"+
+		"⏱️ 运行时间: %s\n"+
+		"📈 负载: %s\n"+
+		"💾 内存: %s\n"+
+		"💿 磁盘: %s\n"+
+		"💻 CPU: %s\n"+
+		"🔢 进程数: %d\n\n"+
+		"*服务状态:*\n"+
+		"Xray: %s\n"+
+		"Sing-box: %s",
+		systemTime.Format("2006-01-02 15:04:05"), timezone,
+		status.Uptime,
+		status.LoadAverage,
+		status.MemoryUsage,
+		status.DiskUsage,
+		status.CPUUsage,
+		status.ProcessCount,
+		getStatusIcon(xrayStatus),
+		getStatusIcon(sbStatus))
 	
 	return t.SendMessage(query.Message.Chat.ID, text)
+}
+
+func getStatusIcon(status string) string {
+	if status == "active" {
+		return "🟢 运行中"
+	}
+	return "🔴 已停止"
 }
 
 // handleCoreMaintain 处理核心维护
 func (t *TGBotHandler) handleCoreMaintain(query *tgbotapi.CallbackQuery) error {
 	// 在后台执行维护
 	go func() {
+		startTime := time.Now()
 		result, err := t.systemExec.RunCoreMaintain()
+		endTime := time.Now()
+
+		record := &system.MaintainHistoryRecord{
+			ID:        fmt.Sprintf("%d", startTime.Unix()),
+			Type:      "核心维护",
+			StartTime: startTime,
+			EndTime:   endTime,
+			Status:    "success",
+			Result:    result,
+		}
+
 		if err != nil {
+			record.Status = "failed"
+			record.Error = err.Error()
+			t.historyRecorder.AddRecord(record)
 			t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ 核心维护失败: %v", err))
 			return
 		}
 		
+		t.historyRecorder.AddRecord(record)
 		t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("✅ *核心维护完成*\n\n```\n%s\n```", result))
 	}()
 	
@@ -226,12 +295,28 @@ func (t *TGBotHandler) handleCoreMaintain(query *tgbotapi.CallbackQuery) error {
 func (t *TGBotHandler) handleRulesMaintain(query *tgbotapi.CallbackQuery) error {
 	// 在后台执行维护
 	go func() {
+		startTime := time.Now()
 		result, err := t.systemExec.RunRulesMaintain()
+		endTime := time.Now()
+
+		record := &system.MaintainHistoryRecord{
+			ID:        fmt.Sprintf("%d", startTime.Unix()),
+			Type:      "规则维护",
+			StartTime: startTime,
+			EndTime:   endTime,
+			Status:    "success",
+			Result:    result,
+		}
+
 		if err != nil {
+			record.Status = "failed"
+			record.Error = err.Error()
+			t.historyRecorder.AddRecord(record)
 			t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ 规则维护失败: %v", err))
 			return
 		}
 		
+		t.historyRecorder.AddRecord(record)
 		t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("✅ *规则维护完成*\n\n```\n%s\n```", result))
 	}()
 	
@@ -269,11 +354,25 @@ func (t *TGBotHandler) handleFullMaintain(query *tgbotapi.CallbackQuery) error {
 		// 发送开始消息
 		t.SendMessage(query.Message.Chat.ID, "⏳ 正在执行完整维护（超时时间：30分钟），请稍候...")
 
+		startTime := time.Now()
+		
 		// 执行核心维护
 		coreResult, err := t.runWithTimeout(ctx, func() (string, error) {
 			return t.systemExec.RunCoreMaintain()
 		})
+		
 		if err != nil {
+			endTime := time.Now()
+			record := &system.MaintainHistoryRecord{
+				ID:        fmt.Sprintf("%d", startTime.Unix()),
+				Type:      "完整维护",
+				StartTime: startTime,
+				EndTime:   endTime,
+				Status:    "failed",
+				Error:     err.Error(),
+			}
+			t.historyRecorder.AddRecord(record)
+
 			if ctx.Err() == context.DeadlineExceeded {
 				t.SendMessage(query.Message.Chat.ID, "❌ 维护任务超时，已取消")
 			} else {
@@ -286,7 +385,19 @@ func (t *TGBotHandler) handleFullMaintain(query *tgbotapi.CallbackQuery) error {
 		rulesResult, err := t.runWithTimeout(ctx, func() (string, error) {
 			return t.systemExec.RunRulesMaintain()
 		})
+		
 		if err != nil {
+			endTime := time.Now()
+			record := &system.MaintainHistoryRecord{
+				ID:        fmt.Sprintf("%d", startTime.Unix()),
+				Type:      "完整维护",
+				StartTime: startTime,
+				EndTime:   endTime,
+				Status:    "failed",
+				Error:     err.Error(),
+			}
+			t.historyRecorder.AddRecord(record)
+
 			if ctx.Err() == context.DeadlineExceeded {
 				t.SendMessage(query.Message.Chat.ID, "❌ 维护任务超时，已取消")
 			} else {
@@ -295,7 +406,19 @@ func (t *TGBotHandler) handleFullMaintain(query *tgbotapi.CallbackQuery) error {
 			return
 		}
 
+		endTime := time.Now()
 		result := fmt.Sprintf("核心维护:\n%s\n\n规则维护:\n%s", coreResult, rulesResult)
+		
+		record := &system.MaintainHistoryRecord{
+			ID:        fmt.Sprintf("%d", startTime.Unix()),
+			Type:      "完整维护",
+			StartTime: startTime,
+			EndTime:   endTime,
+			Status:    "success",
+			Result:    result,
+		}
+		t.historyRecorder.AddRecord(record)
+
 		t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("✅ *完整维护已完成*\n\n```\n%s\n```", result))
 	}()
 
@@ -378,6 +501,40 @@ func (t *TGBotHandler) handleViewLogs(query *tgbotapi.CallbackQuery) error {
 	}
 	
 	return t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("📋 *服务日志*\n\n```\n%s\n```", logs))
+}
+
+// handleViewHistory 处理查看历史
+func (t *TGBotHandler) handleViewHistory(query *tgbotapi.CallbackQuery) error {
+	records, err := t.historyRecorder.GetRecords(10)
+	if err != nil {
+		return t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ 获取历史记录失败: %v", err))
+	}
+
+	if len(records) == 0 {
+		return t.SendMessage(query.Message.Chat.ID, "📭 暂无维护历史记录")
+	}
+
+	var text string
+	text = "📜 *最近 10 条维护记录*\n\n"
+	
+	for _, record := range records {
+		statusIcon := "✅"
+		if record.Status != "success" {
+			statusIcon = "❌"
+		}
+		
+		duration := record.EndTime.Sub(record.StartTime)
+		
+		text += fmt.Sprintf("%s *%s*\n", statusIcon, record.Type)
+		text += fmt.Sprintf("时间: %s\n", record.StartTime.Format("2006-01-02 15:04:05"))
+		text += fmt.Sprintf("耗时: %s\n", duration)
+		if record.Error != "" {
+			text += fmt.Sprintf("错误: %s\n", record.Error)
+		}
+		text += "-------------------\n"
+	}
+
+	return t.SendMessage(query.Message.Chat.ID, text)
 }
 
 // handleRebootConfirm 处理重启确认
