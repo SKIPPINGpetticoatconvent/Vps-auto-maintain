@@ -53,6 +53,18 @@ func main() {
 	// 创建 Bot 处理器（传递完整配置）
 	botHandler := bot.NewTGBotHandler(api, cfg, systemExec, jobManager)
 
+	// 设置调度器通知回调，使定时任务可以发送 Telegram 通知
+	jobManager.SetNotificationCallback(cfg.AdminChatID, func(chatID int64, message string) {
+		if err := botHandler.SendMessage(chatID, message); err != nil {
+			log.Printf("发送定时任务通知失败: %v", err)
+		}
+	})
+
+	// 加载已保存的调度状态
+	if err := jobManager.LoadState(); err != nil {
+		log.Printf("加载调度状态失败: %v", err)
+	}
+
 	// 启动调度器
 	jobManager.Start()
 
