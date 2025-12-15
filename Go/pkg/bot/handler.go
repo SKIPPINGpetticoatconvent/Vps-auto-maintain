@@ -198,8 +198,8 @@ func (t *TGBotHandler) handleScheduleMenu(query *tgbotapi.CallbackQuery) error {
 	keyboard := [][]tgbotapi.InlineKeyboardButton{
 		{tgbotapi.NewInlineKeyboardButtonData("⏰ 设置核心 (每日04:00)", "schedule_core")},
 		{tgbotapi.NewInlineKeyboardButtonData("📅 设置规则 (周日07:00)", "schedule_rules")},
-		{tgbotapi.NewInlineKeyboardButtonData("🔄 Xray重启 (每日04:00)", "schedule_xray_restart")},
-		{tgbotapi.NewInlineKeyboardButtonData("🔄 Sing-box重启 (每日05:00)", "schedule_sb_restart")},
+		{tgbotapi.NewInlineKeyboardButtonData("🔄 Xray重启 (每日02:00)", "schedule_xray_restart")},
+		{tgbotapi.NewInlineKeyboardButtonData("🔄 Sing-box重启 (每日03:00)", "schedule_sb_restart")},
 		{tgbotapi.NewInlineKeyboardButtonData("🗑️ 清除所有", "schedule_clear"), tgbotapi.NewInlineKeyboardButtonData("🔙 返回", "back_main")},
 	}
 	
@@ -503,7 +503,7 @@ func (t *TGBotHandler) handleSetRulesSchedule(query *tgbotapi.CallbackQuery) err
 
 // handleSetXrayRestartSchedule 处理设置 Xray 重启调度
 func (t *TGBotHandler) handleSetXrayRestartSchedule(query *tgbotapi.CallbackQuery) error {
-	// 设置每日04:00执行 Xray 重启
+	// 设置每日02:00执行 Xray 重启
 	task := func() {
 		log.Println("执行定时 Xray 重启...")
 		result, err := t.systemExec.RestartService("xray")
@@ -516,17 +516,17 @@ func (t *TGBotHandler) handleSetXrayRestartSchedule(query *tgbotapi.CallbackQuer
 		}
 	}
 	
-	err := t.jobManager.SetJob("restart_xray", "0 0 4 * * *", task)
+	err := t.jobManager.SetJob("restart_xray", "0 0 2 * * *", task)
 	if err != nil {
 		return t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ 设置调度失败: %v", err))
 	}
 	
-	return t.SendMessage(query.Message.Chat.ID, "✅ 已设置 Xray 重启调度：每日 04:00")
+	return t.SendMessage(query.Message.Chat.ID, "✅ 已设置 Xray 重启调度：每日 02:00")
 }
 
 // handleSetSingboxRestartSchedule 处理设置 Sing-box 重启调度
 func (t *TGBotHandler) handleSetSingboxRestartSchedule(query *tgbotapi.CallbackQuery) error {
-	// 设置每日05:00执行 Sing-box 重启
+	// 设置每日03:00执行 Sing-box 重启
 	task := func() {
 		log.Println("执行定时 Sing-box 重启...")
 		result, err := t.systemExec.RestartService("sing-box")
@@ -539,12 +539,12 @@ func (t *TGBotHandler) handleSetSingboxRestartSchedule(query *tgbotapi.CallbackQ
 		}
 	}
 	
-	err := t.jobManager.SetJob("restart_singbox", "0 0 5 * * *", task)
+	err := t.jobManager.SetJob("restart_singbox", "0 0 3 * * *", task)
 	if err != nil {
 		return t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ 设置调度失败: %v", err))
 	}
 	
-	return t.SendMessage(query.Message.Chat.ID, "✅ 已设置 Sing-box 重启调度：每日 05:00")
+	return t.SendMessage(query.Message.Chat.ID, "✅ 已设置 Sing-box 重启调度：每日 03:00")
 }
 
 // handleClearSchedule 处理清除调度
