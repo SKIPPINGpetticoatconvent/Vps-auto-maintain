@@ -16,6 +16,11 @@ type SystemExecutor interface {
 	GetServiceStatus(service string) (string, error)
 	GetResourceUsage() (*ResourceUsage, error)
 	GetNetworkStatus() (*NetworkStatus, error)
+	
+	// 服务重启功能
+	// RestartService 重启白名单中的服务
+	// 支持的服务: "xray" (x-ui restart), "sing-box" (sb restart)
+	RestartService(service string) (string, error)
 }
 
 // SystemStatus 系统状态信息

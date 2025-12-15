@@ -2,6 +2,7 @@ package system
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -111,4 +112,15 @@ func (m *MockSystemExecutor) GetNetworkStatus() (*NetworkStatus, error) {
 		Connections:    10,
 		ActiveServices: []string{"ssh", "nginx"},
 	}, nil
+}
+
+// RestartService 模拟服务重启 (仅允许白名单中的服务)
+func (m *MockSystemExecutor) RestartService(service string) (string, error) {
+	allowedServices := []string{"xray", "sing-box"}
+	for _, s := range allowedServices {
+		if s == service {
+			return fmt.Sprintf("服务 %s 重启成功", service), nil
+		}
+	}
+	return "", fmt.Errorf("服务 '%s' 不在允许列表中，允许的服务: %v", service, allowedServices)
 }

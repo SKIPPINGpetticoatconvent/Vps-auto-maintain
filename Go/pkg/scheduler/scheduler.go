@@ -89,6 +89,28 @@ func (c *CronJobManager) registerDefaultTasks() {
 			log.Printf("规则维护完成: %s", result)
 		}
 	}
+	
+	// 注册 Xray 重启任务
+	c.taskRegistry["restart_xray"] = func() {
+		log.Println("开始执行定时 Xray 重启任务...")
+		result, err := c.systemExec.RestartService("xray")
+		if err != nil {
+			log.Printf("Xray 重启失败: %v", err)
+		} else {
+			log.Printf("Xray 重启完成: %s", result)
+		}
+	}
+	
+	// 注册 Sing-box 重启任务
+	c.taskRegistry["restart_singbox"] = func() {
+		log.Println("开始执行定时 Sing-box 重启任务...")
+		result, err := c.systemExec.RestartService("sing-box")
+		if err != nil {
+			log.Printf("Sing-box 重启失败: %v", err)
+		} else {
+			log.Printf("Sing-box 重启完成: %s", result)
+		}
+	}
 }
 
 // Start 启动调度器

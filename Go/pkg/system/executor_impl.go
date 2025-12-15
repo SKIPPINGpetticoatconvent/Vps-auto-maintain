@@ -3,6 +3,7 @@ package system
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -10,6 +11,18 @@ import (
 	"time"
 	"vps-tg-bot/pkg/config"
 )
+
+// serviceRestartCommand 服务重启命令配置
+type serviceRestartCommand struct {
+	command string
+	args    []string
+}
+
+// serviceRestartCommands 白名单服务的重启命令映射
+var serviceRestartCommands = map[string]serviceRestartCommand{
+	"xray":     {command: "x-ui", args: []string{"restart"}},
+	"sing-box": {command: "sb", args: []string{"restart"}},
+}
 
 // RealSystemExecutor 系统执行器的实际实现
 type RealSystemExecutor struct {
@@ -171,4 +184,20 @@ func (e *RealSystemExecutor) GetResourceUsage() (*ResourceUsage, error) {
 // GetNetworkStatus 获取网络状态信息
 func (e *RealSystemExecutor) GetNetworkStatus() (*NetworkStatus, error) {
 	return e.checker.GetNetworkStatus()
+}
+
+// RestartService 重启白名单中的服务
+// 支持的服务: "xray" (x-ui restart), "sing-box" (sb restart)
+func (e *RealSystemExecutor) RestartService(service string) (string, error) {
+	cmdInfo, ok := serviceRestartCommands[service]
+	if !ok {
+		allowedList := make([]string, 0, len(serviceRestartCommands))
+		for k := range serviceRestartCommands {
+			allowedList = append(allowedList, k)
+		}
+		return "", fmt.Errorf("服务 '%s' 不在允许列表中，允许的服务: %v", service, allowedList)
+	}
+	
+	log.Printf("正在重启服务: %s (命令: %s %v)", service, cmdInfo.command, cmdInfo.args)
+	return e.runCommandWithTimeout(cmdInfo.command, cmdInfo.args...)
 }

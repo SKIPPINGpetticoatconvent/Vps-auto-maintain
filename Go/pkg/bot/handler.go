@@ -115,6 +115,10 @@ func (t *TGBotHandler) handleCallback(query *tgbotapi.CallbackQuery) error {
 		return t.handleSetCoreSchedule(query)
 	case "schedule_rules":
 		return t.handleSetRulesSchedule(query)
+	case "schedule_xray_restart":
+		return t.handleSetXrayRestartSchedule(query)
+	case "schedule_sb_restart":
+		return t.handleSetSingboxRestartSchedule(query)
 	case "schedule_clear":
 		return t.handleClearSchedule(query)
 	case "view_logs":
@@ -188,14 +192,24 @@ func (t *TGBotHandler) handleMaintainMenu(query *tgbotapi.CallbackQuery) error {
 func (t *TGBotHandler) handleScheduleMenu(query *tgbotapi.CallbackQuery) error {
 	coreStatus := t.jobManager.GetJobStatus("core_maintain")
 	rulesStatus := t.jobManager.GetJobStatus("rules_maintain")
+	xrayRestartStatus := t.jobManager.GetJobStatus("restart_xray")
+	sbRestartStatus := t.jobManager.GetJobStatus("restart_singbox")
 
 	keyboard := [][]tgbotapi.InlineKeyboardButton{
 		{tgbotapi.NewInlineKeyboardButtonData("⏰ 设置核心 (每日04:00)", "schedule_core")},
 		{tgbotapi.NewInlineKeyboardButtonData("📅 设置规则 (周日07:00)", "schedule_rules")},
+		{tgbotapi.NewInlineKeyboardButtonData("🔄 Xray重启 (每日04:00)", "schedule_xray_restart")},
+		{tgbotapi.NewInlineKeyboardButtonData("🔄 Sing-box重启 (每日05:00)", "schedule_sb_restart")},
 		{tgbotapi.NewInlineKeyboardButtonData("🗑️ 清除所有", "schedule_clear"), tgbotapi.NewInlineKeyboardButtonData("🔙 返回", "back_main")},
 	}
 	
-	text := fmt.Sprintf("⚙️ *调度菜单*\n\n核心维护: %s\n规则更新: %s\n\n配置定时维护任务：", coreStatus, rulesStatus)
+	text := fmt.Sprintf("⚙️ *调度菜单*\n\n"+
+		"核心维护: %s\n"+
+		"规则更新: %s\n"+
+		"Xray 重启: %s\n"+
+		"Sing-box 重启: %s\n\n"+
+		"配置定时任务：",
+		coreStatus, rulesStatus, xrayRestartStatus, sbRestartStatus)
 	
 	msg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, text)
 	msg.ParseMode = tgbotapi.ModeMarkdown
@@ -485,6 +499,52 @@ func (t *TGBotHandler) handleSetRulesSchedule(query *tgbotapi.CallbackQuery) err
 	}
 	
 	return t.SendMessage(query.Message.Chat.ID, "✅ 已设置规则维护调度：每周日 07:00")
+}
+
+// handleSetXrayRestartSchedule 处理设置 Xray 重启调度
+func (t *TGBotHandler) handleSetXrayRestartSchedule(query *tgbotapi.CallbackQuery) error {
+	// 设置每日04:00执行 Xray 重启
+	task := func() {
+		log.Println("执行定时 Xray 重启...")
+		result, err := t.systemExec.RestartService("xray")
+		if err != nil {
+			log.Printf("定时 Xray 重启失败: %v", err)
+			t.SendMessage(t.adminChatID, fmt.Sprintf("❌ 定时 Xray 重启失败: %v", err))
+		} else {
+			log.Printf("定时 Xray 重启完成: %s", result)
+			t.SendMessage(t.adminChatID, fmt.Sprintf("✅ 定时 Xray 重启完成\n\n```\n%s\n```", result))
+		}
+	}
+	
+	err := t.jobManager.SetJob("restart_xray", "0 0 4 * * *", task)
+	if err != nil {
+		return t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ 设置调度失败: %v", err))
+	}
+	
+	return t.SendMessage(query.Message.Chat.ID, "✅ 已设置 Xray 重启调度：每日 04:00")
+}
+
+// handleSetSingboxRestartSchedule 处理设置 Sing-box 重启调度
+func (t *TGBotHandler) handleSetSingboxRestartSchedule(query *tgbotapi.CallbackQuery) error {
+	// 设置每日05:00执行 Sing-box 重启
+	task := func() {
+		log.Println("执行定时 Sing-box 重启...")
+		result, err := t.systemExec.RestartService("sing-box")
+		if err != nil {
+			log.Printf("定时 Sing-box 重启失败: %v", err)
+			t.SendMessage(t.adminChatID, fmt.Sprintf("❌ 定时 Sing-box 重启失败: %v", err))
+		} else {
+			log.Printf("定时 Sing-box 重启完成: %s", result)
+			t.SendMessage(t.adminChatID, fmt.Sprintf("✅ 定时 Sing-box 重启完成\n\n```\n%s\n```", result))
+		}
+	}
+	
+	err := t.jobManager.SetJob("restart_singbox", "0 0 5 * * *", task)
+	if err != nil {
+		return t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ 设置调度失败: %v", err))
+	}
+	
+	return t.SendMessage(query.Message.Chat.ID, "✅ 已设置 Sing-box 重启调度：每日 05:00")
 }
 
 // handleClearSchedule 处理清除调度

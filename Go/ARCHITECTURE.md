@@ -51,8 +51,19 @@ type SystemExecutor interface {
     // 系统操作
     Reboot() error
     GetLogs(lines int) (string, error)
+    
+    // 服务重启 (白名单保护)
+    RestartService(service string) (string, error)
 }
 ```
+
+**服务重启命令映射**:
+| 服务名称 | 重启命令 | 说明 |
+|---------|---------|------|
+| xray | `x-ui restart` | X-UI 面板重启 (包含 Xray) |
+| sing-box | `sb restart` | Sing-box 面板重启 |
+
+**安全机制**: 仅白名单中的服务可被重启，尝试重启未授权服务将返回错误。
 
 **实现策略**:
 - `IsInstalled`: 检查 `/usr/local/bin/` 和 PATH 环境变量
@@ -110,6 +121,8 @@ type JobManager interface {
 **默认作业**:
 - `core_maintain`: 每天 04:00 执行核心维护
 - `rules_maintain`: 每周日 07:00 执行规则更新
+- `restart_xray`: 每天 04:00 执行 Xray 重启 (通过 x-ui restart)
+- `restart_singbox`: 每天 05:00 执行 Sing-box 重启 (通过 sb restart)
 
 ### 4. Telegram Bot 模块 (`pkg/bot`)
 
@@ -148,7 +161,9 @@ type BotHandler interface {
 **调度菜单**:
 - ⏰ Set Core (Daily 04:00) (`schedule_core`)
 - 📅 Set Rules (Sun 07:00) (`schedule_rules`)
-- 🗑️ Clear All (`schedule_clear`)
+- 🔄 Xray Restart (Daily 04:00) (`schedule_xray_restart`)
+- 🔄 Sing-box Restart (Daily 05:00) (`schedule_sb_restart`)
+- �️ Clear All (`schedule_clear`)
 - 🔙 Back (`back_main`)
 
 **消息处理流程**:
