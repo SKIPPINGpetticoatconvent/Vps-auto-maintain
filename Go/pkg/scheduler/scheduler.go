@@ -31,15 +31,20 @@ type JobManager interface {
 	// 状态持久化
 	SaveState() error
 	LoadState() error
+	
+	// 通知回调设置
+	SetNotificationCallback(adminChatID int64, callback func(int64, string))
 }
 
 // CronJobManager 实现 JobManager 接口
 type CronJobManager struct {
-	cron         *cron.Cron
-	stateFile    string
-	jobs         map[string]*JobEntry // 存储作业信息
-	taskRegistry map[string]func() // 任务函数映射，用于在 LoadState 时重新注册任务
-	systemExec   system.SystemExecutor // 系统执行器实例
+	cron           *cron.Cron
+	stateFile      string
+	jobs           map[string]*JobEntry // 存储作业信息
+	taskRegistry   map[string]func() // 任务函数映射，用于在 LoadState 时重新注册任务
+	systemExec     system.SystemExecutor // 系统执行器实例
+	notifyCallback func(int64, string) // 通知回调函数
+	adminChatID    int64 // 管理员 Chat ID
 }
 
 // JobEntry 存储作业信息
@@ -66,6 +71,20 @@ func NewCronJobManager(stateFile string) JobManager {
 	return manager
 }
 
+// notify 发送通知消息（如果回调已设置）
+func (c *CronJobManager) notify(message string) {
+	if c.notifyCallback != nil && c.adminChatID != 0 {
+		c.notifyCallback(c.adminChatID, message)
+	}
+}
+
+// SetNotificationCallback 设置通知回调函数
+func (c *CronJobManager) SetNotificationCallback(adminChatID int64, callback func(int64, string)) {
+	c.adminChatID = adminChatID
+	c.notifyCallback = callback
+	log.Printf("已设置通知回调，管理员 Chat ID: %d", adminChatID)
+}
+
 // registerDefaultTasks 注册默认任务
 func (c *CronJobManager) registerDefaultTasks() {
 	// 注册核心维护任务
@@ -74,8 +93,10 @@ func (c *CronJobManager) registerDefaultTasks() {
 		result, err := c.systemExec.RunCoreMaintain()
 		if err != nil {
 			log.Printf("核心维护失败: %v", err)
+			c.notify(fmt.Sprintf("❌ 定时核心维护失败: %v", err))
 		} else {
 			log.Printf("核心维护完成: %s", result)
+			c.notify(fmt.Sprintf("✅ 定时核心维护完成\n\n```\n%s\n```", result))
 		}
 	}
 	
@@ -85,8 +106,10 @@ func (c *CronJobManager) registerDefaultTasks() {
 		result, err := c.systemExec.RunRulesMaintain()
 		if err != nil {
 			log.Printf("规则维护失败: %v", err)
+			c.notify(fmt.Sprintf("❌ 定时规则维护失败: %v", err))
 		} else {
 			log.Printf("规则维护完成: %s", result)
+			c.notify(fmt.Sprintf("✅ 定时规则维护完成\n\n```\n%s\n```", result))
 		}
 	}
 	
@@ -96,8 +119,10 @@ func (c *CronJobManager) registerDefaultTasks() {
 		result, err := c.systemExec.RestartService("xray")
 		if err != nil {
 			log.Printf("Xray 重启失败: %v", err)
+			c.notify(fmt.Sprintf("❌ 定时 Xray 重启失败: %v", err))
 		} else {
 			log.Printf("Xray 重启完成: %s", result)
+			c.notify(fmt.Sprintf("✅ 定时 Xray 重启完成\n\n```\n%s\n```", result))
 		}
 	}
 	
@@ -107,8 +132,10 @@ func (c *CronJobManager) registerDefaultTasks() {
 		result, err := c.systemExec.RestartService("sing-box")
 		if err != nil {
 			log.Printf("Sing-box 重启失败: %v", err)
+			c.notify(fmt.Sprintf("❌ 定时 Sing-box 重启失败: %v", err))
 		} else {
 			log.Printf("Sing-box 重启完成: %s", result)
+			c.notify(fmt.Sprintf("✅ 定时 Sing-box 重启完成\n\n```\n%s\n```", result))
 		}
 	}
 }
