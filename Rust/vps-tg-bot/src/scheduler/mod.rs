@@ -15,10 +15,10 @@ pub async fn start_scheduler(config: Config, bot: Bot) -> Result<()> {
         Box::pin(async move {
             match ops::perform_maintenance().await {
                 Ok(log) => {
-                    let _ = bot.send_message(ChatId(chat_id), format!("✅ Scheduled maintenance completed:\n{}", log)).await;
+                    let _ = bot.send_message(ChatId(chat_id), format!("✅ 计划维护已完成:\n{}", log)).await;
                 }
                 Err(e) => {
-                    let _ = bot.send_message(ChatId(chat_id), format!("❌ Scheduled maintenance failed: {}", e)).await;
+                    let _ = bot.send_message(ChatId(chat_id), format!("❌ 计划维护失败: {}", e)).await;
                 }
             }
         })

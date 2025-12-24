@@ -4,16 +4,16 @@ use std::process::Command;
 pub async fn perform_maintenance() -> Result<String> {
     let mut log = String::new();
 
-    log.push_str("🔄 Updating System...\n");
+    log.push_str("🔄 正在更新系统...\n");
     match run_command("apt-get", &["update"]).await {
-        Ok(output) => log.push_str(&format!("✅ Apt Update: Success\n{}\n", output)),
-        Err(e) => log.push_str(&format!("❌ Apt Update: Failed ({})\n", e)),
+        Ok(output) => log.push_str(&format!("✅ Apt 更新: 成功\n{}\n", output)),
+        Err(e) => log.push_str(&format!("❌ Apt 更新: 失败 ({})\n", e)),
     }
 
-    log.push_str("🔄 Upgrading System...\n");
+    log.push_str("🔄 正在升级系统...\n");
     match run_command("apt-get", &["upgrade", "-y"]).await {
-        Ok(output) => log.push_str(&format!("✅ Apt Upgrade: Success\n{}\n", output)),
-        Err(e) => log.push_str(&format!("❌ Apt Upgrade: Failed ({})\n", e)),
+        Ok(output) => log.push_str(&format!("✅ Apt 升级: 成功\n{}\n", output)),
+        Err(e) => log.push_str(&format!("❌ Apt 升级: 失败 ({})\n", e)),
     }
 
     Ok(log)
@@ -22,14 +22,14 @@ pub async fn perform_maintenance() -> Result<String> {
 pub async fn check_security_updates() -> Result<bool> {
     let output = run_command("apt-get", &["upgrade", "-s"])
         .await
-        .context("Failed to check security updates")?;
+        .context("无法检查安全更新")?;
     Ok(output.contains("security"))
 }
 
 pub fn reboot_system() -> Result<()> {
     Command::new("reboot")
         .status()
-        .context("Failed to reboot system")?;
+        .context("无法重启系统")?;
     Ok(())
 }
 
@@ -37,7 +37,7 @@ pub fn restart_service(service_name: &str) -> Result<()> {
     Command::new("systemctl")
         .args(["restart", service_name])
         .status()
-        .context(format!("Failed to restart service: {}", service_name))?;
+        .context(format!("无法重启服务: {}", service_name))?;
     Ok(())
 }
 
@@ -46,11 +46,11 @@ async fn run_command(command: &str, args: &[&str]) -> Result<String> {
         .args(args)
         .output()
         .await
-        .context(format!("Failed to execute command: {}", command))?;
+        .context(format!("无法执行命令: {}", command))?;
 
     if !output.status.success() {
         return Err(anyhow::anyhow!(
-            "Command failed: {}",
+            "命令执行失败: {}",
             String::from_utf8_lossy(&output.stderr)
         ));
     }

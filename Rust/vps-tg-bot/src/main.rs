@@ -30,16 +30,16 @@ async fn main() -> Result<()> {
             let bot_instance = Bot::new(config.bot_token.clone());
             let config_for_scheduler = config.clone();
 
-            // 并行启动 Bot 和 Scheduler
+            // 并行启动 Bot 和调度器
             let bot_task = tokio::spawn(async move {
                 if let Err(e) = bot::run_bot(config.clone()).await {
-                    eprintln!("Bot error: {}", e);
+                    eprintln!("Bot 错误: {}", e);
                 }
             });
 
             let scheduler_task = tokio::spawn(async move {
                 if let Err(e) = scheduler::start_scheduler(config_for_scheduler, bot_instance).await {
-                    eprintln!("Scheduler error: {}", e);
+                    eprintln!("调度器错误: {}", e);
                 }
             });
 

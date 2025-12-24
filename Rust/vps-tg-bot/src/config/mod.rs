@@ -43,11 +43,11 @@ impl Config {
         for path in config_paths {
             if Path::new(path).exists() {
                 let content = fs::read_to_string(path)
-                    .with_context(|| format!("Failed to read config file: {}", path))?;
-                
+                    .with_context(|| format!("无法读取配置文件: {}", path))?;
+                 
                 // 尝试直接解析为 Config 结构
                 let config: Result<Config, _> = toml::from_str(&content);
-                
+                 
                 // 如果直接解析失败，尝试兼容旧格式
                 if config.is_err() {
                     // 尝试解析为旧格式
@@ -55,13 +55,13 @@ impl Config {
                     struct LegacyConfig {
                         bot: LegacyBotConfig,
                     }
-                    
+                     
                     #[derive(Deserialize)]
                     struct LegacyBotConfig {
                         token: String,
                         chat_id: String,
                     }
-                    
+                     
                     if let Ok(legacy_config) = toml::from_str::<LegacyConfig>(&content) {
                         return Ok(Config {
                             bot_token: legacy_config.bot.token,
@@ -70,13 +70,13 @@ impl Config {
                         });
                     }
                 }
-                
+                 
                 let config: Config = config?;
                 return Ok(config);
             }
         }
 
-        Err(anyhow::anyhow!("No valid config source found"))
+        Err(anyhow::anyhow!("未找到有效的配置源"))
     }
 
     pub fn save(&self, path: &str) -> Result<()> {
