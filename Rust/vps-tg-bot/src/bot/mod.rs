@@ -1,5 +1,4 @@
 use teloxide::prelude::*;
-use teloxide::types::ChatId;
 use teloxide::utils::command::BotCommands;
 use crate::config::Config;
 use crate::system;
@@ -85,6 +84,16 @@ async fn answer(bot: Bot, message: Message, command: Command) -> Result<(), Box<
             // 注意: 重启确认逻辑需要额外的状态处理
             // 为简化，我们将在确认后继续重启
             // 在实际实现中，您需要跟踪确认状态
+            
+            // 直接执行重启（在实际实现中应添加确认逻辑）
+            match system::ops::reboot_system() {
+                Ok(_) => {
+                    bot.send_message(message.chat.id, "🔄 系统重启中...").await?;
+                }
+                Err(e) => {
+                    bot.send_message(message.chat.id, format!("❌ 重启失败: {}", e)).await?;
+                }
+            }
         }
     }
     Ok(())
