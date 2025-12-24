@@ -44,8 +44,34 @@ impl Config {
             if Path::new(path).exists() {
                 let content = fs::read_to_string(path)
                     .with_context(|| format!("Failed to read config file: {}", path))?;
-                let config: Config = toml::from_str(&content)
-                    .with_context(|| format!("Failed to parse config file: {}", path))?;
+                
+                // 尝试直接解析为 Config 结构
+                let config: Result<Config, _> = toml::from_str(&content);
+                
+                // 如果直接解析失败，尝试兼容旧格式
+                if config.is_err() {
+                    // 尝试解析为旧格式
+                    #[derive(Deserialize)]
+                    struct LegacyConfig {
+                        bot: LegacyBotConfig,
+                    }
+                    
+                    #[derive(Deserialize)]
+                    struct LegacyBotConfig {
+                        token: String,
+                        chat_id: String,
+                    }
+                    
+                    if let Ok(legacy_config) = toml::from_str::<LegacyConfig>(&content) {
+                        return Ok(Config {
+                            bot_token: legacy_config.bot.token,
+                            chat_id: legacy_config.bot.chat_id.parse::<i64>().unwrap_or(-1),
+                            check_interval: default_check_interval(),
+                        });
+                    }
+                }
+                
+                let config: Config = config?;
                 return Ok(config);
             }
         }
