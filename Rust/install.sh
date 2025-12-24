@@ -71,7 +71,7 @@ After=network.target
 
 [Service]
 User=root
-ExecStart=/usr/local/bin/vps-tg-bot
+ExecStart=/usr/local/bin/vps-tg-bot run
 Restart=always
 
 [Install]
