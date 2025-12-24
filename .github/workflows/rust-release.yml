@@ -1,0 +1,46 @@
+name: Rust Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Build Release
+        # 指定 manifest-path 以构建子目录中的 Rust 项目
+        run: cargo build --release --manifest-path Rust/vps-tg-bot/Cargo.toml
+
+      - name: Prepare Artifacts
+        run: |
+          # 找到构建产物并重命名，添加架构标识
+          mv Rust/vps-tg-bot/target/release/vps-tg-bot ./vps-tg-bot-linux-amd64
+          
+          # 赋予执行权限（虽然上传后通常会重置，但作为最佳实践）
+          chmod +x ./vps-tg-bot-linux-amd64
+          
+          # 创建压缩包
+          tar -czvf vps-tg-bot-linux-amd64.tar.gz vps-tg-bot-linux-amd64
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            vps-tg-bot-linux-amd64
+            vps-tg-bot-linux-amd64.tar.gz
+          generate_release_notes: true
