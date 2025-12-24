@@ -17,7 +17,7 @@ on:
   pull_request:
     branches: [ "main" ]
   schedule:
-    - cron: '34 13 * * 0'
+    - cron: '27 16 * * 4'
 
 jobs:
   analyze:
@@ -47,6 +47,8 @@ jobs:
           build-mode: none
         - language: go
           build-mode: autobuild
+        - language: rust
+          build-mode: none
         # CodeQL supports the following values keywords for 'language': 'actions', 'c-cpp', 'csharp', 'go', 'java-kotlin', 'javascript-typescript', 'python', 'ruby', 'rust', 'swift'
         # Use `c-cpp` to analyze code written in C, C++ or both
         # Use 'java-kotlin' to analyze code written in Java, Kotlin or both
