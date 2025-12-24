@@ -7,7 +7,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # 定义 REPO 变量
-REPO="ANGOM/Vps-auto-maintain"
+REPO="SKIPPINGpetticoatconvent/Vps-auto-maintain"
 
 # 检查 wget 或 curl 是否存在
 if ! command -v wget &> /dev/null && ! command -v curl &> /dev/null; then
