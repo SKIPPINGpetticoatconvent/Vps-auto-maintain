@@ -11,9 +11,21 @@ pub async fn perform_maintenance() -> Result<String> {
     }
 
     log.push_str("🔄 正在升级系统...\n");
-    match run_command("apt-get", &["upgrade", "-y"]).await {
-        Ok(output) => log.push_str(&format!("✅ Apt 升级: 成功\n{}\n", output)),
-        Err(e) => log.push_str(&format!("❌ Apt 升级: 失败 ({})\n", e)),
+    match run_command("apt-get", &["full-upgrade", "-y"]).await {
+        Ok(output) => log.push_str(&format!("✅ Apt 完全升级: 成功\n{}\n", output)),
+        Err(e) => log.push_str(&format!("❌ Apt 完全升级: 失败 ({})\n", e)),
+    }
+
+    log.push_str("🔄 正在清理不必要的软件包...\n");
+    match run_command("apt-get", &["autoremove", "-y"]).await {
+        Ok(output) => log.push_str(&format!("✅ Apt 自动移除: 成功\n{}\n", output)),
+        Err(e) => log.push_str(&format!("❌ Apt 自动移除: 失败 ({})\n", e)),
+    }
+
+    log.push_str("🔄 正在清理缓存...\n");
+    match run_command("apt-get", &["autoclean"]).await {
+        Ok(output) => log.push_str(&format!("✅ Apt 自动清理: 成功\n{}\n", output)),
+        Err(e) => log.push_str(&format!("❌ Apt 自动清理: 失败 ({})\n", e)),
     }
 
     Ok(log)
