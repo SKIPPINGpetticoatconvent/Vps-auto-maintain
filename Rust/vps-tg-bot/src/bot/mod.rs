@@ -70,20 +70,23 @@ fn build_maintain_menu_keyboard() -> InlineKeyboardMarkup {
 pub async fn run_bot(config: Config) -> anyhow::Result<()> {
     let bot = Bot::new(config.bot_token);
     
-    let handler = Update::filter_message()
-        .branch(
-            dptree::entry()
-                .filter(move |msg: Message| {
-                    let chat_id = msg.chat.id.0;
-                    let allowed_chat_id = config.chat_id;
-                    chat_id == allowed_chat_id
-                })
-                .filter_command::<Command>()
-                .endpoint(answer),
-        )
+    let handler = dptree::entry()
         .branch(
             Update::filter_callback_query()
                 .endpoint(handle_callback_query),
+        )
+        .branch(
+            Update::filter_message()
+                .branch(
+                    dptree::entry()
+                        .filter(move |msg: Message| {
+                            let chat_id = msg.chat.id.0;
+                            let allowed_chat_id = config.chat_id;
+                            chat_id == allowed_chat_id
+                        })
+                        .filter_command::<Command>()
+                        .endpoint(answer),
+                ),
         );
 
     Dispatcher::builder(bot, handler)
