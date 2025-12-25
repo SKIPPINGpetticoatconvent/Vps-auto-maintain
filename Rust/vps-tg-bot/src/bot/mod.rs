@@ -249,6 +249,7 @@ async fn handle_callback_query(
                 bot.answer_callback_query(&callback_query.id)
                     .text("⚙️ 设置功能正在开发中...")
                     .await?;
+                return Ok(());
             }
             
             // 维护菜单按钮
@@ -279,12 +280,12 @@ async fn handle_callback_query(
                 bot.answer_callback_query(&callback_query.id)
                     .text("未知命令")
                     .await?;
+                return Ok(());
             }
         }
     }
     
-    // 必须应答回调查询以移除加载动画
-    bot.answer_callback_query(&callback_query.id).await?;
+    // 已在各分支中处理 answer_callback_query，确保每个查询只被回答一次
     Ok(())
 }
 
