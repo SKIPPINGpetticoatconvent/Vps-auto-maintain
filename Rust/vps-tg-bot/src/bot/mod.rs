@@ -232,9 +232,13 @@ async fn handle_callback_query(
         match data.as_str() {
             // 主菜单按钮
             "cmd_status" => {
+                // 立即回答回调查询，消除加载动画
+                bot.answer_callback_query(&callback_query.id).await?;
                 handle_status_command(&bot, &callback_query).await?;
             }
             "menu_maintain" => {
+                // 立即回答回调查询，消除加载动画
+                bot.answer_callback_query(&callback_query.id).await?;
                 let message = "🛠️ 请选择维护操作:";
                 let keyboard = build_maintain_menu_keyboard();
                 bot.edit_message_text(
@@ -254,18 +258,28 @@ async fn handle_callback_query(
             
             // 维护菜单按钮
             "cmd_maintain_core" => {
+                // 立即回答回调查询，消除加载动画
+                bot.answer_callback_query(&callback_query.id).await?;
                 handle_maintain_core_command(&bot, &callback_query).await?;
             }
             "cmd_maintain_rules" => {
+                // 立即回答回调查询，消除加载动画
+                bot.answer_callback_query(&callback_query.id).await?;
                 handle_maintain_rules_command(&bot, &callback_query).await?;
             }
             "cmd_update_xray" => {
+                // 立即回答回调查询，消除加载动画
+                bot.answer_callback_query(&callback_query.id).await?;
                 handle_update_xray_command(&bot, &callback_query).await?;
             }
             "cmd_update_sb" => {
+                // 立即回答回调查询，消除加载动画
+                bot.answer_callback_query(&callback_query.id).await?;
                 handle_update_sb_command(&bot, &callback_query).await?;
             }
             "back_to_main" => {
+                // 立即回答回调查询，消除加载动画
+                bot.answer_callback_query(&callback_query.id).await?;
                 let message = "🚀 欢迎使用 VPS 管理机器人!\n\n请选择您要执行的操作:";
                 let keyboard = build_main_menu_keyboard();
                 bot.edit_message_text(
