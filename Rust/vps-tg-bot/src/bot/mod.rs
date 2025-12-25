@@ -225,22 +225,37 @@ async fn handle_callback_query(
     bot: Bot,
     callback_query: CallbackQuery,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    log::info!("🔍 收到回调查询: callback_id={}, data={:?}", callback_query.id, callback_query.data);
+    
     if let Some(data) = &callback_query.data {
+        log::info!("📝 处理回调查询数据: '{}', 聊天ID: {}, 消息ID: {}", 
+                   data, 
+                   callback_query.message.as_ref().unwrap().chat.id,
+                   callback_query.message.as_ref().unwrap().id);
         let chat_id = callback_query.message.as_ref().unwrap().chat.id;
         let message_id = callback_query.message.as_ref().unwrap().id;
         
         match data.as_str() {
             // 主菜单按钮
             "cmd_status" => {
+                log::info!("🎯 处理主菜单: cmd_status 命令");
                 // 立即回答回调查询，消除加载动画
+                log::info!("📤 调用 answer_callback_query 前");
                 bot.answer_callback_query(&callback_query.id).await?;
+                log::info!("📤 answer_callback_query 调用成功");
+                log::info!("🔄 调用 handle_status_command");
                 handle_status_command(&bot, &callback_query).await?;
+                log::info!("✅ cmd_status 处理完成");
             }
             "menu_maintain" => {
+                log::info!("🎯 处理主菜单: menu_maintain 命令");
                 // 立即回答回调查询，消除加载动画
+                log::info!("📤 调用 answer_callback_query 前");
                 bot.answer_callback_query(&callback_query.id).await?;
+                log::info!("📤 answer_callback_query 调用成功");
                 let message = "🛠️ 请选择维护操作:";
                 let keyboard = build_maintain_menu_keyboard();
+                log::info!("📝 编辑消息显示维护菜单");
                 bot.edit_message_text(
                     chat_id,
                     message_id,
@@ -248,40 +263,69 @@ async fn handle_callback_query(
                 )
                 .reply_markup(keyboard)
                 .await?;
+                log::info!("✅ menu_maintain 处理完成");
             }
             "menu_settings" => {
+                log::info!("🎯 处理主菜单: menu_settings 命令");
+                log::info!("📤 调用 answer_callback_query 前");
                 bot.answer_callback_query(&callback_query.id)
                     .text("⚙️ 设置功能正在开发中...")
                     .await?;
+                log::info!("📤 answer_callback_query 调用成功");
+                log::info!("✅ menu_settings 处理完成");
                 return Ok(());
             }
             
             // 维护菜单按钮
             "cmd_maintain_core" => {
+                log::info!("🎯 处理维护菜单: cmd_maintain_core 命令");
                 // 立即回答回调查询，消除加载动画
+                log::info!("📤 调用 answer_callback_query 前");
                 bot.answer_callback_query(&callback_query.id).await?;
+                log::info!("📤 answer_callback_query 调用成功");
+                log::info!("🔄 调用 handle_maintain_core_command");
                 handle_maintain_core_command(&bot, &callback_query).await?;
+                log::info!("✅ cmd_maintain_core 处理完成");
             }
             "cmd_maintain_rules" => {
+                log::info!("🎯 处理维护菜单: cmd_maintain_rules 命令");
                 // 立即回答回调查询，消除加载动画
+                log::info!("📤 调用 answer_callback_query 前");
                 bot.answer_callback_query(&callback_query.id).await?;
+                log::info!("📤 answer_callback_query 调用成功");
+                log::info!("🔄 调用 handle_maintain_rules_command");
                 handle_maintain_rules_command(&bot, &callback_query).await?;
+                log::info!("✅ cmd_maintain_rules 处理完成");
             }
             "cmd_update_xray" => {
+                log::info!("🎯 处理维护菜单: cmd_update_xray 命令");
                 // 立即回答回调查询，消除加载动画
+                log::info!("📤 调用 answer_callback_query 前");
                 bot.answer_callback_query(&callback_query.id).await?;
+                log::info!("📤 answer_callback_query 调用成功");
+                log::info!("🔄 调用 handle_update_xray_command");
                 handle_update_xray_command(&bot, &callback_query).await?;
+                log::info!("✅ cmd_update_xray 处理完成");
             }
             "cmd_update_sb" => {
+                log::info!("🎯 处理维护菜单: cmd_update_sb 命令");
                 // 立即回答回调查询，消除加载动画
+                log::info!("📤 调用 answer_callback_query 前");
                 bot.answer_callback_query(&callback_query.id).await?;
+                log::info!("📤 answer_callback_query 调用成功");
+                log::info!("🔄 调用 handle_update_sb_command");
                 handle_update_sb_command(&bot, &callback_query).await?;
+                log::info!("✅ cmd_update_sb 处理完成");
             }
             "back_to_main" => {
+                log::info!("🎯 处理返回主菜单: back_to_main 命令");
                 // 立即回答回调查询，消除加载动画
+                log::info!("📤 调用 answer_callback_query 前");
                 bot.answer_callback_query(&callback_query.id).await?;
+                log::info!("📤 answer_callback_query 调用成功");
                 let message = "🚀 欢迎使用 VPS 管理机器人!\n\n请选择您要执行的操作:";
                 let keyboard = build_main_menu_keyboard();
+                log::info!("📝 编辑消息返回主菜单");
                 bot.edit_message_text(
                     chat_id,
                     message_id,
@@ -289,17 +333,25 @@ async fn handle_callback_query(
                 )
                 .reply_markup(keyboard)
                 .await?;
+                log::info!("✅ back_to_main 处理完成");
             }
             _ => {
+                log::warn!("❓ 未知命令: '{}'", data);
+                log::info!("📤 调用 answer_callback_query 前");
                 bot.answer_callback_query(&callback_query.id)
                     .text("未知命令")
                     .await?;
+                log::info!("📤 answer_callback_query 调用成功");
+                log::info!("✅ 未知命令处理完成");
                 return Ok(());
             }
         }
+    } else {
+        log::warn!("⚠️ 回调查询数据为空");
     }
     
     // 已在各分支中处理 answer_callback_query，确保每个查询只被回答一次
+    log::info!("🏁 handle_callback_query 函数执行完成");
     Ok(())
 }
 

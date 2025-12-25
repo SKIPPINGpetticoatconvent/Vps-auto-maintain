@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use teloxide::Bot;
+use env_logger::Env;
 
 mod bot;
 mod config;
@@ -16,6 +17,9 @@ enum Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // 初始化日志记录器
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    
     let cli = Cli::parse();
 
     match cli {
