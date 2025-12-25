@@ -80,6 +80,17 @@ pub async fn maintain_core() -> Result<String> {
         Err(e) => log.push_str(&format!("❌ Apt 完全升级: 失败 ({})\n", e)),
     }
 
+    log.push_str("🔄 系统更新完成，将在 3 秒后重启系统...\n");
+    log.push_str("⚠️ 请保存您的工作，系统将自动重启\n");
+
+    // 启动异步重启任务，给 Bot 发送消息的时间
+    tokio::spawn(async {
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+        if let Err(e) = reboot_system() {
+            eprintln!("重启失败: {}", e);
+        }
+    });
+
     Ok(log)
 }
 

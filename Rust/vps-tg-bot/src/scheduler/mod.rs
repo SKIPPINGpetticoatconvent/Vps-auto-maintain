@@ -135,6 +135,16 @@ pub async fn start_scheduler(config: Config, bot: Bot) -> Result<()> {
     }
 }
 
+pub async fn get_current_schedule() -> Result<String> {
+    let manager_guard = SCHEDULER_MANAGER.lock().await;
+    if let Some(manager) = &*manager_guard {
+        let state_guard = manager.state.lock().await;
+        Ok(state_guard.cron_expression.clone())
+    } else {
+        Ok("❌ 调度器尚未初始化".to_string())
+    }
+}
+
 pub async fn update_schedule(new_cron: &str) -> Result<String> {
     let manager_guard = SCHEDULER_MANAGER.lock().await;
     if let Some(manager) = &*manager_guard {

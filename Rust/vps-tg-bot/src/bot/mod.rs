@@ -41,7 +41,7 @@ fn build_main_menu_keyboard() -> InlineKeyboardMarkup {
             InlineKeyboardButton::callback("🛠️ 维护菜单", "menu_maintain"),
         ],
         vec![
-            InlineKeyboardButton::callback("⚙️ 设置", "menu_settings"),
+            InlineKeyboardButton::callback("⏰ 定时任务设置", "menu_settings"),
         ],
     ];
     
@@ -61,6 +61,24 @@ fn build_maintain_menu_keyboard() -> InlineKeyboardMarkup {
         ],
         vec![
             InlineKeyboardButton::callback("🔙 返回主菜单", "back_to_main"),
+        ],
+    ];
+    
+    InlineKeyboardMarkup::new(keyboard)
+}
+
+// 构建定时任务设置菜单 Inline Keyboard
+fn build_schedule_menu_keyboard() -> InlineKeyboardMarkup {
+    let keyboard = vec![
+        vec![
+            InlineKeyboardButton::callback("每天 04:00", "set_cron_daily"),
+            InlineKeyboardButton::callback("每周日 04:00", "set_cron_weekly"),
+        ],
+        vec![
+            InlineKeyboardButton::callback("自定义", "set_cron_custom"),
+        ],
+        vec![
+            InlineKeyboardButton::callback("🔙 返回", "back_to_main"),
         ],
     ];
     
@@ -176,10 +194,10 @@ async fn answer(bot: Bot, message: Message, command: Command) -> Result<(), Box<
             }
         }
         Command::MaintainCore => {
-            bot.send_message(message.chat.id, "🔄 正在执行核心维护...").await?;
+            bot.send_message(message.chat.id, "🔄 正在执行核心维护...\n⚠️ 维护完成后系统将自动重启").await?;
             match system::ops::maintain_core().await {
                 Ok(log) => {
-                    bot.send_message(message.chat.id, format!("✅ 核心维护完成:\n{}", log)).await?;
+                    bot.send_message(message.chat.id, format!("✅ 核心维护完成:\n{}\n\n🔄 系统将在 3 秒后自动重启，请保存您的工作！", log)).await?;
                 }
                 Err(e) => {
                     bot.send_message(message.chat.id, format!("❌ 核心维护失败: {}", e)).await?;
@@ -270,11 +288,21 @@ async fn handle_callback_query(
             }
             "menu_settings" => {
                 log::info!("🎯 处理主菜单: menu_settings 命令");
-                log::info!("📤 调用 answer_callback_query 前");
-                bot.answer_callback_query(&callback_query.id)
-                    .text("⚙️ 设置功能正在开发中...")
-                    .await?;
-                log::info!("📤 answer_callback_query 调用成功");
+                // 立即回答回调查询，消除加载动画
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = "⏰ 定时任务设置\n\n请选择定时任务设置选项:";
+                let keyboard = build_schedule_menu_keyboard();
+                
+                // 编辑消息显示定时任务设置菜单
+                bot.edit_message_text(
+                    chat_id,
+                    message_id,
+                    message,
+                )
+                .reply_markup(keyboard)
+                .await?;
+                
                 log::info!("✅ menu_settings 处理完成");
                 return Ok(());
             }
@@ -319,6 +347,95 @@ async fn handle_callback_query(
                 log::info!("🔄 调用 handle_update_sb_command");
                 handle_update_sb_command(&bot, &callback_query).await?;
                 log::info!("✅ cmd_update_sb 处理完成");
+            }
+            // 定时任务设置菜单按钮
+            "set_cron_daily" => {
+                log::info!("🎯 处理定时任务设置: set_cron_daily 命令");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = "🔄 正在设置定时任务为每天 04:00 执行...";
+                let keyboard = build_schedule_menu_keyboard();
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard.clone())
+                    .await?;
+                
+                match scheduler::update_schedule("0 0 4 * * *").await {
+                    Ok(response) => {
+                        bot.edit_message_text(
+                            chat_id,
+                            message_id,
+                            format!("✅ {}\n\n请选择下一步操作:", response),
+                        )
+                        .reply_markup(keyboard)
+                        .await?;
+                    }
+                    Err(e) => {
+                        bot.edit_message_text(
+                            chat_id,
+                            message_id,
+                            format!("❌ 设置定时任务失败: {}\n\n请选择下一步操作:", e),
+                        )
+                        .reply_markup(keyboard)
+                        .await?;
+                    }
+                }
+                log::info!("✅ set_cron_daily 处理完成");
+            }
+            "set_cron_weekly" => {
+                log::info!("🎯 处理定时任务设置: set_cron_weekly 命令");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = "🔄 正在设置定时任务为每周日 04:00 执行...";
+                let keyboard = build_schedule_menu_keyboard();
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard.clone())
+                    .await?;
+                
+                match scheduler::update_schedule("0 0 4 * * Sun").await {
+                    Ok(response) => {
+                        bot.edit_message_text(
+                            chat_id,
+                            message_id,
+                            format!("✅ {}\n\n请选择下一步操作:", response),
+                        )
+                        .reply_markup(keyboard)
+                        .await?;
+                    }
+                    Err(e) => {
+                        bot.edit_message_text(
+                            chat_id,
+                            message_id,
+                            format!("❌ 设置定时任务失败: {}\n\n请选择下一步操作:", e),
+                        )
+                        .reply_markup(keyboard)
+                        .await?;
+                    }
+                }
+                log::info!("✅ set_cron_weekly 处理完成");
+            }
+            "set_cron_custom" => {
+                log::info!("🎯 处理定时任务设置: set_cron_custom 命令");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                // 获取当前定时任务配置
+                let schedule_message = match scheduler::get_current_schedule().await {
+                    Ok(cron_expr) => {
+                        format!(
+                            "⏰ 自定义定时任务设置\n\n当前定时任务：`{}`\n\n📝 Cron 表达式说明：\n\n• 格式：分 时 日 月 星期\n• 示例：\n  - `0 4 * * *` - 每天凌晨4点\n  - `0 4 * * Sun` - 每周日凌晨4点\n  - `0 9 * * 1-5` - 工作日上午9点\n\n💡 如需修改定时任务，请发送命令：\n`/set_schedule <cron_expression>`\n\n例如：设置每天凌晨2点执行\n`/set_schedule 0 2 * * *`",
+                            cron_expr
+                        )
+                    }
+                    Err(e) => {
+                        format!("❌ 获取定时任务配置失败: {}\n\n请尝试使用 `/set_schedule` 命令重新设置。", e)
+                    }
+                };
+                
+                let keyboard = build_schedule_menu_keyboard();
+                bot.edit_message_text(chat_id, message_id, schedule_message)
+                    .reply_markup(keyboard)
+                    .await?;
+                
+                log::info!("✅ set_cron_custom 处理完成");
             }
             "back_to_main" => {
                 log::info!("🎯 处理返回主菜单: back_to_main 命令");
@@ -401,7 +518,7 @@ async fn handle_maintain_core_command(
     bot.edit_message_text(
         callback_query.message.as_ref().unwrap().chat.id,
         callback_query.message.as_ref().unwrap().id,
-        "🔄 正在执行核心维护...",
+        "🔄 正在执行核心维护...\n⚠️ 维护完成后系统将自动重启",
     )
     .reply_markup(build_maintain_menu_keyboard())
     .await?;
@@ -411,7 +528,7 @@ async fn handle_maintain_core_command(
             bot.edit_message_text(
                 callback_query.message.as_ref().unwrap().chat.id,
                 callback_query.message.as_ref().unwrap().id,
-                &format!("✅ 核心维护完成:\n{}\n\n请选择下一步操作:", log),
+                &format!("✅ 核心维护完成:\n{}\n\n🔄 系统将在 3 秒后自动重启，请保存您的工作！\n\n请选择下一步操作:", log),
             )
             .reply_markup(build_maintain_menu_keyboard())
             .await?;
