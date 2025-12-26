@@ -16,7 +16,7 @@ enum Cli {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
     // 初始化日志记录器
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     
@@ -30,27 +30,46 @@ async fn main() -> Result<()> {
             println!("Uninstall mode");
         }
         Cli::Run => {
-            let config = config::Config::load()?;
+            let config = match config::Config::load() {
+                Ok(cfg) => cfg,
+                Err(e) => {
+                    log::error!("❌ 配置加载失败: {}", e);
+                    return;
+                }
+            };
             let bot_instance = Bot::new(config.bot_token.clone());
             let config_for_scheduler = config.clone();
 
-            // 并行启动 Bot 和调度器
-            let bot_task = tokio::spawn(async move {
-                if let Err(e) = bot::run_bot(config.clone()).await {
-                    eprintln!("Bot 错误: {}", e);
+            log::info!("🚀 启动 VPS Telegram Bot...");
+            
+            // 首先启动调度器
+            log::info!("⏰ 初始化调度器...");
+            let scheduler_result = scheduler::start_scheduler(config_for_scheduler.clone(), bot_instance.clone()).await;
+            if let Err(e) = scheduler_result {
+                log::error!("❌ 调度器初始化失败: {}", e);
+                return;
+            }
+            log::info!("✅ 调度器初始化成功");
+            
+            // 启动后台任务保持调度器运行
+            let scheduler_config = config.clone();
+            let scheduler_bot = bot_instance.clone();
+            tokio::spawn(async move {
+                log::info!("🔄 启动调度器后台任务...");
+                loop {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
                 }
             });
-
-            let scheduler_task = tokio::spawn(async move {
-                if let Err(e) = scheduler::start_scheduler(config_for_scheduler, bot_instance).await {
-                    eprintln!("调度器错误: {}", e);
-                }
-            });
-
-            // 等待两个任务完成
-            tokio::try_join!(bot_task, scheduler_task)?;
+            
+            // 等待调度器完全初始化
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            
+            // 然后启动 Bot
+            log::info!("🤖 启动 Bot...");
+            let bot_result = bot::run_bot(config).await;
+            if let Err(e) = bot_result {
+                log::error!("❌ Bot 启动失败: {}", e);
+            }
         }
     }
-
-    Ok(())
 }

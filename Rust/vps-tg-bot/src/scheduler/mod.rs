@@ -406,15 +406,17 @@ impl SchedulerValidator {
 pub static SCHEDULER_MANAGER: Lazy<Arc<Mutex<Option<SchedulerManager>>>> = Lazy::new(|| Arc::new(Mutex::new(None)));
 
 pub async fn start_scheduler(config: Config, bot: Bot) -> Result<()> {
-    let manager = SchedulerManager::new(config, bot).await?;
+    log::info!("⏰ 开始初始化调度器...");
+    
+    let manager = SchedulerManager::new(config.clone(), bot.clone()).await?;
     let mut manager_guard = SCHEDULER_MANAGER.lock().await;
     *manager_guard = Some(manager);
     drop(manager_guard);
     
-    // 保持调度器运行
-    loop {
-        tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
-    }
+    log::info!("✅ 调度器初始化完成");
+    
+    // 不再阻塞，保持函数返回
+    Ok(())
 }
 
 pub async fn get_tasks_summary() -> Result<String> {
