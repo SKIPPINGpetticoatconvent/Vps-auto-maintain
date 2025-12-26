@@ -95,7 +95,7 @@ fn build_task_type_menu_keyboard() -> InlineKeyboardMarkup {
 // 构建预设时间菜单
 fn build_schedule_presets_keyboard(task_type: &str) -> InlineKeyboardMarkup {
     let (_daily, _weekly, _monthly) = match task_type {
-        "system_maintenance" => ("0 4 * * *", "0 4 * * Sun", "0 4 1 * *"),
+        "system_maintenance" | "system" => ("0 4 * * *", "0 4 * * Sun", "0 4 1 * *"),
         "core_maintenance" => ("0 5 * * Sun", "0 5 * * Sun", "0 5 1 * *"),
         "rules_maintenance" => ("0 3 * * *", "0 3 * * Sun", "0 3 1 * *"),
         "update_xray" => ("0 6 * * Sun", "0 6 * * Sun", "0 6 1 * *"),
@@ -125,7 +125,7 @@ fn build_schedule_presets_keyboard(task_type: &str) -> InlineKeyboardMarkup {
 // 获取任务类型显示名称
 fn get_task_display_name(task_type: &str) -> &'static str {
     match task_type {
-        "system_maintenance" => "🔄 系统维护",
+        "system_maintenance" | "system" => "🔄 系统维护",
         "core_maintenance" => "🚀 核心维护",
         "rules_maintenance" => "🌍 规则维护",
         "update_xray" => "🔧 更新 Xray",
@@ -748,7 +748,7 @@ async fn handle_callback_query(
                         let config = Config::load().unwrap_or_else(|_| Config { bot_token: "".to_string(), chat_id: 0, check_interval: 300 });
                         let chat_id_clone = chat_id;
                         let task_type_enum = match task_type {
-                            "system_maintenance" => TaskType::SystemMaintenance,
+                            "system_maintenance" | "system" => TaskType::SystemMaintenance,
                             "core_maintenance" => TaskType::CoreMaintenance,
                             "rules_maintenance" => TaskType::RulesMaintenance,
                             "update_xray" => TaskType::UpdateXray,
