@@ -359,7 +359,7 @@ async fn handle_callback_query(
                     .reply_markup(keyboard.clone())
                     .await?;
                 
-                match scheduler::update_schedule("0 0 4 * * *").await {
+                match scheduler::update_schedule("0 4 * * *").await {
                     Ok(response) => {
                         bot.edit_message_text(
                             chat_id,
@@ -421,7 +421,7 @@ async fn handle_callback_query(
                 let schedule_message = match scheduler::get_current_schedule().await {
                     Ok(cron_expr) => {
                         format!(
-                            "⏰ 自定义定时任务设置\n\n当前定时任务：`{}`\n\n📝 Cron 表达式说明：\n\n• 格式：分 时 日 月 星期\n• 示例：\n  - `0 4 * * *` - 每天凌晨4点\n  - `0 4 * * Sun` - 每周日凌晨4点\n  - `0 9 * * 1-5` - 工作日上午9点\n\n💡 如需修改定时任务，请发送命令：\n`/set_schedule <cron_expression>`\n\n例如：设置每天凌晨2点执行\n`/set_schedule 0 2 * * *`",
+                            "⏰ 自定义定时任务设置\n\n当前定时任务：`{}`\n\n📝 Cron 表达式说明：\n\n• 格式：分 时 日 月 星期（共5个字段）\n• 字段说明：\n  - 分钟：0-59\n  - 小时：0-23\n  - 日期：1-31\n  - 月份：1-12\n  - 星期：0-7（0和7都表示周日）\n\n• 常用示例：\n  - `0 4 * * *` - 每天凌晨4点\n  - `0 4 * * Sun` - 每周日凌晨4点\n  - `0 9 * * 1-5` - 工作日上午9点\n  - `30 2 1 * *` - 每月1日凌晨2点30分\n  - `0 0 * * 0` - 每周日凌晨0点\n\n💡 如需修改定时任务，请发送命令：\n`/set_schedule <cron_expression>`\n\n例如：设置每天凌晨2点执行\n`/set_schedule 0 2 * * *`",
                             cron_expr
                         )
                     }
