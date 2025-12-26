@@ -1,0 +1,1 @@
+'fn main() { println!("测试验证逻辑："); let time_value = "daily"; let frequency = "daily"; if time_value == frequency { println!("? 检测到无效时间值: {} 等于频率 {}", time_value, frequency); } else { println!("? 时间值有效"); } }'  

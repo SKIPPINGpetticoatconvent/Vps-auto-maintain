@@ -716,10 +716,20 @@ async fn handle_callback_query(
                         let frequency = parts[1];
                         let time_value = parts[2];
                         
+                        // 特殊处理：如果时间值等于频率，说明用户没有选择具体时间
+                        if time_value == frequency {
+                            let _ = bot.send_message(
+                                chat_id,
+                                format!("❌ 请选择具体的执行时间，而不是 '{}'", time_value)
+                            ).await;
+                            return Ok(());
+                        }
+                        
                         bot.answer_callback_query(&callback_query.id).await?;
                         
-                        // 验证时间值是否为有效数字
-                        if time_value.parse::<i32>().is_err() {
+                        // 验证时间值是否为有效数字（排除已知频率值）
+                        let invalid_time_values = ["daily", "weekly", "monthly"];
+                        if time_value.parse::<i32>().is_err() && !invalid_time_values.contains(&time_value) {
                             let _ = bot.send_message(
                                 chat_id,
                                 format!("❌ 无效的时间值: {}", time_value)
