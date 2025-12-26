@@ -746,7 +746,7 @@ async fn handle_callback_query(
                         
                         let bot_clone = bot.clone();
                         let config = Config::load().unwrap_or_else(|_| Config { bot_token: "".to_string(), chat_id: 0, check_interval: 300 });
-                        let chat_id_clone = chat_id;
+                        let _chat_id_clone = chat_id;
                         let task_type_enum = match task_type {
                             "system_maintenance" | "system" => TaskType::SystemMaintenance,
                             "core_maintenance" => TaskType::CoreMaintenance,
@@ -762,26 +762,61 @@ async fn handle_callback_query(
                             }
                         };
                         
+                        // 异步处理任务添加
+                        let bot_clone_for_message = bot_clone.clone();
+                        let chat_id_for_message = chat_id;
+                        let task_type_enum_for_task = task_type_enum.clone();
+                        let cron_expr_for_task = cron_expr.to_string();
+                        let config_for_task = Config { 
+                            bot_token: config.bot_token.clone(), 
+                            chat_id: config.chat_id, 
+                            check_interval: config.check_interval 
+                        };
+                        
                         tokio::spawn(async move {
-                            let manager = crate::scheduler::SCHEDULER_MANAGER.lock().await;
-                            if let Some(manager) = &*manager {
-                                let config_clone = Config { bot_token: config.bot_token.clone(), chat_id: config.chat_id, check_interval: config.check_interval };
-                                let bot_clone_for_task = bot_clone.clone();
-                                let response = manager.add_new_task(config_clone, bot_clone_for_task, task_type_enum, &cron_expr).await;
-                                let _ = manager; // 使用 let _ 来避免 drop 警告
-                                
-                                match response {
-                                    Ok(response_msg) => {
-                                        let _ = bot_clone.send_message(
-                                            chat_id_clone,
-                                            format!("✅ {}\n\n任务已成功设置！", response_msg)
-                                        ).await;
+                            // 等待调度器初始化
+                            let mut retry_count = 0;
+                            let max_retries = 10;
+                            
+                            while retry_count < max_retries {
+                                let manager_guard = crate::scheduler::SCHEDULER_MANAGER.lock().await;
+                                if let Some(manager) = &*manager_guard {
+                                    let result = manager.add_new_task(
+                                        config_for_task.clone(), 
+                                        bot_clone.clone(), 
+                                        task_type_enum_for_task.clone(), 
+                                        &cron_expr_for_task
+                                    ).await;
+                                    
+                                    drop(manager_guard); // 立即释放锁
+                                    
+                                    match result {
+                                        Ok(response_msg) => {
+                                            let _ = bot_clone_for_message.send_message(
+                                                chat_id_for_message,
+                                                format!("✅ {}\n\n任务已成功设置！", response_msg)
+                                            ).await;
+                                            return;
+                                        }
+                                        Err(e) => {
+                                            let _ = bot_clone_for_message.send_message(
+                                                chat_id_for_message,
+                                                format!("❌ 设置任务失败: {}", e)
+                                            ).await;
+                                            return;
+                                        }
                                     }
-                                    Err(e) => {
-                                        let _ = bot_clone.send_message(
-                                            chat_id_clone,
-                                            format!("❌ 设置任务失败: {}", e)
+                                } else {
+                                    drop(manager_guard);
+                                    retry_count += 1;
+                                    if retry_count < max_retries {
+                                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                                    } else {
+                                        let _ = bot_clone_for_message.send_message(
+                                            chat_id_for_message,
+                                            "❌ 调度器尚未初始化，请稍后重试或重新启动机器人"
                                         ).await;
+                                        return;
                                     }
                                 }
                             }

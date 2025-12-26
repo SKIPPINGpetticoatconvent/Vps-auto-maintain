@@ -110,6 +110,7 @@ impl SchedulerState {
     }
 }
 
+#[derive(Clone)]
 pub struct SchedulerManager {
     pub scheduler: Arc<Mutex<Option<JobScheduler>>>, 
     pub state: Arc<Mutex<SchedulerState>>,
