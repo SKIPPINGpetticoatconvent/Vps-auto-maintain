@@ -1,4 +1,4 @@
-use tokio_cron_scheduler::{JobScheduler, Job};
+use tokio_cron_scheduler::{JobScheduler, Job, JobSchedulerError};
 use teloxide::Bot;
 use teloxide::types::ChatId;
 use teloxide::prelude::Requester;
@@ -117,21 +117,21 @@ pub struct SchedulerManager {
 }
 
 impl SchedulerManager {
-    pub async fn new(config: Config, bot: Bot) -> Result<Self> {
+    pub async fn new(config: Config, bot: Bot) -> Result<Self, JobSchedulerError> {
         let state_path = "scheduler_state.json";
-        let state = SchedulerState::load_from_file(state_path)?;
+        let state = SchedulerState::load_from_file(state_path).unwrap_or_else(|_| SchedulerState::default());
         
         let sched = JobScheduler::new().await?;
         let scheduler = Arc::new(Mutex::new(Some(sched)));
         let state = Arc::new(Mutex::new(state.clone()));
         
         let manager = Self { scheduler, state };
-        manager.start_all_tasks(config, bot).await?;
+        let _ = manager.start_all_tasks(config, bot).await;
         
         Ok(manager)
     }
 
-    pub async fn start_all_tasks(&self, config: Config, bot: Bot) -> Result<()> {
+    pub async fn start_all_tasks(&self, config: Config, bot: Bot) -> Result<(), JobSchedulerError> {
         let state = self.state.lock().await;
         let tasks = state.tasks.clone();
         drop(state);
@@ -139,7 +139,7 @@ impl SchedulerManager {
         let mut scheduler_guard = self.scheduler.lock().await;
         if let Some(sched) = scheduler_guard.as_mut() {
             // 清除现有任务
-            sched.shutdown().await?;
+            let _ = sched.shutdown().await;
             *scheduler_guard = Some(JobScheduler::new().await?);
             
             let sched = scheduler_guard.as_mut().unwrap();
@@ -164,19 +164,21 @@ impl SchedulerManager {
                                 }
                             })
                         }
-                    })?;
+                    });
 
-                    sched.add(job).await?;
+                    if let Ok(job) = job {
+                        let _ = sched.add(job).await;
+                    }
                 }
             }
             
-            sched.start().await?;
+            let _ = sched.start().await;
         }
         
         Ok(())
     }
 
-    pub async fn add_new_task(&self, config: Config, bot: Bot, task_type: TaskType, cron_expression: &str) -> Result<String> {
+    pub async fn add_new_task(&self, config: Config, bot: Bot, task_type: TaskType, cron_expression: &str) -> Result<String, JobSchedulerError> {
         let validator = SchedulerValidator::new();
         match validator.validate_cron_expression(cron_expression) {
             Err(validation_error) => {
@@ -190,7 +192,9 @@ impl SchedulerManager {
         let mut state_guard = self.state.lock().await;
         state_guard.add_task(new_task);
         let state_path = "scheduler_state.json";
-        state_guard.save_to_file(state_path)?;
+        if let Err(e) = state_guard.save_to_file(state_path) {
+            log::error!("保存任务状态失败: {}", e);
+        }
         drop(state_guard);
 
         // 重新启动调度器
@@ -257,7 +261,7 @@ impl SchedulerManager {
         }
     }
 
-    async fn restart_scheduler(&self, config: Config, bot: Bot) -> Result<()> {
+    async fn restart_scheduler(&self, config: Config, bot: Bot) -> Result<(), JobSchedulerError> {
         let mut scheduler_guard = self.scheduler.lock().await;
         if let Some(mut sched) = scheduler_guard.take() {
             sched.shutdown().await?;
@@ -405,7 +409,7 @@ impl SchedulerValidator {
 // 全局调度器管理器实例
 pub static SCHEDULER_MANAGER: Lazy<Arc<Mutex<Option<SchedulerManager>>>> = Lazy::new(|| Arc::new(Mutex::new(None)));
 
-pub async fn start_scheduler(config: Config, bot: Bot) -> Result<()> {
+pub async fn start_scheduler(config: Config, bot: Bot) -> Result<(), JobSchedulerError> {
     log::info!("⏰ 开始初始化调度器...");
     
     let manager = SchedulerManager::new(config.clone(), bot.clone()).await?;
@@ -415,7 +419,18 @@ pub async fn start_scheduler(config: Config, bot: Bot) -> Result<()> {
     
     log::info!("✅ 调度器初始化完成");
     
-    // 不再阻塞，保持函数返回
+    // 添加关闭处理器
+    if let Some(manager) = &mut *SCHEDULER_MANAGER.lock().await {
+        let scheduler = &mut manager.scheduler;
+        if let Some(job_scheduler) = &mut *scheduler.lock().await {
+            job_scheduler.set_shutdown_handler(Box::new(|| {
+                Box::pin(async move {
+                    log::info!("🔄 调度器正在关闭...");
+                })
+            }));
+        }
+    }
+    
     Ok(())
 }
 

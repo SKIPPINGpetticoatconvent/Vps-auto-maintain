@@ -1,7 +1,7 @@
-use anyhow::Result;
 use clap::Parser;
 use teloxide::Bot;
 use env_logger::Env;
+use tokio_cron_scheduler::JobSchedulerError;
 
 mod bot;
 mod config;
@@ -46,7 +46,7 @@ async fn main() {
             log::info!("⏰ 初始化调度器...");
             let scheduler_result = scheduler::start_scheduler(config_for_scheduler.clone(), bot_instance.clone()).await;
             if let Err(e) = scheduler_result {
-                log::error!("❌ 调度器初始化失败: {}", e);
+                log::error!("❌ 调度器初始化失败: {:?}", e);
                 return;
             }
             log::info!("✅ 调度器初始化成功");
