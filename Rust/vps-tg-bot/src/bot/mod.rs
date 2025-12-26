@@ -710,11 +710,22 @@ async fn handle_callback_query(
             cmd if cmd.starts_with("set_time_") => {
                 // 使用更精确的解析方式，处理包含空格的情况
                 if let Some(stripped) = cmd.strip_prefix("set_time_") {
-                    let mut parts = stripped.split('_');
-                    if let (Some(task_type), Some(frequency), Some(time_value)) = (parts.next(), parts.next(), parts.next()) {
-                        log::info!("🎯 处理时间设置: {} {} {}", task_type, frequency, time_value);
+                    let parts: Vec<&str> = stripped.split('_').collect();
+                    if parts.len() >= 3 {
+                        let task_type = parts[0];
+                        let frequency = parts[1];
+                        let time_value = parts[2];
                         
                         bot.answer_callback_query(&callback_query.id).await?;
+                        
+                        // 验证时间值是否为有效数字
+                        if time_value.parse::<i32>().is_err() {
+                            let _ = bot.send_message(
+                                chat_id,
+                                format!("❌ 无效的时间值: {}", time_value)
+                            ).await;
+                            return Ok(());
+                        }
                         
                         // 构建 Cron 表达式
                         let cron_expr = match frequency {
@@ -734,7 +745,13 @@ async fn handle_callback_query(
                                     format!("0 {} * * *", time_value)
                                 }
                             },
-                            _ => format!("0 {} * * *", time_value),
+                            _ => {
+                                let _ = bot.send_message(
+                                    chat_id,
+                                    format!("❌ 未知的频率类型: {}", frequency)
+                                ).await;
+                                return Ok(());
+                            }
                         };
                         
                         let message = format!("🔄 正在设置 {} 任务...", get_task_display_name(task_type));
@@ -824,9 +841,11 @@ async fn handle_callback_query(
                         
                         log::info!("✅ set_time 处理完成");
                     } else {
+                        log::warn!("❌ 时间选择参数不足: {:?}", parts);
                         bot.answer_callback_query(&callback_query.id).await?;
                     }
                 } else {
+                    log::warn!("❌ 无效的时间选择命令: {}", cmd);
                     bot.answer_callback_query(&callback_query.id).await?;
                 }
             }
