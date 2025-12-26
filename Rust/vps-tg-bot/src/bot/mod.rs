@@ -708,13 +708,34 @@ async fn handle_callback_query(
             }
             // 时间选择按钮处理
             cmd if cmd.starts_with("set_time_") => {
-                // 使用更精确的解析方式，处理包含空格的情况
+                // 智能解析：处理包含下划线的 task_type
                 if let Some(stripped) = cmd.strip_prefix("set_time_") {
                     let parts: Vec<&str> = stripped.split('_').collect();
-                    if parts.len() >= 3 {
-                        let task_type = parts[0];
-                        let frequency = parts[1];
-                        let time_value = parts[2];
+                    
+                    // 定义已知的频率关键字
+                    let known_frequencies = ["daily", "weekly", "monthly"];
+                    
+                    // 查找频率关键字的位置
+                    let frequency_index = parts.iter().position(|&part| known_frequencies.contains(&part));
+                    
+                    if let Some(freq_idx) = frequency_index {
+                        // 找到频率关键字，重新构建 task_type 和 time_value
+                        let frequency = parts[freq_idx];
+                        let task_type = parts[..freq_idx].join("_");
+                        let time_value = if freq_idx + 1 < parts.len() {
+                            parts[freq_idx + 1..].join("_")
+                        } else {
+                            "".to_string()
+                        };
+                        
+                        // 验证：确保找到了有效的 frequency 和 time_value
+                        if time_value.is_empty() {
+                            let _ = bot.send_message(
+                                chat_id,
+                                format!("❌ 无效的时间值: 时间值不能为空")
+                            ).await;
+                            return Ok(());
+                        }
                         
                         // 特殊处理：如果时间值等于频率，说明用户没有选择具体时间
                         if time_value == frequency {
@@ -729,7 +750,7 @@ async fn handle_callback_query(
                         
                         // 验证时间值是否为有效数字（排除已知频率值）
                         let invalid_time_values = ["daily", "weekly", "monthly"];
-                        if time_value.parse::<i32>().is_err() && !invalid_time_values.contains(&time_value) {
+                        if time_value.parse::<i32>().is_err() && !invalid_time_values.contains(&time_value.as_str()) {
                             let _ = bot.send_message(
                                 chat_id,
                                 format!("❌ 无效的时间值: {}", time_value)
@@ -738,7 +759,7 @@ async fn handle_callback_query(
                         }
                         
                         // 构建 Cron 表达式
-                        let cron_expr = match frequency {
+                        let cron_expr = match frequency.as_ref() {
                             "daily" => format!("0 {} * * *", time_value),
                             "weekly" => format!("{} * * 0", time_value),
                             "monthly" => {
@@ -764,8 +785,8 @@ async fn handle_callback_query(
                             }
                         };
                         
-                        let message = format!("🔄 正在设置 {} 任务...", get_task_display_name(task_type));
-                        let keyboard = build_time_selection_keyboard(task_type, frequency);
+                        let message = format!("🔄 正在设置 {} 任务...", get_task_display_name(&task_type));
+                        let keyboard = build_time_selection_keyboard(&task_type, frequency);
                         
                         bot.edit_message_text(chat_id, message_id, message)
                             .reply_markup(keyboard.clone())
@@ -774,7 +795,7 @@ async fn handle_callback_query(
                         let bot_clone = bot.clone();
                         let config = Config::load().unwrap_or_else(|_| Config { bot_token: "".to_string(), chat_id: 0, check_interval: 300 });
                         let _chat_id_clone = chat_id;
-                        let task_type_enum = match task_type {
+                        let task_type_enum = match task_type.as_str() {
                             "system_maintenance" | "system" => TaskType::SystemMaintenance,
                             "core_maintenance" => TaskType::CoreMaintenance,
                             "rules_maintenance" => TaskType::RulesMaintenance,
@@ -851,7 +872,12 @@ async fn handle_callback_query(
                         
                         log::info!("✅ set_time 处理完成");
                     } else {
-                        log::warn!("❌ 时间选择参数不足: {:?}", parts);
+                        // 找不到有效的频率关键字，返回错误
+                        log::warn!("❌ 无法解析时间设置命令，缺少有效的频率关键字: {:?}", parts);
+                        let _ = bot.send_message(
+                            chat_id,
+                            format!("❌ 无效的时间设置命令: 缺少有效的频率关键字 (daily/weekly/monthly)")
+                        ).await;
                         bot.answer_callback_query(&callback_query.id).await?;
                     }
                 } else {
