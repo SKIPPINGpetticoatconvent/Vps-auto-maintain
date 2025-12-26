@@ -43,7 +43,7 @@ fn build_main_menu_keyboard() -> InlineKeyboardMarkup {
         ],
         vec![
             InlineKeyboardButton::callback("⏰ 定时任务", "menu_schedule"),
-            InlineKeyboardButton::callback("📋 任务管理", "menu_task_management"),
+            InlineKeyboardButton::callback("📋 查看日志", "cmd_logs"),
         ],
     ];
     
@@ -82,7 +82,7 @@ fn build_task_type_menu_keyboard() -> InlineKeyboardMarkup {
         ],
         vec![
             InlineKeyboardButton::callback("📦 更新 Sing-box", "task_update_singbox"),
-            InlineKeyboardButton::callback("📋 查看所有任务", "list_all_tasks"),
+            InlineKeyboardButton::callback("📋 查看任务列表", "view_tasks"),
         ],
         vec![
             InlineKeyboardButton::callback("🔙 返回", "back_to_main"),
@@ -120,20 +120,7 @@ fn build_schedule_presets_keyboard(task_type: &str) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(keyboard)
 }
 
-// 构建任务管理菜单
-fn build_task_management_keyboard() -> InlineKeyboardMarkup {
-    let keyboard = vec![
-        vec![
-            InlineKeyboardButton::callback("📋 查看任务列表", "view_tasks"),
-            InlineKeyboardButton::callback("➕ 添加新任务", "add_new_task"),
-        ],
-        vec![
-            InlineKeyboardButton::callback("🔄 返回主菜单", "back_to_main"),
-        ],
-    ];
-    
-    InlineKeyboardMarkup::new(keyboard)
-}
+
 
 // 获取任务类型显示名称
 fn get_task_display_name(task_type: &str) -> &'static str {
@@ -460,18 +447,44 @@ async fn handle_callback_query(
                 log::info!("✅ menu_schedule 处理完成");
                 return Ok(());
             }
-            "menu_task_management" => {
-                log::info!("🎯 处理主菜单: menu_task_management 命令");
+            "cmd_logs" => {
+                log::info!("🎯 处理查看日志: cmd_logs 命令");
                 bot.answer_callback_query(&callback_query.id).await?;
                 
-                let message = "📋 任务管理\n\n管理您的定时任务:";
-                let keyboard = build_task_management_keyboard();
+                let message = "🔄 正在获取系统日志...";
+                let keyboard = build_main_menu_keyboard();
                 
                 bot.edit_message_text(chat_id, message_id, message)
                     .reply_markup(keyboard)
                     .await?;
                 
-                log::info!("✅ menu_task_management 处理完成");
+                // 异步获取日志
+                let bot_clone = bot.clone();
+                let chat_id_clone = chat_id;
+                let message_id_clone = message_id;
+                
+                tokio::spawn(async move {
+                    match system::ops::get_system_logs(20).await {
+                        Ok(log) => {
+                            let _ = bot_clone.edit_message_text(
+                                chat_id_clone,
+                                message_id_clone,
+                                format!("📋 系统日志:\n{}", log)
+                            ).reply_markup(build_main_menu_keyboard())
+                            .await;
+                        }
+                        Err(e) => {
+                            let _ = bot_clone.edit_message_text(
+                                chat_id_clone,
+                                message_id_clone,
+                                format!("❌ 无法获取日志: {}", e)
+                            ).reply_markup(build_main_menu_keyboard())
+                            .await;
+                        }
+                    }
+                });
+                
+                log::info!("✅ cmd_logs 处理完成");
                 return Ok(());
             }
             
@@ -582,26 +595,14 @@ async fn handle_callback_query(
                 
                 log::info!("✅ task_update_singbox 处理完成");
             }
-            "list_all_tasks" => {
-                log::info!("🎯 处理任务列表查看");
-                bot.answer_callback_query(&callback_query.id).await?;
-                
-                let tasks_summary = scheduler::get_tasks_summary().await.unwrap_or_else(|_| "❌ 无法获取任务列表".to_string());
-                
-                let keyboard = build_task_type_menu_keyboard();
-                bot.edit_message_text(chat_id, message_id, tasks_summary)
-                    .reply_markup(keyboard)
-                    .await?;
-                
-                log::info!("✅ list_all_tasks 处理完成");
-            }
+
             "view_tasks" => {
                 log::info!("🎯 处理任务查看");
                 bot.answer_callback_query(&callback_query.id).await?;
                 
                 let tasks_summary = scheduler::get_tasks_summary().await.unwrap_or_else(|_| "❌ 无法获取任务列表".to_string());
                 
-                let keyboard = build_task_management_keyboard();
+                let keyboard = build_task_type_menu_keyboard();
                 bot.edit_message_text(chat_id, message_id, tasks_summary)
                     .reply_markup(keyboard)
                     .await?;
@@ -639,6 +640,23 @@ async fn handle_callback_query(
                 .reply_markup(keyboard)
                 .await?;
                 log::info!("✅ back_to_main 处理完成");
+            }
+            // 自定义任务设置按钮
+            cmd if cmd.starts_with("set_custom_") => {
+                let task_type = cmd.strip_prefix("set_custom_").unwrap();
+                log::info!("🎯 处理自定义设置: {}", task_type);
+                
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = format!("⏰ 自定义 {} 定时任务设置\n\n📝 请发送 Cron 表达式:\n\n示例:\n• 每天凌晨4点: 0 4 * * *\n• 每周日凌晨4点: 0 4 * * Sun\n• 每月1号凌晨4点: 0 4 1 * *\n\n使用命令: /set_schedule <cron_expression>", get_task_display_name(task_type));
+                
+                let keyboard = build_task_type_menu_keyboard();
+                
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard)
+                    .await?;
+                
+                log::info!("✅ set_custom 处理完成");
             }
             // 预设时间设置按钮 - 每日
             cmd if cmd.starts_with("set_preset_") && cmd.ends_with("_daily") => {
@@ -735,7 +753,13 @@ async fn handle_callback_query(
                             "rules_maintenance" => TaskType::RulesMaintenance,
                             "update_xray" => TaskType::UpdateXray,
                             "update_singbox" => TaskType::UpdateSingbox,
-                            _ => TaskType::SystemMaintenance,
+                            _ => {
+                                let _ = bot.send_message(
+                                    chat_id,
+                                    format!("❌ 未知的任务类型: {}", task_type)
+                                ).await;
+                                return Ok(());
+                            }
                         };
                         
                         tokio::spawn(async move {
