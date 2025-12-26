@@ -2233,6 +2233,7 @@ dependencies = [
  "serde_json",
  "sysinfo",
  "teloxide",
+ "thiserror",
  "tokio",
  "tokio-cron-scheduler",
  "toml 0.7.8",

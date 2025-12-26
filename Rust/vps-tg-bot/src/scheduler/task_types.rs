@@ -4,7 +4,8 @@ use teloxide::types::ChatId;
 use teloxide::prelude::Requester;
 use crate::config::Config;
 use crate::system::ops;
-use anyhow::Result;
+use crate::system::errors::SystemError;
+use anyhow::{Result, anyhow};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ScheduledTask {
@@ -89,9 +90,11 @@ impl TaskType {
                         Ok(format!("{} 完成", task_name))
                     }
                     Err(e) => {
+                        let user_message = e.user_message();
                         let _ = bot.send_message(ChatId(chat_id), 
-                            format!("❌ {} 任务失败: {}", task_name, e)).await;
-                        Err(e)
+                            format!("❌ {} 任务失败:\n{}\n\n建议: {}", task_name, e, 
+                                if e.is_retryable() { "可以稍后重试" } else { "请检查系统配置" })).await;
+                        Err(anyhow!("{}", user_message))
                     }
                 }
             }
@@ -103,9 +106,11 @@ impl TaskType {
                         Ok(format!("{} 完成", task_name))
                     }
                     Err(e) => {
+                        let user_message = e.user_message();
                         let _ = bot.send_message(ChatId(chat_id), 
-                            format!("❌ {} 任务失败: {}", task_name, e)).await;
-                        Err(e)
+                            format!("❌ {} 任务失败:\n{}\n\n建议: {}", task_name, e,
+                                if e.is_retryable() { "可以稍后重试" } else { "请检查系统配置" })).await;
+                        Err(anyhow!("{}", user_message))
                     }
                 }
             }
@@ -117,9 +122,11 @@ impl TaskType {
                         Ok(format!("{} 完成", task_name))
                     }
                     Err(e) => {
+                        let user_message = e.user_message();
                         let _ = bot.send_message(ChatId(chat_id), 
-                            format!("❌ {} 任务失败: {}", task_name, e)).await;
-                        Err(e)
+                            format!("❌ {} 任务失败:\n{}\n\n建议: {}", task_name, e,
+                                if e.is_retryable() { "可以稍后重试" } else { "请检查系统配置" })).await;
+                        Err(anyhow!("{}", user_message))
                     }
                 }
             }
@@ -131,9 +138,11 @@ impl TaskType {
                         Ok(format!("{} 完成", task_name))
                     }
                     Err(e) => {
+                        let user_message = e.user_message();
                         let _ = bot.send_message(ChatId(chat_id), 
-                            format!("❌ {} 任务失败: {}", task_name, e)).await;
-                        Err(e)
+                            format!("❌ {} 任务失败:\n{}\n\n建议: {}", task_name, e,
+                                if e.is_retryable() { "可以稍后重试" } else { "请检查系统配置" })).await;
+                        Err(anyhow!("{}", user_message))
                     }
                 }
             }
@@ -145,9 +154,11 @@ impl TaskType {
                         Ok(format!("{} 完成", task_name))
                     }
                     Err(e) => {
+                        let user_message = e.user_message();
                         let _ = bot.send_message(ChatId(chat_id), 
-                            format!("❌ {} 任务失败: {}", task_name, e)).await;
-                        Err(e)
+                            format!("❌ {} 任务失败:\n{}\n\n建议: {}", task_name, e,
+                                if e.is_retryable() { "可以稍后重试" } else { "请检查系统配置" })).await;
+                        Err(anyhow!("{}", user_message))
                     }
                 }
             }

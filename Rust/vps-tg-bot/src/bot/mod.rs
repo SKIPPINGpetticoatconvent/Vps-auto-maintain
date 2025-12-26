@@ -322,7 +322,7 @@ async fn answer(bot: Bot, message: Message, command: Command) -> Result<(), Box<
             // 在实际实现中，您需要跟踪确认状态
 
             // 直接执行重启（在实际实现中应添加确认逻辑）
-            match system::ops::reboot_system() {
+            match system::ops::reboot_system().await {
                 Ok(_) => {
                     bot.send_message(message.chat.id, "🔄 系统重启中...").await?;
                 }
@@ -690,69 +690,83 @@ async fn handle_callback_query(
             }
             // 时间选择按钮处理
             cmd if cmd.starts_with("set_time_") => {
-                let parts: Vec<&str> = cmd.split('_').collect();
-                if parts.len() >= 5 {
-                    let task_type = parts[2];
-                    let frequency = parts[3];
-                    let time_value = parts[4];
-                    
-                    log::info!("🎯 处理时间设置: {} {} {}", task_type, frequency, time_value);
-                    
-                    bot.answer_callback_query(&callback_query.id).await?;
-                    
-                    // 构建 Cron 表达式
-                    let cron_expr = match frequency {
-                        "daily" => format!("0 {} * * *", time_value),
-                        "weekly" => format!("0 {} * * 0", time_value),
-                        "monthly" => format!("0 {} {} * *", time_value.split(' ').collect::<Vec<_>>()[1], time_value.split(' ').collect::<Vec<_>>()[0]),
-                        _ => format!("0 {} * * *", time_value),
-                    };
-                    
-                    let message = format!("🔄 正在设置 {} 任务...", get_task_display_name(task_type));
-                    let keyboard = build_time_selection_keyboard(task_type, frequency);
-                    
-                    bot.edit_message_text(chat_id, message_id, message)
-                        .reply_markup(keyboard.clone())
-                        .await?;
-                    
-                    let bot_clone = bot.clone();
-                    let config = Config::load().unwrap_or_else(|_| Config { bot_token: "".to_string(), chat_id: 0, check_interval: 300 });
-                    let chat_id_clone = chat_id;
-                    let task_type_enum = match task_type {
-                        "system_maintenance" => TaskType::SystemMaintenance,
-                        "core_maintenance" => TaskType::CoreMaintenance,
-                        "rules_maintenance" => TaskType::RulesMaintenance,
-                        "update_xray" => TaskType::UpdateXray,
-                        "update_singbox" => TaskType::UpdateSingbox,
-                        _ => TaskType::SystemMaintenance,
-                    };
-                    
-                    tokio::spawn(async move {
-                        let manager = crate::scheduler::SCHEDULER_MANAGER.lock().await;
-                        if let Some(manager) = &*manager {
-                            let config_clone = Config { bot_token: config.bot_token.clone(), chat_id: config.chat_id, check_interval: config.check_interval };
-                            let bot_clone_for_task = bot_clone.clone();
-                            let response = manager.add_new_task(config_clone, bot_clone_for_task, task_type_enum, &cron_expr).await;
-                            drop(manager);
-                            
-                            match response {
-                                Ok(response_msg) => {
-                                    let _ = bot_clone.send_message(
-                                        chat_id_clone,
-                                        format!("✅ {}\n\n任务已成功设置！", response_msg)
-                                    ).await;
+                // 使用更精确的解析方式，处理包含空格的情况
+                if let Some(stripped) = cmd.strip_prefix("set_time_") {
+                    let mut parts = stripped.split('_');
+                    if let (Some(task_type), Some(frequency), Some(time_value)) = (parts.next(), parts.next(), parts.next()) {
+                        log::info!("🎯 处理时间设置: {} {} {}", task_type, frequency, time_value);
+                        
+                        bot.answer_callback_query(&callback_query.id).await?;
+                        
+                        // 构建 Cron 表达式
+                        let cron_expr = match frequency {
+                            "daily" => format!("0 {} * * *", time_value),
+                            "weekly" => format!("{} * * 0", time_value),
+                            "monthly" => {
+                                // time_value 格式: "小时 日期" 或 "小时日期"
+                                if time_value.contains(' ') {
+                                    let time_parts: Vec<&str> = time_value.split(' ').collect();
+                                    if time_parts.len() == 2 {
+                                        format!("0 {} {} * *", time_parts[0], time_parts[1])
+                                    } else {
+                                        format!("0 {} * * *", time_value)
+                                    }
+                                } else {
+                                    // 处理没有空格的情况，如 "21"
+                                    format!("0 {} * * *", time_value)
                                 }
-                                Err(e) => {
-                                    let _ = bot_clone.send_message(
-                                        chat_id_clone,
-                                        format!("❌ 设置任务失败: {}", e)
-                                    ).await;
+                            },
+                            _ => format!("0 {} * * *", time_value),
+                        };
+                        
+                        let message = format!("🔄 正在设置 {} 任务...", get_task_display_name(task_type));
+                        let keyboard = build_time_selection_keyboard(task_type, frequency);
+                        
+                        bot.edit_message_text(chat_id, message_id, message)
+                            .reply_markup(keyboard.clone())
+                            .await?;
+                        
+                        let bot_clone = bot.clone();
+                        let config = Config::load().unwrap_or_else(|_| Config { bot_token: "".to_string(), chat_id: 0, check_interval: 300 });
+                        let chat_id_clone = chat_id;
+                        let task_type_enum = match task_type {
+                            "system_maintenance" => TaskType::SystemMaintenance,
+                            "core_maintenance" => TaskType::CoreMaintenance,
+                            "rules_maintenance" => TaskType::RulesMaintenance,
+                            "update_xray" => TaskType::UpdateXray,
+                            "update_singbox" => TaskType::UpdateSingbox,
+                            _ => TaskType::SystemMaintenance,
+                        };
+                        
+                        tokio::spawn(async move {
+                            let manager = crate::scheduler::SCHEDULER_MANAGER.lock().await;
+                            if let Some(manager) = &*manager {
+                                let config_clone = Config { bot_token: config.bot_token.clone(), chat_id: config.chat_id, check_interval: config.check_interval };
+                                let bot_clone_for_task = bot_clone.clone();
+                                let response = manager.add_new_task(config_clone, bot_clone_for_task, task_type_enum, &cron_expr).await;
+                                let _ = manager; // 使用 let _ 来避免 drop 警告
+                                
+                                match response {
+                                    Ok(response_msg) => {
+                                        let _ = bot_clone.send_message(
+                                            chat_id_clone,
+                                            format!("✅ {}\n\n任务已成功设置！", response_msg)
+                                        ).await;
+                                    }
+                                    Err(e) => {
+                                        let _ = bot_clone.send_message(
+                                            chat_id_clone,
+                                            format!("❌ 设置任务失败: {}", e)
+                                        ).await;
+                                    }
                                 }
                             }
-                        }
-                    });
-                    
-                    log::info!("✅ set_time 处理完成");
+                        });
+                        
+                        log::info!("✅ set_time 处理完成");
+                    } else {
+                        bot.answer_callback_query(&callback_query.id).await?;
+                    }
                 } else {
                     bot.answer_callback_query(&callback_query.id).await?;
                 }
