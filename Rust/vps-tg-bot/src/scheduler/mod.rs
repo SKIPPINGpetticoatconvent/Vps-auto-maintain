@@ -4,6 +4,7 @@ use teloxide::types::ChatId;
 use teloxide::prelude::Requester;
 use crate::config::Config;
 use crate::system::ops;
+use crate::scheduler::task_types::{TaskType, ScheduledTask};
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
 use std::fs;
@@ -12,22 +13,24 @@ use tokio::sync::Mutex;
 use std::sync::Arc;
 use once_cell::sync::Lazy;
 
+pub mod task_types;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SchedulerState {
-    pub cron_expression: String,
+    pub tasks: Vec<ScheduledTask>,
 }
 
 impl SchedulerState {
-    pub fn new(cron_expression: &str) -> Self {
+    pub fn new() -> Self {
         Self {
-            cron_expression: cron_expression.to_string(),
+            tasks: vec![
+                ScheduledTask::new(TaskType::SystemMaintenance, "0 4 * * Sun"),
+            ],
         }
     }
 
     pub fn default() -> Self {
-        Self {
-            cron_expression: "0 0 4 * * Sun".to_string(),
-        }
+        Self::new()
     }
 
     pub fn save_to_file(&self, path: &str) -> Result<()> {
@@ -43,6 +46,67 @@ impl SchedulerState {
         let content = fs::read_to_string(path)?;
         let state: SchedulerState = serde_json::from_str(&content)?;
         Ok(state)
+    }
+
+    pub fn add_task(&mut self, task: ScheduledTask) {
+        self.tasks.push(task);
+    }
+
+    pub fn remove_task(&mut self, index: usize) -> Result<()> {
+        if index < self.tasks.len() {
+            self.tasks.remove(index);
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("任务索引超出范围"))
+        }
+    }
+
+    pub fn get_task(&self, index: usize) -> Option<&ScheduledTask> {
+        self.tasks.get(index)
+    }
+
+    pub fn update_task(&mut self, index: usize, new_cron: &str) -> Result<()> {
+        if index < self.tasks.len() {
+            // 验证 Cron 表达式
+            let validator = SchedulerValidator::new();
+            match validator.validate_cron_expression(new_cron) {
+                Err(validation_error) => {
+                    return Err(anyhow::anyhow!("{}", validation_error));
+                }
+                Ok(_) => {}
+            }
+            
+            self.tasks[index].cron_expression = new_cron.to_string();
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("任务索引超出范围"))
+        }
+    }
+
+    pub fn toggle_task(&mut self, index: usize) -> Result<()> {
+        if index < self.tasks.len() {
+            self.tasks[index].enabled = !self.tasks[index].enabled;
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("任务索引超出范围"))
+        }
+    }
+
+    pub fn get_all_tasks_summary(&self) -> String {
+        if self.tasks.is_empty() {
+            return "📝 暂无定时任务".to_string();
+        }
+
+        let mut summary = String::new();
+        summary.push_str("⏰ 定时任务列表:\n\n");
+        
+        for (i, task) in self.tasks.iter().enumerate() {
+            let status = if task.enabled { "✅" } else { "⏸️" };
+            summary.push_str(&format!("{}. {} {}\n   Cron: {}\n\n", 
+                i + 1, status, task.task_type.get_display_name(), task.cron_expression));
+        }
+        
+        summary
     }
 }
 
@@ -61,56 +125,138 @@ impl SchedulerManager {
         let state = Arc::new(Mutex::new(state.clone()));
         
         let manager = Self { scheduler, state };
-        manager.start_scheduler(config, bot).await?;
+        manager.start_all_tasks(config, bot).await?;
         
         Ok(manager)
     }
 
-    pub async fn start_scheduler(&self, config: Config, bot: Bot) -> Result<()> {
+    pub async fn start_all_tasks(&self, config: Config, bot: Bot) -> Result<()> {
         let state = self.state.lock().await;
-        let cron_expr = state.cron_expression.clone();
-        drop(state); // 释放锁
+        let tasks = state.tasks.clone();
+        drop(state);
         
         let mut scheduler_guard = self.scheduler.lock().await;
         if let Some(sched) = scheduler_guard.as_mut() {
-            let job = Job::new_async(cron_expr.as_str(), move |_uuid, _l| {
-                let bot = bot.clone();
-                let chat_id = config.chat_id;
-                Box::pin(async move {
-                    match ops::perform_maintenance().await {
-                        Ok(log) => {
-                            let _ = bot.send_message(ChatId(chat_id), format!("✅ 计划维护已完成:\n{}", log)).await;
+            // 清除现有任务
+            sched.shutdown().await?;
+            *scheduler_guard = Some(JobScheduler::new().await?);
+            
+            let sched = scheduler_guard.as_mut().unwrap();
+            
+            // 添加所有启用的任务
+            for task in tasks.iter() {
+                if task.enabled {
+                    let job = Job::new_async(task.cron_expression.as_str(), {
+                        let bot = bot.clone();
+                        let task_type = task.task_type.clone();
+                        let chat_id = config.chat_id;
+                        move |_uuid, _l| {
+                            let bot = bot.clone();
+                            let task_type = task_type.clone();
+                            let chat_id = chat_id;
+                            Box::pin(async move {
+                                match task_type.execute(&bot, chat_id).await {
+                                    Ok(_) => {},
+                                    Err(e) => {
+                                        eprintln!("任务执行失败: {}", e);
+                                    }
+                                }
+                            })
                         }
-                        Err(e) => {
-                            let _ = bot.send_message(ChatId(chat_id), format!("❌ 计划维护失败: {}", e)).await;
-                        }
-                    }
-                })
-            })?;
+                    })?;
 
-            sched.add(job).await?;
+                    sched.add(job).await?;
+                }
+            }
+            
             sched.start().await?;
         }
         
         Ok(())
     }
 
-    pub async fn update_schedule(&self, new_cron: &str) -> Result<String> {
-        // 验证 Cron 表达式
-        match self.validate_cron_expression(new_cron) {
+    pub async fn add_new_task(&self, config: Config, bot: Bot, task_type: TaskType, cron_expression: &str) -> Result<String> {
+        let validator = SchedulerValidator::new();
+        match validator.validate_cron_expression(cron_expression) {
             Err(validation_error) => {
                 return Ok(format!("❌ {}", validation_error));
             }
             Ok(_) => {}
         }
 
+        let new_task = ScheduledTask::new(task_type.clone(), cron_expression);
+        
         let mut state_guard = self.state.lock().await;
-        state_guard.cron_expression = new_cron.to_string();
+        state_guard.add_task(new_task);
         let state_path = "scheduler_state.json";
         state_guard.save_to_file(state_path)?;
         drop(state_guard);
 
         // 重新启动调度器
+        self.restart_scheduler(config, bot).await?;
+        
+        Ok(format!("✅ 新任务已添加: {} ({})", 
+            task_type.get_display_name(), cron_expression))
+    }
+
+    pub async fn remove_task_by_index(&self, config: Config, bot: Bot, index: usize) -> Result<String> {
+        let mut state_guard = self.state.lock().await;
+        match state_guard.remove_task(index) {
+            Ok(_) => {
+                let state_path = "scheduler_state.json";
+                state_guard.save_to_file(state_path)?;
+                drop(state_guard);
+
+                // 重新启动调度器
+                self.restart_scheduler(config, bot).await?;
+                
+                Ok("✅ 任务已删除".to_string())
+            }
+            Err(e) => {
+                Ok(format!("❌ 删除任务失败: {}", e))
+            }
+        }
+    }
+
+    pub async fn toggle_task_by_index(&self, config: Config, bot: Bot, index: usize) -> Result<String> {
+        let mut state_guard = self.state.lock().await;
+        match state_guard.toggle_task(index) {
+            Ok(_) => {
+                let state_path = "scheduler_state.json";
+                state_guard.save_to_file(state_path)?;
+                drop(state_guard);
+
+                // 重新启动调度器
+                self.restart_scheduler(config, bot).await?;
+                
+                Ok("✅ 任务状态已切换".to_string())
+            }
+            Err(e) => {
+                Ok(format!("❌ 切换任务状态失败: {}", e))
+            }
+        }
+    }
+
+    pub async fn update_task_by_index(&self, config: Config, bot: Bot, index: usize, new_cron: &str) -> Result<String> {
+        let mut state_guard = self.state.lock().await;
+        match state_guard.update_task(index, new_cron) {
+            Ok(_) => {
+                let state_path = "scheduler_state.json";
+                state_guard.save_to_file(state_path)?;
+                drop(state_guard);
+
+                // 重新启动调度器
+                self.restart_scheduler(config, bot).await?;
+                
+                Ok(format!("✅ 任务 {} 已更新为: {}", index + 1, new_cron))
+            }
+            Err(e) => {
+                Ok(format!("❌ 更新任务失败: {}", e))
+            }
+        }
+    }
+
+    async fn restart_scheduler(&self, config: Config, bot: Bot) -> Result<()> {
         let mut scheduler_guard = self.scheduler.lock().await;
         if let Some(mut sched) = scheduler_guard.take() {
             sched.shutdown().await?;
@@ -119,10 +265,28 @@ impl SchedulerManager {
         let new_sched = JobScheduler::new().await?;
         *scheduler_guard = Some(new_sched);
         
-        Ok(format!("✅ 调度已更新为: {}", new_cron))
+        // 重新启动所有任务
+        drop(scheduler_guard);
+        self.start_all_tasks(config, bot).await?;
+        
+        Ok(())
     }
 
-    fn validate_cron_expression(&self, cron_expr: &str) -> Result<(), String> {
+    pub async fn get_tasks_summary(&self) -> String {
+        let state_guard = self.state.lock().await;
+        state_guard.get_all_tasks_summary()
+    }
+}
+
+// Cron 表达式验证器
+pub struct SchedulerValidator;
+
+impl SchedulerValidator {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn validate_cron_expression(&self, cron_expr: &str) -> Result<(), String> {
         let fields: Vec<&str> = cron_expr.split_whitespace().collect();
         
         // 检查字段数量
@@ -238,7 +402,7 @@ impl SchedulerManager {
 }
 
 // 全局调度器管理器实例
-static SCHEDULER_MANAGER: Lazy<Arc<Mutex<Option<SchedulerManager>>>> = Lazy::new(|| Arc::new(Mutex::new(None)));
+pub static SCHEDULER_MANAGER: Lazy<Arc<Mutex<Option<SchedulerManager>>>> = Lazy::new(|| Arc::new(Mutex::new(None)));
 
 pub async fn start_scheduler(config: Config, bot: Bot) -> Result<()> {
     let manager = SchedulerManager::new(config, bot).await?;
@@ -252,20 +416,27 @@ pub async fn start_scheduler(config: Config, bot: Bot) -> Result<()> {
     }
 }
 
-pub async fn get_current_schedule() -> Result<String> {
+pub async fn get_tasks_summary() -> Result<String> {
     let manager_guard = SCHEDULER_MANAGER.lock().await;
     if let Some(manager) = &*manager_guard {
-        let state_guard = manager.state.lock().await;
-        Ok(state_guard.cron_expression.clone())
+        Ok(manager.get_tasks_summary().await)
     } else {
         Ok("❌ 调度器尚未初始化".to_string())
     }
 }
 
+// 向后兼容的函数
 pub async fn update_schedule(new_cron: &str) -> Result<String> {
     let manager_guard = SCHEDULER_MANAGER.lock().await;
     if let Some(manager) = &*manager_guard {
-        manager.update_schedule(new_cron).await
+        // 使用第一个任务的类型来保持兼容性
+        let config = Config::load().unwrap_or_else(|_| Config { bot_token: "".to_string(), chat_id: 0, check_interval: 300 });
+        let bot = Bot::new(config.bot_token.clone());
+        
+        match manager.add_new_task(config, bot, TaskType::SystemMaintenance, new_cron).await {
+            Ok(msg) => Ok(msg),
+            Err(e) => Ok(format!("❌ 更新调度失败: {}", e))
+        }
     } else {
         Ok("❌ 调度器尚未初始化".to_string())
     }

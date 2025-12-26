@@ -1,9 +1,10 @@
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
-use teloxide::types::{InlineKeyboardMarkup, InlineKeyboardButton};
+use teloxide::types::{InlineKeyboardMarkup, InlineKeyboardButton, ChatId};
 use crate::config::Config;
 use crate::system;
 use crate::scheduler;
+use crate::scheduler::task_types::TaskType;
 
 #[derive(BotCommands, Clone)]
 #[command(
@@ -41,7 +42,8 @@ fn build_main_menu_keyboard() -> InlineKeyboardMarkup {
             InlineKeyboardButton::callback("🛠️ 维护菜单", "menu_maintain"),
         ],
         vec![
-            InlineKeyboardButton::callback("⏰ 定时任务设置", "menu_settings"),
+            InlineKeyboardButton::callback("⏰ 定时任务", "menu_schedule"),
+            InlineKeyboardButton::callback("📋 任务管理", "menu_task_management"),
         ],
     ];
     
@@ -67,15 +69,20 @@ fn build_maintain_menu_keyboard() -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(keyboard)
 }
 
-// 构建定时任务设置菜单 Inline Keyboard
-fn build_schedule_menu_keyboard() -> InlineKeyboardMarkup {
+// 构建定时任务类型选择菜单
+fn build_task_type_menu_keyboard() -> InlineKeyboardMarkup {
     let keyboard = vec![
         vec![
-            InlineKeyboardButton::callback("每天 04:00", "set_cron_daily"),
-            InlineKeyboardButton::callback("每周日 04:00", "set_cron_weekly"),
+            InlineKeyboardButton::callback("🔄 系统维护", "task_system_maintenance"),
+            InlineKeyboardButton::callback("🚀 核心维护", "task_core_maintenance"),
         ],
         vec![
-            InlineKeyboardButton::callback("自定义", "set_cron_custom"),
+            InlineKeyboardButton::callback("🌍 规则维护", "task_rules_maintenance"),
+            InlineKeyboardButton::callback("🔧 更新 Xray", "task_update_xray"),
+        ],
+        vec![
+            InlineKeyboardButton::callback("📦 更新 Sing-box", "task_update_singbox"),
+            InlineKeyboardButton::callback("📋 查看所有任务", "list_all_tasks"),
         ],
         vec![
             InlineKeyboardButton::callback("🔙 返回", "back_to_main"),
@@ -83,6 +90,61 @@ fn build_schedule_menu_keyboard() -> InlineKeyboardMarkup {
     ];
     
     InlineKeyboardMarkup::new(keyboard)
+}
+
+// 构建预设时间菜单
+fn build_schedule_presets_keyboard(task_type: &str) -> InlineKeyboardMarkup {
+    let (_daily, _weekly, _monthly) = match task_type {
+        "system_maintenance" => ("0 4 * * *", "0 4 * * Sun", "0 4 1 * *"),
+        "core_maintenance" => ("0 5 * * Sun", "0 5 * * Sun", "0 5 1 * *"),
+        "rules_maintenance" => ("0 3 * * *", "0 3 * * Sun", "0 3 1 * *"),
+        "update_xray" => ("0 6 * * Sun", "0 6 * * Sun", "0 6 1 * *"),
+        "update_singbox" => ("0 7 * * Sun", "0 7 * * Sun", "0 7 1 * *"),
+        _ => ("0 4 * * *", "0 4 * * Sun", "0 4 1 * *"),
+    };
+    
+    let keyboard = vec![
+        vec![
+            InlineKeyboardButton::callback("每天设置", &format!("set_preset_{}_daily", task_type)),
+            InlineKeyboardButton::callback("每周设置", &format!("set_preset_{}_weekly", task_type)),
+        ],
+        vec![
+            InlineKeyboardButton::callback("每月设置", &format!("set_preset_{}_monthly", task_type)),
+            InlineKeyboardButton::callback("自定义", &format!("set_custom_{}", task_type)),
+        ],
+        vec![
+            InlineKeyboardButton::callback("🔙 返回任务类型", "back_to_task_types"),
+        ],
+    ];
+    
+    InlineKeyboardMarkup::new(keyboard)
+}
+
+// 构建任务管理菜单
+fn build_task_management_keyboard() -> InlineKeyboardMarkup {
+    let keyboard = vec![
+        vec![
+            InlineKeyboardButton::callback("📋 查看任务列表", "view_tasks"),
+            InlineKeyboardButton::callback("➕ 添加新任务", "add_new_task"),
+        ],
+        vec![
+            InlineKeyboardButton::callback("🔄 返回主菜单", "back_to_main"),
+        ],
+    ];
+    
+    InlineKeyboardMarkup::new(keyboard)
+}
+
+// 获取任务类型显示名称
+fn get_task_display_name(task_type: &str) -> &'static str {
+    match task_type {
+        "system_maintenance" => "🔄 系统维护",
+        "core_maintenance" => "🚀 核心维护",
+        "rules_maintenance" => "🌍 规则维护",
+        "update_xray" => "🔧 更新 Xray",
+        "update_singbox" => "📦 更新 Sing-box",
+        _ => "❓ 未知任务",
+    }
 }
 
 pub async fn run_bot(config: Config) -> anyhow::Result<()> {
@@ -286,24 +348,32 @@ async fn handle_callback_query(
                 .await?;
                 log::info!("✅ menu_maintain 处理完成");
             }
-            "menu_settings" => {
-                log::info!("🎯 处理主菜单: menu_settings 命令");
-                // 立即回答回调查询，消除加载动画
+            "menu_schedule" => {
+                log::info!("🎯 处理主菜单: menu_schedule 命令");
                 bot.answer_callback_query(&callback_query.id).await?;
                 
-                let message = "⏰ 定时任务设置\n\n请选择定时任务设置选项:";
-                let keyboard = build_schedule_menu_keyboard();
+                let message = "⏰ 定时任务设置\n\n请选择要设置的任务类型:";
+                let keyboard = build_task_type_menu_keyboard();
                 
-                // 编辑消息显示定时任务设置菜单
-                bot.edit_message_text(
-                    chat_id,
-                    message_id,
-                    message,
-                )
-                .reply_markup(keyboard)
-                .await?;
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard)
+                    .await?;
                 
-                log::info!("✅ menu_settings 处理完成");
+                log::info!("✅ menu_schedule 处理完成");
+                return Ok(());
+            }
+            "menu_task_management" => {
+                log::info!("🎯 处理主菜单: menu_task_management 命令");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = "📋 任务管理\n\n管理您的定时任务:";
+                let keyboard = build_task_management_keyboard();
+                
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard)
+                    .await?;
+                
+                log::info!("✅ menu_task_management 处理完成");
                 return Ok(());
             }
             
@@ -348,95 +418,112 @@ async fn handle_callback_query(
                 handle_update_sb_command(&bot, &callback_query).await?;
                 log::info!("✅ cmd_update_sb 处理完成");
             }
-            // 定时任务设置菜单按钮
-            "set_cron_daily" => {
-                log::info!("🎯 处理定时任务设置: set_cron_daily 命令");
+            // 任务类型选择按钮
+            "task_system_maintenance" => {
+                log::info!("🎯 处理任务类型: system_maintenance");
                 bot.answer_callback_query(&callback_query.id).await?;
                 
-                let message = "🔄 正在设置定时任务为每天 04:00 执行...";
-                let keyboard = build_schedule_menu_keyboard();
+                let message = "🔄 系统维护定时设置\n\n请选择执行时间:";
+                let keyboard = build_schedule_presets_keyboard("system_maintenance");
+                
                 bot.edit_message_text(chat_id, message_id, message)
-                    .reply_markup(keyboard.clone())
-                    .await?;
-                
-                match scheduler::update_schedule("0 4 * * *").await {
-                    Ok(response) => {
-                        bot.edit_message_text(
-                            chat_id,
-                            message_id,
-                            format!("✅ {}\n\n请选择下一步操作:", response),
-                        )
-                        .reply_markup(keyboard)
-                        .await?;
-                    }
-                    Err(e) => {
-                        bot.edit_message_text(
-                            chat_id,
-                            message_id,
-                            format!("❌ 设置定时任务失败: {}\n\n请选择下一步操作:", e),
-                        )
-                        .reply_markup(keyboard)
-                        .await?;
-                    }
-                }
-                log::info!("✅ set_cron_daily 处理完成");
-            }
-            "set_cron_weekly" => {
-                log::info!("🎯 处理定时任务设置: set_cron_weekly 命令");
-                bot.answer_callback_query(&callback_query.id).await?;
-                
-                let message = "🔄 正在设置定时任务为每周日 04:00 执行...";
-                let keyboard = build_schedule_menu_keyboard();
-                bot.edit_message_text(chat_id, message_id, message)
-                    .reply_markup(keyboard.clone())
-                    .await?;
-                
-                match scheduler::update_schedule("0 0 4 * * Sun").await {
-                    Ok(response) => {
-                        bot.edit_message_text(
-                            chat_id,
-                            message_id,
-                            format!("✅ {}\n\n请选择下一步操作:", response),
-                        )
-                        .reply_markup(keyboard)
-                        .await?;
-                    }
-                    Err(e) => {
-                        bot.edit_message_text(
-                            chat_id,
-                            message_id,
-                            format!("❌ 设置定时任务失败: {}\n\n请选择下一步操作:", e),
-                        )
-                        .reply_markup(keyboard)
-                        .await?;
-                    }
-                }
-                log::info!("✅ set_cron_weekly 处理完成");
-            }
-            "set_cron_custom" => {
-                log::info!("🎯 处理定时任务设置: set_cron_custom 命令");
-                bot.answer_callback_query(&callback_query.id).await?;
-                
-                // 获取当前定时任务配置
-                let schedule_message = match scheduler::get_current_schedule().await {
-                    Ok(cron_expr) => {
-                        format!(
-                            "⏰ 自定义定时任务设置\n\n当前定时任务：`{}`\n\n📝 Cron 表达式说明：\n\n• 格式：分 时 日 月 星期（共5个字段）\n• 字段说明：\n  - 分钟：0-59\n  - 小时：0-23\n  - 日期：1-31\n  - 月份：1-12\n  - 星期：0-7（0和7都表示周日）\n\n• 常用示例：\n  - `0 4 * * *` - 每天凌晨4点\n  - `0 4 * * Sun` - 每周日凌晨4点\n  - `0 9 * * 1-5` - 工作日上午9点\n  - `30 2 1 * *` - 每月1日凌晨2点30分\n  - `0 0 * * 0` - 每周日凌晨0点\n\n💡 如需修改定时任务，请发送命令：\n`/set_schedule <cron_expression>`\n\n例如：设置每天凌晨2点执行\n`/set_schedule 0 2 * * *`",
-                            cron_expr
-                        )
-                    }
-                    Err(e) => {
-                        format!("❌ 获取定时任务配置失败: {}\n\n请尝试使用 `/set_schedule` 命令重新设置。", e)
-                    }
-                };
-                
-                let keyboard = build_schedule_menu_keyboard();
-                bot.edit_message_text(chat_id, message_id, schedule_message)
                     .reply_markup(keyboard)
                     .await?;
                 
-                log::info!("✅ set_cron_custom 处理完成");
+                log::info!("✅ task_system_maintenance 处理完成");
             }
+            "task_core_maintenance" => {
+                log::info!("🎯 处理任务类型: core_maintenance");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = "🚀 核心维护定时设置\n\n请选择执行时间:";
+                let keyboard = build_schedule_presets_keyboard("core_maintenance");
+                
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard)
+                    .await?;
+                
+                log::info!("✅ task_core_maintenance 处理完成");
+            }
+            "task_rules_maintenance" => {
+                log::info!("🎯 处理任务类型: rules_maintenance");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = "🌍 规则维护定时设置\n\n请选择执行时间:";
+                let keyboard = build_schedule_presets_keyboard("rules_maintenance");
+                
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard)
+                    .await?;
+                
+                log::info!("✅ task_rules_maintenance 处理完成");
+            }
+            "task_update_xray" => {
+                log::info!("🎯 处理任务类型: update_xray");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = "🔧 更新 Xray 定时设置\n\n请选择执行时间:";
+                let keyboard = build_schedule_presets_keyboard("update_xray");
+                
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard)
+                    .await?;
+                
+                log::info!("✅ task_update_xray 处理完成");
+            }
+            "task_update_singbox" => {
+                log::info!("🎯 处理任务类型: update_singbox");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = "📦 更新 Sing-box 定时设置\n\n请选择执行时间:";
+                let keyboard = build_schedule_presets_keyboard("update_singbox");
+                
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard)
+                    .await?;
+                
+                log::info!("✅ task_update_singbox 处理完成");
+            }
+            "list_all_tasks" => {
+                log::info!("🎯 处理任务列表查看");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let tasks_summary = scheduler::get_tasks_summary().await.unwrap_or_else(|_| "❌ 无法获取任务列表".to_string());
+                
+                let keyboard = build_task_type_menu_keyboard();
+                bot.edit_message_text(chat_id, message_id, tasks_summary)
+                    .reply_markup(keyboard)
+                    .await?;
+                
+                log::info!("✅ list_all_tasks 处理完成");
+            }
+            "view_tasks" => {
+                log::info!("🎯 处理任务查看");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let tasks_summary = scheduler::get_tasks_summary().await.unwrap_or_else(|_| "❌ 无法获取任务列表".to_string());
+                
+                let keyboard = build_task_management_keyboard();
+                bot.edit_message_text(chat_id, message_id, tasks_summary)
+                    .reply_markup(keyboard)
+                    .await?;
+                
+                log::info!("✅ view_tasks 处理完成");
+            }
+            "add_new_task" => {
+                log::info!("🎯 处理添加新任务");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = "➕ 添加新任务\n\n请选择要添加的任务类型:";
+                let keyboard = build_task_type_menu_keyboard();
+                
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard)
+                    .await?;
+                
+                log::info!("✅ add_new_task 处理完成");
+            }
+
             "back_to_main" => {
                 log::info!("🎯 处理返回主菜单: back_to_main 命令");
                 // 立即回答回调查询，消除加载动画
@@ -454,6 +541,81 @@ async fn handle_callback_query(
                 .reply_markup(keyboard)
                 .await?;
                 log::info!("✅ back_to_main 处理完成");
+            }
+            // 预设时间设置按钮
+            cmd if cmd.starts_with("set_preset_") && cmd.ends_with("_daily") => {
+                let task_type = cmd.strip_prefix("set_preset_").unwrap().strip_suffix("_daily").unwrap();
+                log::info!("🎯 处理每日预设: {}", task_type);
+                
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let cron_expr = match task_type {
+                    "system_maintenance" => "0 4 * * *",
+                    "core_maintenance" => "0 5 * * Sun",
+                    "rules_maintenance" => "0 3 * * *",
+                    "update_xray" => "0 6 * * Sun",
+                    "update_singbox" => "0 7 * * Sun",
+                    _ => "0 4 * * *",
+                };
+                
+                let message = format!("🔄 正在设置 {} 任务为每天执行...", get_task_display_name(task_type));
+                let keyboard = build_schedule_presets_keyboard(task_type);
+                
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard.clone())
+                    .await?;
+                
+                let bot_clone = bot.clone();
+                let config = Config::load().unwrap_or_else(|_| Config { bot_token: "".to_string(), chat_id: 0, check_interval: 300 });
+                let chat_id_clone = chat_id;
+                let task_type_enum = match task_type {
+                    "system_maintenance" => TaskType::SystemMaintenance,
+                    "core_maintenance" => TaskType::CoreMaintenance,
+                    "rules_maintenance" => TaskType::RulesMaintenance,
+                    "update_xray" => TaskType::UpdateXray,
+                    "update_singbox" => TaskType::UpdateSingbox,
+                    _ => TaskType::SystemMaintenance,
+                };
+                
+                tokio::spawn(async move {
+                    let manager = crate::scheduler::SCHEDULER_MANAGER.lock().await;
+                    if let Some(manager) = &*manager {
+                        let config_clone = Config { bot_token: config.bot_token.clone(), chat_id: config.chat_id, check_interval: config.check_interval };
+                        let bot_clone_for_task = bot_clone.clone();
+                        let response = manager.add_new_task(config_clone, bot_clone_for_task, task_type_enum, cron_expr).await;
+                        drop(manager);
+                        
+                        match response {
+                            Ok(response_msg) => {
+                                let _ = bot_clone.send_message(
+                                    chat_id_clone,
+                                    format!("✅ {}\n\n请选择下一步操作:", response_msg)
+                                ).await;
+                            }
+                            Err(e) => {
+                                let _ = bot_clone.send_message(
+                                    chat_id_clone,
+                                    format!("❌ 设置任务失败: {}\n\n请选择下一步操作:", e)
+                                ).await;
+                            }
+                        }
+                    }
+                });
+                
+                log::info!("✅ set_preset_daily 处理完成");
+            }
+            "back_to_task_types" => {
+                log::info!("🎯 处理返回任务类型");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = "⏰ 定时任务设置\n\n请选择要设置的任务类型:";
+                let keyboard = build_task_type_menu_keyboard();
+                
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard)
+                    .await?;
+                
+                log::info!("✅ back_to_task_types 处理完成");
             }
             _ => {
                 log::warn!("❓ 未知命令: '{}'", data);
