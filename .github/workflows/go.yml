@@ -5,8 +5,12 @@ on:
     branches: [ "main", "develop" ]
     tags:
       - 'v*'
+    paths:
+      - 'Go/**'
   pull_request:
     branches: [ "main" ]
+    paths:
+      - 'Go/**'
   workflow_dispatch:  # ✅ 手动触发
 
 env:

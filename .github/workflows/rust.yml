@@ -1,0 +1,58 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+    paths:
+      - 'Rust/**'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'Rust/**'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  WORKING_DIRECTORY: ./Rust/vps-tg-bot
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+        components: clippy, rustfmt
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          ${{ env.WORKING_DIRECTORY }}/target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
+    - name: Check formatting
+      run: cargo fmt -- --check
+
+    - name: Lint with Clippy
+      run: cargo clippy -- -D warnings
+
+    - name: Build
+      run: cargo build --verbose
+
+    - name: Run tests
+      run: cargo test --verbose
