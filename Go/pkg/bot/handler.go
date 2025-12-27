@@ -171,17 +171,21 @@ func (t *TGBotHandler) handleCallback(query *tgbotapi.CallbackQuery) error {
 		// 处理动态回调数据
 		if strings.HasPrefix(query.Data, "menu_freq_") {
 			parts := strings.Split(query.Data, "_")
+			log.Printf("解析频率菜单回调数据: %s, 分割结果: %v", query.Data, parts)
 			if len(parts) >= 4 {
 				taskType := TaskType(parts[2])
 				frequency := Frequency(parts[3])
+				log.Printf("解析结果 - 任务类型: %s, 频率: %s", taskType, frequency)
 				return t.HandleFrequencySelection(query, taskType, frequency)
 			}
 		} else if strings.HasPrefix(query.Data, "menu_time_") {
 			parts := strings.Split(query.Data, "_")
+			log.Printf("解析时间选择回调数据: %s, 分割结果: %v", query.Data, parts)
 			if len(parts) >= 5 {
 				taskType := TaskType(parts[2])
 				frequency := Frequency(parts[3])
 				timeValue := strings.Join(parts[4:], "_")
+				log.Printf("解析结果 - 任务类型: %s, 频率: %s, 时间: %s", taskType, frequency, timeValue)
 				return t.HandleTimeSelection(query, taskType, frequency, timeValue)
 			}
 		} else {
