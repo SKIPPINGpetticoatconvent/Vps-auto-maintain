@@ -164,23 +164,20 @@ fi
 # 获取最新 Release 版本号
 get_latest_release() {
     local repos=("$REPO" "$FALLBACK_REPO")
-    local mirrors=("" "https://ghproxy.com/https://" "https://mirror.ghproxy.com/https://" "https://pd.zwc365.com/https://")
     
     for repo in "${repos[@]}"; do
-        for mirror in "${mirrors[@]}"; do
-            local api_url="${mirror}api.github.com/repos/${repo}/releases/latest"
-            
-            if command -v wget &> /dev/null; then
-                LATEST_RELEASE=$(wget -qO- --timeout=10 "$api_url" 2>/dev/null | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
-            else
-                LATEST_RELEASE=$(curl -s --max-time 10 "$api_url" 2>/dev/null | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
-            fi
-            
-            if [ -n "$LATEST_RELEASE" ]; then
-                echo "$LATEST_RELEASE"
-                return 0
-            fi
-        done
+        local api_url="api.github.com/repos/${repo}/releases/latest"
+        
+        if command -v wget &> /dev/null; then
+            LATEST_RELEASE=$(wget -qO- --timeout=10 "$api_url" 2>/dev/null | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+        else
+            LATEST_RELEASE=$(curl -s --max-time 10 "$api_url" 2>/dev/null | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+        fi
+        
+        if [ -n "$LATEST_RELEASE" ]; then
+            echo "$LATEST_RELEASE"
+            return 0
+        fi
     done
     
     echo ""
@@ -219,28 +216,25 @@ fi
 # 下载二进制文件
 echo "正在下载二进制文件..."
 
-# 尝试多个仓库和镜像源
+# 尝试多个仓库
 DOWNLOAD_SUCCESS=false
 REPOS=("$REPO" "$FALLBACK_REPO")
-MIRRORS=("" "https://ghproxy.com/https://" "https://mirror.ghproxy.com/https://" "https://pd.zwc365.com/https://")
 
 for repo in "${REPOS[@]}"; do
-    for mirror in "${MIRRORS[@]}"; do
-        BINARY_URL="${mirror}github.com/${repo}/releases/download/${VERSION}/vps-tg-bot-rust-linux-amd64"
-        echo "尝试从 $BINARY_URL 下载..."
-        
-        if command -v wget &> /dev/null; then
-            if wget -O /tmp/$BOT_NAME --timeout=30 "$BINARY_URL" 2>/dev/null; then
-                DOWNLOAD_SUCCESS=true
-                break 2
-            fi
-        else
-            if curl -L -o /tmp/$BOT_NAME --max-time 30 "$BINARY_URL" 2>/dev/null; then
-                DOWNLOAD_SUCCESS=true
-                break 2
-            fi
+    BINARY_URL="github.com/${repo}/releases/download/${VERSION}/vps-tg-bot-rust-linux-amd64"
+    echo "尝试从 $BINARY_URL 下载..."
+    
+    if command -v wget &> /dev/null; then
+        if wget -O /tmp/$BOT_NAME --timeout=30 "$BINARY_URL" 2>/dev/null; then
+            DOWNLOAD_SUCCESS=true
+            break
         fi
-    done
+    else
+        if curl -L -o /tmp/$BOT_NAME --max-time 30 "$BINARY_URL" 2>/dev/null; then
+            DOWNLOAD_SUCCESS=true
+            break
+        fi
+    fi
 done
 
 if [ "$DOWNLOAD_SUCCESS" != "true" ]; then

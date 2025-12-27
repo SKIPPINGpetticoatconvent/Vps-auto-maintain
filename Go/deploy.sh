@@ -234,23 +234,21 @@ else
   # 获取下载链接
   print_warning "从 GitHub 下载最新版本..."
   
-  # 尝试多个仓库和镜像源
+  # 使用官方仓库
   REPOS=("FTDRTD/Vps-auto-maintain" "SKIPPINGpetticoatconvent/Vps-auto-maintain")
-  MIRRORS=("" "https://ghproxy.com/https://" "https://mirror.ghproxy.com/https://" "https://pd.zwc365.com/https://")
   
   LATEST_URL=""
   
   for REPO in "${REPOS[@]}"; do
-    for MIRROR in "${MIRRORS[@]}"; do
-      print_warning "尝试从 $MIRROR$REPO 获取下载链接..."
+      print_warning "尝试从 $REPO 获取下载链接..."
       
-      API_URL="${MIRROR}api.github.com/repos/${REPO}/releases/latest"
+      API_URL="api.github.com/repos/${REPO}/releases/latest"
       TEMP_URL=$(curl -s --max-time 10 "$API_URL" | grep -oE '"browser_download_url":\s*"([^"]+vps-tg-bot-go-linux-amd64[^"]*)' | cut -d'"' -f4 | head -n1)
       
       if [ -n "$TEMP_URL" ]; then
         LATEST_URL="$TEMP_URL"
         print_success "找到下载链接: $LATEST_URL"
-        break 2
+        break
       fi
     done
   done
