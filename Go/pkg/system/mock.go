@@ -124,3 +124,11 @@ func (m *MockSystemExecutor) RestartService(service string) (string, error) {
 	}
 	return "", fmt.Errorf("服务 '%s' 不在允许列表中，允许的服务: %v", service, allowedServices)
 }
+
+func (m *MockSystemExecutor) UpdateXray() (string, error) {
+	return m.RunCommand("update_xray")
+}
+
+func (m *MockSystemExecutor) UpdateSingbox() (string, error) {
+	return m.RunCommand("update_singbox")
+}

@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"runtime"
 	"testing"
 )
 
@@ -16,6 +17,13 @@ func TestLoadConfig_EnvVars(t *testing.T) {
 
 	// 使用跳过脚本检查的验证器进行测试
 	config := GetDefaultConfig()
+	
+	// Windows 环境下调整默认路径以通过绝对路径验证
+	if runtime.GOOS == "windows" {
+		config.CoreScript = "C:\\Windows\\System32\\cmd.exe"
+		config.RulesScript = "C:\\Windows\\System32\\cmd.exe"
+	}
+
 	config.TelegramToken = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 	config.AdminChatID = 123456789
 	

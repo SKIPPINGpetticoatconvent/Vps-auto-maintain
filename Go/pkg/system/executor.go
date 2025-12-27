@@ -21,6 +21,12 @@ type SystemExecutor interface {
 	// RestartService 重启白名单中的服务
 	// 支持的服务: "xray" (x-ui restart), "sing-box" (sb restart)
 	RestartService(service string) (string, error)
+	
+	// 更新功能
+	// UpdateXray 更新 Xray 核心
+	UpdateXray() (string, error)
+	// UpdateSingbox 更新 Sing-box 核心
+	UpdateSingbox() (string, error)
 }
 
 // SystemStatus 系统状态信息

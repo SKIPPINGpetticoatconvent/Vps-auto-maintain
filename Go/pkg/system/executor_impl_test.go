@@ -1,6 +1,7 @@
 package system
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -9,8 +10,13 @@ func TestRealSystemExecutor_IsInstalled(t *testing.T) {
 	// Skip this test in short mode if needed, but "ls" should be present on most systems
 	executor := NewRealSystemExecutor()
 	
-	if !executor.IsInstalled("ls") {
-		t.Error("Expected 'ls' to be installed")
+	cmdToCheck := "ls"
+	if runtime.GOOS == "windows" {
+		cmdToCheck = "cmd"
+	}
+
+	if !executor.IsInstalled(cmdToCheck) {
+		t.Errorf("Expected '%s' to be installed", cmdToCheck)
 	}
 
 	if executor.IsInstalled("non_existent_program_xyz_123") {

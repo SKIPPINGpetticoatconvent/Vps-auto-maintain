@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 	"vps-tg-bot/pkg/config"
@@ -78,6 +79,22 @@ func (t *TGBotHandler) handleMessage(message *tgbotapi.Message) error {
 			return t.ShowMainMenu(message.Chat.ID)
 		case "help":
 			return t.SendMessage(message.Chat.ID, "📖 *帮助信息*\n\n使用按钮进行操作，或发送 /start 打开菜单")
+
+		}
+	}
+	
+	// 处理自定义 Cron 输入（简单处理）
+	// 这里可以扩展为更复杂的状态管理
+	if strings.Contains(message.Text, "0") && strings.Contains(message.Text, "*") {
+		// 简单的 Cron 表达式检测
+		if err := t.validateCronExpression(message.Text); err == nil {
+			// 假设用户要设置一个核心维护任务（这里可以扩展为更智能的识别）
+			taskName := "核心维护 自定义定时任务"
+			_, err := t.jobManager.AddJob(taskName, string(TaskTypeCore), strings.TrimSpace(message.Text))
+			if err != nil {
+				return t.SendMessage(message.Chat.ID, fmt.Sprintf("❌ 设置定时任务失败: %v", err))
+			}
+			return t.SendMessage(message.Chat.ID, fmt.Sprintf("✅ 定时任务设置成功\n\n🆔 Cron: `%s`", strings.TrimSpace(message.Text)))
 		}
 	}
 	
@@ -109,8 +126,12 @@ func (t *TGBotHandler) handleCallback(query *tgbotapi.CallbackQuery) error {
 		return t.handleRulesMaintain(query)
 	case "maintain_full":
 		return t.handleFullMaintain(query)
+	case "update_xray":
+		return t.handleUpdateXray(query)
+	case "update_singbox":
+		return t.handleUpdateSingbox(query)
 	case "schedule_menu":
-		return t.handleScheduleMenu(query)
+		return t.BuildTaskTypeMenu(query.Message.Chat.ID)
 	case "schedule_core":
 		return t.handleSetCoreSchedule(query)
 	case "schedule_rules":
@@ -129,8 +150,43 @@ func (t *TGBotHandler) handleCallback(query *tgbotapi.CallbackQuery) error {
 		return t.handleRebootConfirm(query)
 	case "back_main":
 		return t.handleBackToMain(query)
+	
+	// 新增多级菜单系统处理
+	case "menu_task_core_maintain":
+		return t.HandleTaskTypeSelection(query, TaskTypeCore)
+	case "menu_task_rules_maintain":
+		return t.HandleTaskTypeSelection(query, TaskTypeRules)
+	case "menu_task_update_xray":
+		return t.HandleTaskTypeSelection(query, TaskTypeUpdateXray)
+	case "menu_task_update_singbox":
+		return t.HandleTaskTypeSelection(query, TaskTypeUpdateSing)
+	case "menu_view_tasks":
+		return t.HandleViewTasks(query)
+	case "menu_task_add":
+		return t.BuildTaskTypeMenu(query.Message.Chat.ID)
+	case "menu_back_task_types":
+		return t.BuildTaskTypeMenu(query.Message.Chat.ID)
+	
 	default:
-		log.Printf("未知的回调数据: %s", query.Data)
+		// 处理动态回调数据
+		if strings.HasPrefix(query.Data, "menu_freq_") {
+			parts := strings.Split(query.Data, "_")
+			if len(parts) >= 4 {
+				taskType := TaskType(parts[2])
+				frequency := Frequency(parts[3])
+				return t.HandleFrequencySelection(query, taskType, frequency)
+			}
+		} else if strings.HasPrefix(query.Data, "menu_time_") {
+			parts := strings.Split(query.Data, "_")
+			if len(parts) >= 5 {
+				taskType := TaskType(parts[2])
+				frequency := Frequency(parts[3])
+				timeValue := strings.Join(parts[4:], "_")
+				return t.HandleTimeSelection(query, taskType, frequency, timeValue)
+			}
+		} else {
+			log.Printf("未知的回调数据: %s", query.Data)
+		}
 	}
 	
 	return nil
@@ -175,6 +231,7 @@ func (t *TGBotHandler) ShowMainMenu(chatID int64) error {
 func (t *TGBotHandler) handleMaintainMenu(query *tgbotapi.CallbackQuery) error {
 	keyboard := [][]tgbotapi.InlineKeyboardButton{
 		{tgbotapi.NewInlineKeyboardButtonData("🔧 核心维护", "maintain_core"), tgbotapi.NewInlineKeyboardButtonData("📜 规则更新", "maintain_rules")},
+		{tgbotapi.NewInlineKeyboardButtonData("🔄 Xray 更新", "update_xray"), tgbotapi.NewInlineKeyboardButtonData("🔄 Sing-box 更新", "update_singbox")},
 		{tgbotapi.NewInlineKeyboardButtonData("🔄 完整维护", "maintain_full"), tgbotapi.NewInlineKeyboardButtonData("🔙 返回", "back_main")},
 	}
 	
@@ -611,4 +668,76 @@ func (t *TGBotHandler) handleRebootConfirm(query *tgbotapi.CallbackQuery) error 
 // handleBackToMain 处理返回主菜单
 func (t *TGBotHandler) handleBackToMain(query *tgbotapi.CallbackQuery) error {
 	return t.ShowMainMenu(query.Message.Chat.ID)
+}
+
+// handleUpdateXray 处理 Xray 更新
+func (t *TGBotHandler) handleUpdateXray(query *tgbotapi.CallbackQuery) error {
+	// 在后台执行更新
+	go func() {
+		startTime := time.Now()
+		result, err := t.systemExec.UpdateXray()
+		endTime := time.Now()
+
+		record := &system.MaintainHistoryRecord{
+			ID:        fmt.Sprintf("%d", startTime.Unix()),
+			Type:      "Xray 更新",
+			StartTime: startTime,
+			EndTime:   endTime,
+			Status:    "success",
+			Result:    result,
+		}
+
+		if err != nil {
+			record.Status = "failed"
+			record.Error = err.Error()
+			t.historyRecorder.AddRecord(record)
+			t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ Xray 更新失败: %v", err))
+			return
+		}
+		
+		t.historyRecorder.AddRecord(record)
+		t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("✅ *Xray 更新完成*\n\n```\n%s\n```", result))
+	}()
+	
+	text := "⏳ 正在更新 Xray 核心，请稍候..."
+	
+	msg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, text)
+	_, err := t.api.Send(msg)
+	return err
+}
+
+// handleUpdateSingbox 处理 Sing-box 更新
+func (t *TGBotHandler) handleUpdateSingbox(query *tgbotapi.CallbackQuery) error {
+	// 在后台执行更新
+	go func() {
+		startTime := time.Now()
+		result, err := t.systemExec.UpdateSingbox()
+		endTime := time.Now()
+
+		record := &system.MaintainHistoryRecord{
+			ID:        fmt.Sprintf("%d", startTime.Unix()),
+			Type:      "Sing-box 更新",
+			StartTime: startTime,
+			EndTime:   endTime,
+			Status:    "success",
+			Result:    result,
+		}
+
+		if err != nil {
+			record.Status = "failed"
+			record.Error = err.Error()
+			t.historyRecorder.AddRecord(record)
+			t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ Sing-box 更新失败: %v", err))
+			return
+		}
+		
+		t.historyRecorder.AddRecord(record)
+		t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("✅ *Sing-box 更新完成*\n\n```\n%s\n```", result))
+	}()
+	
+	text := "⏳ 正在更新 Sing-box 核心，请稍候..."
+	
+	msg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, text)
+	_, err := t.api.Send(msg)
+	return err
 }

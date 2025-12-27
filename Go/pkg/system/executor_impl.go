@@ -201,3 +201,17 @@ func (e *RealSystemExecutor) RestartService(service string) (string, error) {
 	log.Printf("正在重启服务: %s (命令: %s %v)", service, cmdInfo.command, cmdInfo.args)
 	return e.runCommandWithTimeout(cmdInfo.command, cmdInfo.args...)
 }
+
+// UpdateXray 更新 Xray 核心
+func (e *RealSystemExecutor) UpdateXray() (string, error) {
+	log.Println("正在更新 Xray 核心...")
+	// 执行 Xray 更新命令
+	return e.runCommandWithTimeout("bash", "-c", "curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh | bash -s install")
+}
+
+// UpdateSingbox 更新 Sing-box 核心
+func (e *RealSystemExecutor) UpdateSingbox() (string, error) {
+	log.Println("正在更新 Sing-box 核心...")
+	// 执行 Sing-box 更新命令
+	return e.runCommandWithTimeout("bash", "-c", "curl -Ls https://raw.githubusercontent.com/fscarmen/sing-box/main/sing-box.sh | bash")
+}
