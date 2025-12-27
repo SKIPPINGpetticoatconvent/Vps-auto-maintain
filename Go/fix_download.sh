@@ -91,7 +91,7 @@ download_test() {
   local repos=("FTDRTD/Vps-auto-maintain" "SKIPPINGpetticoatconvent/Vps-auto-maintain")
   
   for repo in "${repos[@]}"; do
-    local api_url="api.github.com/repos/${repo}/releases/latest"
+    local api_url="https://api.github.com/repos/${repo}/releases/latest"
     print_warning "测试 API: $api_url"
     
     if response=$(curl -s --max-time 10 "$api_url" 2>/dev/null); then

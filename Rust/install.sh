@@ -166,7 +166,7 @@ get_latest_release() {
     local repos=("$REPO" "$FALLBACK_REPO")
     
     for repo in "${repos[@]}"; do
-        local api_url="api.github.com/repos/${repo}/releases/latest"
+        local api_url="https://api.github.com/repos/${repo}/releases/latest"
         
         if command -v wget &> /dev/null; then
             LATEST_RELEASE=$(wget -qO- --timeout=10 "$api_url" 2>/dev/null | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')

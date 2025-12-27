@@ -243,7 +243,7 @@ else
   for REPO in "${REPOS[@]}"; do
     print_warning "尝试从 $REPO 获取下载链接..."
     
-    API_URL="api.github.com/repos/${REPO}/releases/latest"
+    API_URL="https://api.github.com/repos/${REPO}/releases/latest"
     TEMP_URL=$(curl -s --max-time 10 "$API_URL" | grep -oE '"browser_download_url":\s*"([^"]+vps-tg-bot-go-linux-amd64[^"]*)' | cut -d'"' -f4 | head -n1)
     
     if [ -n "$TEMP_URL" ]; then
