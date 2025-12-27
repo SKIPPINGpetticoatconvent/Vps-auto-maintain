@@ -122,6 +122,7 @@ sync_timezone() {
   print_success "当前 VPS 时区: $tz"
 }
 sync_timezone
+
 # ========== 参数处理 ==========
 usage() {
   echo "Usage: $0 [install|uninstall]"
@@ -240,17 +241,16 @@ else
   LATEST_URL=""
   
   for REPO in "${REPOS[@]}"; do
-      print_warning "尝试从 $REPO 获取下载链接..."
-      
-      API_URL="api.github.com/repos/${REPO}/releases/latest"
-      TEMP_URL=$(curl -s --max-time 10 "$API_URL" | grep -oE '"browser_download_url":\s*"([^"]+vps-tg-bot-go-linux-amd64[^"]*)' | cut -d'"' -f4 | head -n1)
-      
-      if [ -n "$TEMP_URL" ]; then
-        LATEST_URL="$TEMP_URL"
-        print_success "找到下载链接: $LATEST_URL"
-        break
-      fi
-    done
+    print_warning "尝试从 $REPO 获取下载链接..."
+    
+    API_URL="api.github.com/repos/${REPO}/releases/latest"
+    TEMP_URL=$(curl -s --max-time 10 "$API_URL" | grep -oE '"browser_download_url":\s*"([^"]+vps-tg-bot-go-linux-amd64[^"]*)' | cut -d'"' -f4 | head -n1)
+    
+    if [ -n "$TEMP_URL" ]; then
+      LATEST_URL="$TEMP_URL"
+      print_success "找到下载链接: $LATEST_URL"
+      break
+    fi
   done
   
   if [ -z "$LATEST_URL" ]; then

@@ -30,9 +30,6 @@ check_network() {
   
   local test_urls=(
     "https://api.github.com"
-    "https://ghproxy.com"
-    "https://mirror.ghproxy.com"
-    "https://pd.zwc365.com"
   )
   
   local working_urls=()
@@ -92,51 +89,48 @@ download_test() {
   print_message "下载测试"
   
   local repos=("FTDRTD/Vps-auto-maintain" "SKIPPINGpetticoatconvent/Vps-auto-maintain")
-  local mirrors=("" "https://ghproxy.com/https://" "https://mirror.ghproxy.com/https://" "https://pd.zwc365.com/https://")
   
   for repo in "${repos[@]}"; do
-    for mirror in "${mirrors[@]}"; do
-      local api_url="${mirror}api.github.com/repos/${repo}/releases/latest"
-      print_warning "测试 API: $api_url"
-      
-      if response=$(curl -s --max-time 10 "$api_url" 2>/dev/null); then
-        if echo "$response" | grep -q "tag_name"; then
-          download_url=$(echo "$response" | grep -oE '"browser_download_url":\s*"([^"]+vps-tg-bot-linux-amd64[^"]*)' | cut -d'"' -f4 | head -n1)
-          if [ -n "$download_url" ]; then
-            print_success "✅ 找到下载链接: $download_url"
-            
-            # 测试下载
-            print_warning "测试下载..."
-            if curl -L --max-time 30 -o /tmp/test_binary "$download_url" 2>/dev/null; then
-              if [ -s /tmp/test_binary ]; then
-                print_success "✅ 下载测试成功"
-                rm -f /tmp/test_binary
-                echo ""
-                echo "============================================================"
-                print_success "修复方案可用！"
-                echo "============================================================"
-                print_warning "运行以下命令重新部署："
-                echo "cd $(pwd)"
-                echo "bash deploy.sh"
-                return 0
-              else
-                print_error "❌ 下载的文件为空"
-                rm -f /tmp/test_binary
-              fi
+    local api_url="api.github.com/repos/${repo}/releases/latest"
+    print_warning "测试 API: $api_url"
+    
+    if response=$(curl -s --max-time 10 "$api_url" 2>/dev/null); then
+      if echo "$response" | grep -q "tag_name"; then
+        download_url=$(echo "$response" | grep -oE '"browser_download_url":\s*"([^"]+vps-tg-bot-linux-amd64[^"]*)' | cut -d'"' -f4 | head -n1)
+        if [ -n "$download_url" ]; then
+          print_success "✅ 找到下载链接: $download_url"
+          
+          # 测试下载
+          print_warning "测试下载..."
+          if curl -L --max-time 30 -o /tmp/test_binary "$download_url" 2>/dev/null; then
+            if [ -s /tmp/test_binary ]; then
+              print_success "✅ 下载测试成功"
+              rm -f /tmp/test_binary
+              echo ""
+              echo "============================================================"
+              print_success "修复方案可用！"
+              echo "============================================================"
+              print_warning "运行以下命令重新部署："
+              echo "cd $(pwd)"
+              echo "bash deploy.sh"
+              return 0
             else
-              print_error "❌ 下载测试失败"
+              print_error "❌ 下载的文件为空"
               rm -f /tmp/test_binary
             fi
           else
-            print_error "❌ 未找到有效的下载链接"
+            print_error "❌ 下载测试失败"
+            rm -f /tmp/test_binary
           fi
         else
-          print_error "❌ API 响应格式错误"
+          print_error "❌ 未找到有效的下载链接"
         fi
       else
-        print_error "❌ 无法访问 API"
+        print_error "❌ API 响应格式错误"
       fi
-    done
+    else
+      print_error "❌ 无法访问 API"
+    fi
   done
   
   print_error "所有下载测试都失败"
