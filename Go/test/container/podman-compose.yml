@@ -1,0 +1,60 @@
+# VPS Telegram Bot 多发行版兼容性测试
+# 使用 Podman Compose 同时测试 Debian、Ubuntu 和 CentOS
+
+version: "3.8"
+
+services:
+  # Debian Bookworm 测试
+  debian-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.debian
+    container_name: vps-bot-debian-test
+    privileged: true
+    environment:
+      - TG_TOKEN=test_token_debian
+      - TG_CHAT_ID=123456789
+      - DISTRO=debian
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./results:/app/results
+    networks:
+      - test-network
+
+  # Ubuntu 22.04 测试
+  ubuntu-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
+    container_name: vps-bot-ubuntu-test
+    privileged: true
+    environment:
+      - TG_TOKEN=test_token_ubuntu
+      - TG_CHAT_ID=123456789
+      - DISTRO=ubuntu
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./results:/app/results
+    networks:
+      - test-network
+
+  # CentOS Stream 9 测试
+  centos-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.centos
+    container_name: vps-bot-centos-test
+    privileged: true
+    environment:
+      - TG_TOKEN=test_token_centos
+      - TG_CHAT_ID=123456789
+      - DISTRO=centos
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./results:/app/results
+    networks:
+      - test-network
+
+networks:
+  test-network:
+    driver: bridge

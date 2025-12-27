@@ -1,0 +1,151 @@
+# VPS Telegram Bot E2E 测试容器
+# 基于 Debian Bookworm，模拟真实 VPS 环境
+
+FROM debian:bookworm-slim
+
+# 安装必要的系统工具
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    curl \
+    wget \
+    ca-certificates \
+    systemd \
+    systemd-sysv \
+    procps \
+    net-tools \
+    iproute2 \
+    iptables \
+    ufw \
+    fail2ban \
+    openssh-server \
+    sudo \
+    cron \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# 创建测试用户
+RUN useradd -m -s /bin/bash testuser && \
+    echo "testuser:testpass" | chpasswd && \
+    usermod -aG sudo testuser
+
+# 创建模拟的 x-ui 和 sing-box 服务脚本
+RUN mkdir -p /usr/local/bin
+
+# 模拟 x-ui 命令
+RUN echo '#!/bin/bash\n\
+case "$1" in\n\
+    start) echo "x-ui started"; exit 0;;\n\
+    stop) echo "x-ui stopped"; exit 0;;\n\
+    restart) echo "x-ui restarted"; exit 0;;\n\
+    status) echo "x-ui is running"; exit 0;;\n\
+    *) echo "Usage: x-ui {start|stop|restart|status}"; exit 1;;\n\
+esac' > /usr/local/bin/x-ui && chmod +x /usr/local/bin/x-ui
+
+# 模拟 sb (sing-box) 命令
+RUN echo '#!/bin/bash\n\
+case "$1" in\n\
+    start) echo "sing-box started"; exit 0;;\n\
+    stop) echo "sing-box stopped"; exit 0;;\n\
+    restart) echo "sing-box restarted"; exit 0;;\n\
+    status) echo "sing-box is running"; exit 0;;\n\
+    *) echo "Usage: sb {start|stop|restart|status}"; exit 1;;\n\
+esac' > /usr/local/bin/sb && chmod +x /usr/local/bin/sb
+
+# 创建模拟的维护脚本目录
+RUN mkdir -p /opt/vps-maintain
+
+# 核心维护脚本
+RUN echo '#!/bin/bash\n\
+echo "=== VPS Core Maintenance ==="\n\
+echo "Updating package lists..."\n\
+apt-get update -qq 2>/dev/null || echo "Package update simulated"\n\
+echo "Cleaning old packages..."\n\
+apt-get autoremove -y -qq 2>/dev/null || echo "Cleanup simulated"\n\
+echo "Core maintenance completed at $(date)"\n\
+exit 0' > /opt/vps-maintain/core.sh && chmod +x /opt/vps-maintain/core.sh
+
+# 规则更新脚本
+RUN echo '#!/bin/bash\n\
+echo "=== VPS Rules Update ==="\n\
+echo "Downloading latest rules..."\n\
+echo "Rules updated: 150 new entries"\n\
+echo "Rules update completed at $(date)"\n\
+exit 0' > /opt/vps-maintain/rules.sh && chmod +x /opt/vps-maintain/rules.sh
+
+# 创建 systemd 服务文件目录
+RUN mkdir -p /etc/systemd/system
+
+# 创建模拟的 x-ui systemd 服务
+RUN echo '[Unit]\n\
+Description=x-ui Service\n\
+After=network.target\n\
+\n\
+[Service]\n\
+Type=simple\n\
+ExecStart=/usr/local/bin/x-ui start\n\
+ExecStop=/usr/local/bin/x-ui stop\n\
+Restart=on-failure\n\
+\n\
+[Install]\n\
+WantedBy=multi-user.target' > /etc/systemd/system/x-ui.service
+
+# 创建模拟的 sing-box systemd 服务
+RUN echo '[Unit]\n\
+Description=sing-box Service\n\
+After=network.target\n\
+\n\
+[Service]\n\
+Type=simple\n\
+ExecStart=/usr/local/bin/sb start\n\
+ExecStop=/usr/local/bin/sb stop\n\
+Restart=on-failure\n\
+\n\
+[Install]\n\
+WantedBy=multi-user.target' > /etc/systemd/system/sing-box.service
+
+# 配置 SSH
+RUN mkdir -p /var/run/sshd && \
+    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    echo "root:rootpass" | chpasswd
+
+# 配置 Fail2Ban
+RUN mkdir -p /etc/fail2ban/jail.d
+RUN echo '[sshd]\n\
+enabled = true\n\
+port = ssh\n\
+filter = sshd\n\
+logpath = /var/log/auth.log\n\
+maxretry = 3\n\
+bantime = 600\n\
+findtime = 600' > /etc/fail2ban/jail.d/sshd.local
+
+# 创建测试数据目录
+RUN mkdir -p /var/lib/vps-bot /var/log/vps-bot
+
+# 设置工作目录
+WORKDIR /app
+
+# 测试二进制文件将在运行时挂载
+# COPY vps-tg-bot-test /app/
+
+# 环境变量
+ENV TG_TOKEN="test_token_123456789"
+ENV TG_CHAT_ID="123456789"
+ENV STATE_FILE="/var/lib/vps-bot/state.json"
+ENV CORE_SCRIPT="/opt/vps-maintain/core.sh"
+ENV RULES_SCRIPT="/opt/vps-maintain/rules.sh"
+
+# 暴露端口
+EXPOSE 22 80 443
+
+# 启动脚本
+RUN echo '#!/bin/bash\n\
+# 启动必要服务\n\
+service ssh start 2>/dev/null || true\n\
+service fail2ban start 2>/dev/null || true\n\
+\n\
+# 保持容器运行\n\
+exec "$@"' > /entrypoint.sh && chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["bash"]

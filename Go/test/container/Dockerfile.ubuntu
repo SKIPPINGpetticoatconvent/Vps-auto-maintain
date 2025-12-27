@@ -1,0 +1,19 @@
+# Ubuntu 22.04 测试镜像
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash curl wget ca-certificates procps net-tools iproute2 \
+    iptables ufw fail2ban openssh-server sudo cron jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# 创建模拟服务脚本
+RUN mkdir -p /usr/local/bin /opt/vps-maintain /var/lib/vps-bot /var/log/vps-bot
+
+RUN echo '#!/bin/bash\ncase "$1" in start|stop|restart|status) echo "x-ui $1"; exit 0;; *) exit 1;; esac' > /usr/local/bin/x-ui && chmod +x /usr/local/bin/x-ui
+RUN echo '#!/bin/bash\ncase "$1" in start|stop|restart|status) echo "sb $1"; exit 0;; *) exit 1;; esac' > /usr/local/bin/sb && chmod +x /usr/local/bin/sb
+RUN echo '#!/bin/bash\necho "Core maintenance completed"; exit 0' > /opt/vps-maintain/core.sh && chmod +x /opt/vps-maintain/core.sh
+RUN echo '#!/bin/bash\necho "Rules updated"; exit 0' > /opt/vps-maintain/rules.sh && chmod +x /opt/vps-maintain/rules.sh
+
+WORKDIR /app
+ENV DISTRO=ubuntu
+CMD ["bash"]
