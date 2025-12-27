@@ -11,52 +11,135 @@ REPO="SKIPPINGpetticoatconvent/Vps-auto-maintain"
 
 # 定义操作类型
 ACTION="install"
+FORCE_UNINSTALL="false"
 
 # 解析命令行参数
-while getopts "u:" opt; do
+while getopts "u:f" opt; do
     case $opt in
         u)
             ACTION="uninstall"
             ;;
+        f)
+            FORCE_UNINSTALL="true"
+            ;;
         *)
-            echo "用法: $0 [ -u ]"
+            echo "用法: $0 [ -u ] [ -f ]"
             echo "  -u: 卸载 vps-tg-bot"
+            echo "  -f: 强制卸载（跳过确认提示）"
+            echo "  -uf: 强制卸载 vps-tg-bot"
             exit 1
             ;;
     esac
 done
 
 # 卸载函数
-uninstall() {
-    echo "正在卸载 vps-tg-bot..."
+uninstall_vps_bot() {
+    echo "==========================================="
+    echo "         VPS Telegram Bot 卸载程序"
+    echo "==========================================="
+    echo
     
-    # 停止服务
-    if systemctl is-active --quiet vps-tg-bot; then
-        systemctl stop vps-tg-bot
+    # 检查是否安装了 vps-tg-bot
+    if [ ! -f /usr/local/bin/vps-tg-bot ] && [ ! -d /etc/vps-tg-bot ] && [ ! -f /etc/systemd/system/vps-tg-bot.service ]; then
+        echo "⚠️  未检测到 vps-tg-bot 安装，跳过卸载。"
+        exit 0
     fi
     
-    # 禁用服务
-    if systemctl is-enabled --quiet vps-tg-bot; then
-        systemctl disable vps-tg-bot
+    # 显示将要删除的文件和目录
+    echo "将要删除以下文件和目录："
+    [ -f /usr/local/bin/vps-tg-bot ] && echo "  • 二进制文件: /usr/local/bin/vps-tg-bot"
+    [ -d /etc/vps-tg-bot ] && echo "  • 配置目录: /etc/vps-tg-bot"
+    [ -f /etc/systemd/system/vps-tg-bot.service ] && echo "  • Systemd 服务: /etc/systemd/system/vps-tg-bot.service"
+    [ -d /etc/vps-tg-bot.bak ] && echo "  • 备份目录: /etc/vps-tg-bot.bak"
+    [ -f /var/log/vps-tg-bot.log ] && echo "  • 日志文件: /var/log/vps-tg-bot.log"
+    echo
+    
+    # 强制卸载模式检查
+    if [ "$FORCE_UNINSTALL" != "true" ]; then
+        read -p "⚠️  确定要卸载 vps-tg-bot 吗？这将删除所有配置和数据！(y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "取消卸载。"
+            exit 0
+        fi
     fi
     
-    # 删除服务配置
+    echo "开始卸载过程..."
+    echo
+    
+    # 1. 停止并禁用 Systemd 服务
+    echo "[1/6] 停止并禁用 Systemd 服务..."
+    if systemctl is-active --quiet vps-tg-bot 2>/dev/null; then
+        echo "  正在停止服务..."
+        systemctl stop vps-tg-bot && echo "  ✓ 服务已停止" || echo "  ⚠️  停止服务失败"
+    else
+        echo "  ℹ️  服务未运行"
+    fi
+    
+    if systemctl is-enabled --quiet vps-tg-bot 2>/dev/null; then
+        echo "  正在禁用服务..."
+        systemctl disable vps-tg-bot && echo "  ✓ 服务已禁用" || echo "  ⚠️  禁用服务失败"
+    else
+        echo "  ℹ️  服务未启用"
+    fi
+    
+    # 2. 删除 Systemd 服务文件
+    echo "[2/6] 删除 Systemd 服务文件..."
     if [ -f /etc/systemd/system/vps-tg-bot.service ]; then
-        rm /etc/systemd/system/vps-tg-bot.service
+        rm -f /etc/systemd/system/vps-tg-bot.service
+        echo "  ✓ 服务文件已删除"
+        # 重载 Systemd daemon
+        echo "  正在重载 Systemd daemon..."
         systemctl daemon-reload
+        echo "  ✓ Systemd daemon 已重载"
+    else
+        echo "  ℹ️  服务文件不存在"
     fi
     
-    # 删除二进制文件
+    # 3. 删除二进制文件
+    echo "[3/6] 删除二进制文件..."
     if [ -f /usr/local/bin/vps-tg-bot ]; then
-        rm /usr/local/bin/vps-tg-bot
+        rm -f /usr/local/bin/vps-tg-bot
+        echo "  ✓ 二进制文件已删除"
+    else
+        echo "  ℹ️  二进制文件不存在"
     fi
     
-    # 删除配置目录
+    # 4. 删除配置目录
+    echo "[4/6] 删除配置目录..."
     if [ -d /etc/vps-tg-bot ]; then
         rm -rf /etc/vps-tg-bot
+        echo "  ✓ 配置目录已删除"
+    else
+        echo "  ℹ️  配置目录不存在"
     fi
     
-    echo "vps-tg-bot 已成功卸载。"
+    # 5. 删除备份目录
+    echo "[5/6] 删除备份目录..."
+    if [ -d /etc/vps-tg-bot.bak ]; then
+        rm -rf /etc/vps-tg-bot.bak
+        echo "  ✓ 备份目录已删除"
+    else
+        echo "  ℹ️  备份目录不存在"
+    fi
+    
+    # 6. 删除日志文件
+    echo "[6/6] 删除日志文件..."
+    if [ -f /var/log/vps-tg-bot.log ]; then
+        rm -f /var/log/vps-tg-bot.log
+        echo "  ✓ 日志文件已删除"
+    else
+        echo "  ℹ️  日志文件不存在"
+    fi
+    
+    echo
+    echo "==========================================="
+    echo "         卸载完成！"
+    echo "==========================================="
+    echo "vps-tg-bot 已成功从系统中移除。"
+    echo
+    echo "感谢使用 VPS Telegram Bot！"
+    
     exit 0
 }
 
@@ -68,7 +151,7 @@ fi
 
 # 如果是卸载操作，直接执行卸载
 if [ "$ACTION" = "uninstall" ]; then
-    uninstall
+    uninstall_vps_bot
 fi
 
 # 获取最新 Release 版本号
@@ -88,6 +171,7 @@ if [ -z "$VERSION" ]; then
 fi
 
 echo "最新版本：$VERSION"
+echo
 
 # 检查是否已安装
 if [ -f /usr/local/bin/vps-tg-bot ]; then
@@ -170,3 +254,19 @@ systemctl start vps-tg-bot
 # 状态检查
 echo "服务状态："
 systemctl status vps-tg-bot
+
+echo
+echo "==========================================="
+echo "         安装完成！"
+echo "==========================================="
+echo "vps-tg-bot 已成功安装并启动。"
+echo
+echo "管理命令："
+echo "  查看状态: systemctl status vps-tg-bot"
+echo "  查看日志: journalctl -u vps-tg-bot -f"
+echo "  停止服务: systemctl stop vps-tg-bot"
+echo "  启动服务: systemctl start vps-tg-bot"
+echo "  重启服务: systemctl restart vps-tg-bot"
+echo
+echo "卸载命令: $0 -u"
+echo "强制卸载: $0 -uf"
