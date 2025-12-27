@@ -47,9 +47,9 @@ jobs:
       run: |
         mkdir -p dist
         if [ -d "cmd/vps-tg-bot" ]; then
-          go build -v -trimpath -ldflags "-s -w" -o dist/vps-tg-bot ./cmd/vps-tg-bot
+          go build -v -trimpath -ldflags "-s -w" -o dist/vps-tg-bot-go-linux-amd64 ./cmd/vps-tg-bot
         elif [ -f "main.go" ]; then
-          go build -v -trimpath -ldflags "-s -w" -o dist/vps-tg-bot .
+          go build -v -trimpath -ldflags "-s -w" -o dist/vps-tg-bot-go-linux-amd64 .
         else
           echo "❌ 未找到入口文件 (main.go 或 cmd/vps-tg-bot)"
           exit 1
@@ -80,8 +80,8 @@ jobs:
       if: success()
       uses: actions/upload-artifact@v4
       with:
-        name: binary
-        path: Go/dist/vps-tg-bot*
+        name: vps-tg-bot-go-linux-amd64
+        path: Go/dist/vps-tg-bot-go-linux-amd64
 
   # ==============================
   # 🚀 创建 Release
@@ -105,17 +105,17 @@ jobs:
     - name: 构建多平台二进制文件
       run: |
         mkdir -p dist
-        GOOS=linux   GOARCH=amd64 go build -o dist/vps-tg-bot-linux-amd64   ./cmd/vps-tg-bot
-        GOOS=linux   GOARCH=arm64 go build -o dist/vps-tg-bot-linux-arm64   ./cmd/vps-tg-bot
-        GOOS=windows GOARCH=amd64 go build -o dist/vps-tg-bot-windows-amd64.exe ./cmd/vps-tg-bot
-        GOOS=darwin  GOARCH=amd64 go build -o dist/vps-tg-bot-darwin-amd64  ./cmd/vps-tg-bot
-        GOOS=darwin  GOARCH=arm64 go build -o dist/vps-tg-bot-darwin-arm64  ./cmd/vps-tg-bot
+        GOOS=linux   GOARCH=amd64 go build -o dist/vps-tg-bot-go-linux-amd64   ./cmd/vps-tg-bot
+        GOOS=linux   GOARCH=arm64 go build -o dist/vps-tg-bot-go-linux-arm64   ./cmd/vps-tg-bot
+        GOOS=windows GOARCH=amd64 go build -o dist/vps-tg-bot-go-windows-amd64.exe ./cmd/vps-tg-bot
+        GOOS=darwin  GOARCH=amd64 go build -o dist/vps-tg-bot-go-darwin-amd64  ./cmd/vps-tg-bot
+        GOOS=darwin  GOARCH=arm64 go build -o dist/vps-tg-bot-go-darwin-arm64  ./cmd/vps-tg-bot
 
     - name: 创建 GitHub Release
       uses: softprops/action-gh-release@v2
       with:
         files: |
-          Go/dist/vps-tg-bot-*
+          Go/dist/vps-tg-bot-go-*
           Go/docker-compose.yml
           Go/vps-tg-bot-install.sh
         generate_release_notes: true

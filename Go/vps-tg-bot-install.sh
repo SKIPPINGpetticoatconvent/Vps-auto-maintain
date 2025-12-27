@@ -12,9 +12,12 @@
 
 set -e
 
-BOT_DIR="/opt/vps-tg-bot"
-BOT_BINARY="$BOT_DIR/vps-tg-bot"
-BOT_SERVICE="/etc/systemd/system/vps-tg-bot.service"
+# 定义变量
+BOT_NAME="vps-tg-bot-go"
+BOT_DIR="/opt/$BOT_NAME"
+BOT_BINARY="$BOT_DIR/$BOT_NAME"
+BOT_SERVICE="/etc/systemd/system/$BOT_NAME.service"
+BOT_CONFIG_DIR="/etc/$BOT_NAME"
 CORE_MAINTAIN_SCRIPT="/usr/local/bin/vps-maintain-core.sh"
 RULES_MAINTAIN_SCRIPT="/usr/local/bin/vps-maintain-rules.sh"
 
@@ -55,19 +58,20 @@ fi
 sync_timezone
 # --- Uninstall function ---
 uninstall_script() {
-  print_message "开始卸载 VPS Telegram Bot"
+  print_message "开始卸载 VPS Telegram Bot (Go)"
   if [ "$EUID" -ne 0 ]; then
     echo "❌ 请使用 root 用户或 sudo 执行此脚本进行卸载"
     exit 1
   fi
 
-  read -p "⚠️  您确定要卸载 VPS Telegram Bot 及其相关环境吗? (y/N): " confirm
+  read -p "⚠️  您确定要卸载 $BOT_NAME 及其相关环境吗? (y/N): " confirm
   if [[ "$confirm" =~ ^[Yy]$ ]]; then
     echo "正在清理旧版本文件与服务..."
-    systemctl stop vps-tg-bot 2>/dev/null || true
-    systemctl disable vps-tg-bot 2>/dev/null || true
-    rm -rf "$BOT_DIR" "$BOT_SERVICE" "$CORE_MAINTAIN_SCRIPT" "$RULES_MAINTAIN_SCRIPT"
+    systemctl stop "$BOT_NAME" 2>/dev/null || true
+    systemctl disable "$BOT_NAME" 2>/dev/null || true
+    rm -rf "$BOT_DIR" "$BOT_SERVICE" "$BOT_CONFIG_DIR" "$CORE_MAINTAIN_SCRIPT" "$RULES_MAINTAIN_SCRIPT"
     (crontab -l 2>/dev/null | grep -v "vps-maintain" || true) | crontab -
+    systemctl daemon-reload
     echo "✅ 旧版本已清理完毕"
 
     # Attempt to uninstall Go if it was installed by this script
@@ -86,7 +90,7 @@ uninstall_script() {
       echo "✅ Go 环境已尝试卸载"
     fi
 
-    echo "✅ VPS Telegram Bot 已成功卸载。"
+    echo "✅ $BOT_NAME 已成功卸载。"
     exit 0
   else
     echo "⚠️  卸载已取消。"
@@ -97,8 +101,8 @@ uninstall_script() {
 # --- Usage function ---
 usage() {
   echo "Usage: $0 [install|uninstall]"
-  echo "  install:    Installs or updates the VPS Telegram Bot."
-  echo "  uninstall:  Uninstalls the VPS Telegram Bot and Go environment."
+  echo "  install:    Installs or updates the $BOT_NAME."
+  echo "  uninstall:  Uninstalls the $BOT_NAME and Go environment."
 }
 
 # --- Argument handling ---
@@ -126,9 +130,9 @@ echo "✅ Go 已安装: $GO_VERSION"
 
 # --- 清理旧版本 ---
 print_message "清理旧版本文件与服务"
-systemctl stop vps-tg-bot 2>/dev/null || true
-systemctl disable vps-tg-bot 2>/dev/null || true
-rm -rf "$BOT_DIR" "$BOT_SERVICE" "$CORE_MAINTAIN_SCRIPT" "$RULES_MAINTAIN_SCRIPT"
+systemctl stop "$BOT_NAME" 2>/dev/null || true
+systemctl disable "$BOT_NAME" 2>/dev/null || true
+rm -rf "$BOT_DIR" "$BOT_SERVICE" "$BOT_CONFIG_DIR" "$CORE_MAINTAIN_SCRIPT" "$RULES_MAINTAIN_SCRIPT"
 (crontab -l 2>/dev/null | grep -v "vps-maintain" || true) | crontab -
 echo "✅ 清理完成"
 
@@ -210,13 +214,23 @@ echo "✅ 维护脚本创建完成"
 # --- 步骤 4: 获取或编译 Go 程序 ---
 print_message "步骤 4: 获取或编译 Go 程序"
 mkdir -p "$BOT_DIR"
+mkdir -p "$BOT_CONFIG_DIR"
 
 # 获取脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_DIR="$SCRIPT_DIR"
 
 # 检查是否已有预编译二进制文件（优先检查多个位置）
-if [ -f "../vps-tg-bot-linux-amd64" ]; then
+if [ -f "../vps-tg-bot-go-linux-amd64" ]; then
+  echo "✅ 发现预编译二进制文件 ../vps-tg-bot-go-linux-amd64，使用现有文件"
+  cp ../vps-tg-bot-go-linux-amd64 "$BOT_BINARY"
+elif [ -f "vps-tg-bot-go-linux-amd64" ]; then
+  echo "✅ 发现预编译二进制文件 vps-tg-bot-go-linux-amd64，使用现有文件"
+  cp vps-tg-bot-go-linux-amd64 "$BOT_BINARY"
+elif [ -f "$SOURCE_DIR/../vps-tg-bot-go-linux-amd64" ]; then
+  echo "✅ 发现预编译二进制文件在上级目录，使用现有文件"
+  cp "$SOURCE_DIR/../vps-tg-bot-go-linux-amd64" "$BOT_BINARY"
+elif [ -f "../vps-tg-bot-linux-amd64" ]; then
   echo "✅ 发现预编译二进制文件 ../vps-tg-bot-linux-amd64，使用现有文件"
   cp ../vps-tg-bot-linux-amd64 "$BOT_BINARY"
 elif [ -f "vps-tg-bot-linux-amd64" ]; then
@@ -225,11 +239,14 @@ elif [ -f "vps-tg-bot-linux-amd64" ]; then
 elif [ -f "$SOURCE_DIR/../vps-tg-bot-linux-amd64" ]; then
   echo "✅ 发现预编译二进制文件在上级目录，使用现有文件"
   cp "$SOURCE_DIR/../vps-tg-bot-linux-amd64" "$BOT_BINARY"
-elif [ -f "$SOURCE_DIR/dist/vps-tg-bot" ]; then
+elif [ -f "$SOURCE_DIR/dist/$BOT_NAME" ]; then
   echo "✅ 发现预编译二进制文件，使用现有文件"
-  cp "$SOURCE_DIR/dist/vps-tg-bot" "$BOT_BINARY"
-elif [ -f "$SOURCE_DIR/vps-tg-bot" ]; then
+  cp "$SOURCE_DIR/dist/$BOT_NAME" "$BOT_BINARY"
+elif [ -f "$SOURCE_DIR/$BOT_NAME" ]; then
   echo "✅ 发现二进制文件，使用现有文件"
+  cp "$SOURCE_DIR/$BOT_NAME" "$BOT_BINARY"
+elif [ -f "$SOURCE_DIR/vps-tg-bot" ]; then
+  echo "✅ 发现二进制文件 vps-tg-bot，使用现有文件"
   cp "$SOURCE_DIR/vps-tg-bot" "$BOT_BINARY"
 else
   echo "📦 未发现预编译文件，开始编译 Go 程序"
@@ -285,17 +302,26 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable vps-tg-bot
-systemctl start vps-tg-bot
+systemctl enable "$BOT_NAME"
+systemctl start "$BOT_NAME"
 sleep 3
 
-if systemctl is-active --quiet vps-tg-bot; then
+if systemctl is-active --quiet "$BOT_NAME"; then
   echo "✅ 服务启动成功"
 else
-  echo "❌ 服务启动失败，请查看日志: journalctl -u vps-tg-bot -n 50"
+  echo "❌ 服务启动失败，请查看日志: journalctl -u $BOT_NAME -n 50"
 fi
 
 print_message "🎉 部署完成！"
 echo "✅ 每周维护任务已自动设置 (每周日 04:00)"
 echo "📱 前往 Telegram 发送 /start 开始使用"
 echo "♻️ 支持功能：系统状态、立即维护、查看日志、重启 VPS"
+echo ""
+echo "管理命令："
+echo "  查看状态: systemctl status $BOT_NAME"
+echo "  查看日志: journalctl -u $BOT_NAME -f"
+echo "  停止服务: systemctl stop $BOT_NAME"
+echo "  启动服务: systemctl start $BOT_NAME"
+echo "  重启服务: systemctl restart $BOT_NAME"
+echo ""
+echo "卸载命令: $0 uninstall"
