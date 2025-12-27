@@ -1,0 +1,91 @@
+# E2E 测试镜像 - 模拟真实 VPS 环境
+FROM debian:bookworm-slim
+
+# 安装必要的系统工具（模拟真实 VPS 环境）
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    systemd \
+    procps \
+    bash \
+    coreutils \
+    iproute2 \
+    net-tools \
+    ca-certificates \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+# 设置时区
+ENV TZ=Asia/Shanghai
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+WORKDIR /app
+
+# 复制编译好的二进制文件
+COPY vps-tg-bot /app/vps-tg-bot
+
+# 创建模拟的维护脚本
+RUN mkdir -p /usr/local/bin
+
+# 核心维护脚本
+RUN echo '#!/bin/bash\n\
+echo "=== VPS Core Maintenance ==="\n\
+echo "Date: $(date)"\n\
+echo "Updating package lists..."\n\
+sleep 1\n\
+echo "Packages updated: 5"\n\
+echo "System cleaned"\n\
+echo "=== Maintenance Complete ===" ' > /usr/local/bin/vps-maintain-core.sh && \
+    chmod +x /usr/local/bin/vps-maintain-core.sh
+
+# 规则维护脚本
+RUN echo '#!/bin/bash\n\
+echo "=== VPS Rules Update ==="\n\
+echo "Date: $(date)"\n\
+echo "Downloading new rules..."\n\
+sleep 1\n\
+echo "Rules updated: 150 new entries"\n\
+echo "=== Rules Update Complete ===" ' > /usr/local/bin/vps-maintain-rules.sh && \
+    chmod +x /usr/local/bin/vps-maintain-rules.sh
+
+# 模拟 Xray 服务
+RUN echo '#!/bin/bash\n\
+case "$1" in\n\
+    "restart")\n\
+        echo "Xray restarted successfully"\n\
+        ;;\n\
+    "status")\n\
+        echo "Xray is running"\n\
+        ;;\n\
+    *)\n\
+        echo "Usage: x-ui {restart|status}"\n\
+        ;;\n\
+esac ' > /usr/local/bin/x-ui && \
+    chmod +x /usr/local/bin/x-ui
+
+# 模拟 Sing-box 服务
+RUN echo '#!/bin/bash\n\
+case "$1" in\n\
+    "restart")\n\
+        echo "Sing-box restarted successfully"\n\
+        ;;\n\
+    "status")\n\
+        echo "Sing-box is running"\n\
+        ;;\n\
+    *)\n\
+        echo "Usage: sb {restart|status}"\n\
+        ;;\n\
+esac ' > /usr/local/bin/sb && \
+    chmod +x /usr/local/bin/sb
+
+# 环境变量
+ENV TG_TOKEN=""
+ENV TG_CHAT_ID=""
+ENV CORE_SCRIPT="/usr/local/bin/vps-maintain-core.sh"
+ENV RULES_SCRIPT="/usr/local/bin/vps-maintain-rules.sh"
+ENV STATE_FILE="/app/state.json"
+
+# 设置权限
+RUN chmod +x /app/vps-tg-bot
+
+ENTRYPOINT ["/app/vps-tg-bot"]

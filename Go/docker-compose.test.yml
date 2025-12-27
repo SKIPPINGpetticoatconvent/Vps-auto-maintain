@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  # 测试服务
+  vps-tg-bot-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: vps-tg-bot-test
+    environment:
+      - TEST_MODE=true
+      - TG_TOKEN=test_token_123456789:test_bot_token_for_testing
+      - TG_CHAT_ID=123456789
+      - STATE_FILE=/app/test-results/test_state.json
+      - CORE_SCRIPT=/app/test/test_core.sh
+      - RULES_SCRIPT=/app/test/test_rules.sh
+      - COVERAGE_DIR=/app/test-results
+      - TEST_TIMEOUT=30s
+    volumes:
+      # 挂载测试结果输出目录
+      - ./test-results:/app/test-results
+      # 挂载测试脚本
+      - ./test:/app/test
+      # 只读挂载源代码用于测试
+      - .:/build:ro
+    working_dir: /app
+    networks:
+      - test-network
+    command: ["make", "test-containerized"]
+
+  # 覆盖率收集服务
+  coverage-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: vps-tg-bot-coverage
+    environment:
+      - COVERAGE_DIR=/app/test-results
+    volumes:
+      - ./test-results:/app/test-results
+      - .:/build:ro
+    working_dir: /app
+    networks:
+      - test-network
+    command: ["make", "coverage-report"]
+    depends_on:
+      - vps-tg-bot-test
+    profiles:
+      - coverage
+
+  # 性能测试服务
+  performance-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: vps-tg-bot-performance
+    environment:
+      - TEST_MODE=true
+      - PERFORMANCE_TEST=true
+      - TG_TOKEN=test_token_123456789:test_bot_token_for_testing
+      - TG_CHAT_ID=123456789
+      - STATE_FILE=/app/test-results/perf_test_state.json
+    volumes:
+      - ./test-results:/app/test-results
+      - ./test/performance:/app/test/performance
+    working_dir: /app
+    networks:
+      - test-network
+    command: ["make", "test-performance"]
+    profiles:
+      - performance
+
+  # 安全测试服务
+  security-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: vps-tg-bot-security
+    environment:
+      - TEST_MODE=true
+      - SECURITY_TEST=true
+    volumes:
+      - ./test-results:/app/test-results
+      - ./test/security:/app/test/security
+    working_dir: /app
+    networks:
+      - test-network
+    command: ["make", "test-security"]
+    profiles:
+      - security
+
+networks:
+  test-network:
+    driver: bridge
+
+volumes:
+  test-results:
+    driver: local

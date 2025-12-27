@@ -1,0 +1,94 @@
+# Rust VPS Telegram Bot - Podman Compose 配置
+# 用于模拟真实 VPS 环境的端到端测试
+
+version: '3.8'
+
+services:
+  # VPS 模拟环境 - 运行 Bot
+  vps-bot:
+    build:
+      context: ../..
+      dockerfile: tests/e2e/Dockerfile.e2e
+    container_name: vps-tg-bot-rust-e2e
+    environment:
+      - TELOXIDE_TOKEN=${TELOXIDE_TOKEN:-test_token_123456789:ABCdefGHIjklMNOpqrsTUVwxyz}
+      - CHAT_ID=${CHAT_ID:-123456789}
+      - RUST_LOG=info
+    volumes:
+      - rust-e2e-state:/app/state
+    networks:
+      - rust-e2e-network
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "vps-tg-bot"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # E2E 测试执行器
+  e2e-tester:
+    build:
+      context: ../..
+      dockerfile: tests/e2e/Dockerfile.e2e
+    container_name: vps-tg-bot-rust-tester
+    environment:
+      - RUST_LOG=debug
+    volumes:
+      - ../../:/build:ro
+      - rust-e2e-results:/app/test-results
+    working_dir: /build
+    networks:
+      - rust-e2e-network
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo "=== 运行 Rust E2E 测试 ==="
+        cargo test e2e_test --release -- --test-threads=1 --nocapture
+        echo "=== 测试完成 ==="
+    depends_on:
+      vps-bot:
+        condition: service_healthy
+    profiles:
+      - test
+
+  # 脚本验证服务
+  script-validator:
+    build:
+      context: ../..
+      dockerfile: tests/e2e/Dockerfile.e2e
+    container_name: vps-tg-bot-rust-validator
+    environment:
+      - RUST_LOG=info
+    networks:
+      - rust-e2e-network
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo "=== 验证 Rust Bot 维护脚本 ==="
+        echo ""
+        echo "1. 核心维护脚本:"
+        /usr/local/bin/vps-maintain-core.sh
+        echo ""
+        echo "2. 规则维护脚本:"
+        /usr/local/bin/vps-maintain-rules.sh
+        echo ""
+        echo "3. Xray 服务:"
+        /usr/local/bin/x-ui status
+        /usr/local/bin/x-ui restart
+        /usr/local/bin/x-ui update
+        echo ""
+        echo "4. Sing-box 服务:"
+        /usr/local/bin/sb status
+        /usr/local/bin/sb restart
+        /usr/local/bin/sb update
+        echo ""
+        echo "=== 所有脚本验证通过 ==="
+    profiles:
+      - validate
+
+networks:
+  rust-e2e-network:
+    driver: bridge
+
+volumes:
+  rust-e2e-state:
+  rust-e2e-results:

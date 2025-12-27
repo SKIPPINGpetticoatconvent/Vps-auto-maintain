@@ -1,6 +1,6 @@
 # Makefile for VPS Telegram Bot
 
-.PHONY: help build clean test lint fmt vet run install
+.PHONY: help build clean test lint fmt vet run install test-containerized test-performance test-security coverage-report test-all
 
 # 变量定义
 BINARY_NAME=vps-tg-bot
@@ -21,6 +21,11 @@ help:
 	@echo "  make run        - 运行程序（需要设置环境变量）"
 	@echo "  make install    - 安装到系统"
 	@echo "  make build-all  - 构建所有平台"
+	@echo "  make test-containerized - 运行容器化测试"
+	@echo "  make test-performance  - 运行性能测试"
+	@echo "  make test-security     - 运行安全测试"
+	@echo "  make coverage-report   - 生成覆盖率报告"
+	@echo "  make test-all         - 运行所有测试"
 
 # 构建
 build:
@@ -102,3 +107,46 @@ deps-update:
 	@echo "更新依赖..."
 	@go get -u ./...
 	@go mod tidy
+
+# 容器化测试
+test-containerized:
+	@echo "运行容器化测试..."
+	@chmod +x test/run_containerized_tests.sh
+	@./test/run_containerized_tests.sh
+
+# 性能测试
+test-performance:
+	@echo "运行性能测试..."
+	@chmod +x test/performance/run_performance_tests.sh
+	@./test/performance/run_performance_tests.sh
+
+# 安全测试
+test-security:
+	@echo "运行安全测试..."
+	@chmod +x test/security/run_security_tests.sh
+	@./test/security/run_security_tests.sh
+
+# 生成覆盖率报告
+coverage-report:
+	@echo "生成覆盖率报告..."
+	@mkdir -p test-results
+	@go test -coverprofile=test-results/coverage.out ./...
+	@go tool cover -html=test-results/coverage.out -o test-results/coverage.html
+	@go tool cover -func=test-results/coverage.out
+	@echo "覆盖率报告已生成: test-results/coverage.html"
+
+# 运行所有测试
+test-all: test-containerized test-performance test-security
+	@echo "所有测试完成！"
+
+# 构建测试镜像
+build-test-image:
+	@echo "构建测试镜像..."
+	@docker build -f Dockerfile.test -t vps-tg-bot:test .
+	@echo "测试镜像构建完成"
+
+# 清理测试结果
+clean-test-results:
+	@echo "清理测试结果..."
+	@rm -rf test-results
+	@echo "测试结果清理完成"
