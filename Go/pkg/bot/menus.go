@@ -354,18 +354,22 @@ func (t *TGBotHandler) HandleTimeSelection(query *tgbotapi.CallbackQuery, taskTy
 func (t *TGBotHandler) buildCronExpression(frequency Frequency, timeValue string) string {
 	switch frequency {
 	case FrequencyDaily:
-		// 每日: "0 {hour} * * *"
-		return fmt.Sprintf("0 %s * * *", timeValue)
+		// 每日: "0 0 {hour} * * *" (支持秒的6字段格式)
+		return fmt.Sprintf("0 0 %s * * *", timeValue)
 	case FrequencyWeekly:
-		// 每周: "{minute} {hour} * * 0"
-		return fmt.Sprintf("%s * * 0", timeValue)
-	case FrequencyMonthly:
-		// 每月: "0 {hour} {day} * *"
+		// 每周: "0 0 {minute} {hour} * * 0"
 		parts := strings.Split(timeValue, " ")
 		if len(parts) == 2 {
-			return fmt.Sprintf("0 %s %s * *", parts[0], parts[1])
+			return fmt.Sprintf("0 0 %s %s * * 0", parts[0], parts[1])
 		}
-		return fmt.Sprintf("0 %s * * *", timeValue)
+		return fmt.Sprintf("0 0 %s * * * 0", timeValue)
+	case FrequencyMonthly:
+		// 每月: "0 0 {hour} {day} * *"
+		parts := strings.Split(timeValue, " ")
+		if len(parts) == 2 {
+			return fmt.Sprintf("0 0 %s %s * * *", parts[0], parts[1])
+		}
+		return fmt.Sprintf("0 0 %s * * *", timeValue)
 	default:
 		return timeValue
 	}
@@ -450,10 +454,10 @@ func (t *TGBotHandler) validateCronExpression(cronExpr string) error {
 		return fmt.Errorf("Cron 表达式不能为空")
 	}
 
-	// 基本的格式验证（5个或6个字段）
+	// 基本的格式验证（6个字段，支持秒）
 	fields := strings.Fields(cronExpr)
-	if len(fields) != 5 && len(fields) != 6 {
-		return fmt.Errorf("Cron 表达式必须包含5个或6个字段")
+	if len(fields) != 6 {
+		return fmt.Errorf("Cron 表达式必须包含6个字段（秒 分 时 日 月 星期）")
 	}
 
 	// TODO: 可以使用更严格的验证，比如调用调度器的 validateCron 方法
