@@ -232,15 +232,32 @@ else
   print_warning "从 GitHub 下载最新版本..."
   
   # 获取下载链接
-  LATEST_URL=$(curl -s https://api.github.com/repos/SKIPPINGpetticoatconvent/Vps-auto-maintain/releases/latest | grep "browser_download_url.*vps-tg-bot-linux-amd64" | cut -d '"' -f 4)
+  print_warning "从 GitHub 下载最新版本..."
+  
+  # 尝试多个仓库和镜像源
+  REPOS=("FTDRTD/Vps-auto-maintain" "SKIPPINGpetticoatconvent/Vps-auto-maintain")
+  MIRRORS=("" "https://ghproxy.com/https://" "https://mirror.ghproxy.com/https://" "https://pd.zwc365.com/https://")
+  
+  LATEST_URL=""
+  
+  for REPO in "${REPOS[@]}"; do
+    for MIRROR in "${MIRRORS[@]}"; do
+      print_warning "尝试从 $MIRROR$REPO 获取下载链接..."
+      
+      API_URL="${MIRROR}api.github.com/repos/${REPO}/releases/latest"
+      TEMP_URL=$(curl -s --max-time 10 "$API_URL" | grep -oE '"browser_download_url":\s*"([^"]+vps-tg-bot-linux-amd64[^"]*)' | cut -d'"' -f4 | head -n1)
+      
+      if [ -n "$TEMP_URL" ]; then
+        LATEST_URL="$TEMP_URL"
+        print_success "找到下载链接: $LATEST_URL"
+        break 2
+      fi
+    done
+  done
   
   if [ -z "$LATEST_URL" ]; then
-    print_warning "使用镜像获取下载链接..."
-    LATEST_URL=$(curl -s https://ghproxy.com/https://api.github.com/repos/SKIPPINGpetticoatconvent/Vps-auto-maintain/releases/latest | grep "browser_download_url.*vps-tg-bot-linux-amd64" | cut -d '"' -f 4)
-  fi
-  
-  if [ -z "$LATEST_URL" ]; then
-    print_error "无法获取下载链接"
+    print_error "无法从任何源获取下载链接"
+    print_error "请检查网络连接或手动下载二进制文件"
     exit 1
   fi
   

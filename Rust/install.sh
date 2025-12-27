@@ -7,7 +7,8 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # 定义变量
-REPO="SKIPPINGpetticoatconvent/Vps-auto-maintain"
+REPO="FTDRTD/Vps-auto-maintain"
+FALLBACK_REPO="SKIPPINGpetticoatconvent/Vps-auto-maintain"
 BOT_NAME="vps-tg-bot-rust"
 BOT_BINARY="/usr/local/bin/$BOT_NAME"
 BOT_CONFIG_DIR="/etc/$BOT_NAME"
@@ -162,12 +163,27 @@ fi
 
 # 获取最新 Release 版本号
 get_latest_release() {
-    if command -v wget &> /dev/null; then
-        LATEST_RELEASE=$(wget -qO- "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
-    else
-        LATEST_RELEASE=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
-    fi
-    echo "$LATEST_RELEASE"
+    local repos=("$REPO" "$FALLBACK_REPO")
+    local mirrors=("" "https://ghproxy.com/https://" "https://mirror.ghproxy.com/https://" "https://pd.zwc365.com/https://")
+    
+    for repo in "${repos[@]}"; do
+        for mirror in "${mirrors[@]}"; do
+            local api_url="${mirror}api.github.com/repos/${repo}/releases/latest"
+            
+            if command -v wget &> /dev/null; then
+                LATEST_RELEASE=$(wget -qO- --timeout=10 "$api_url" 2>/dev/null | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+            else
+                LATEST_RELEASE=$(curl -s --max-time 10 "$api_url" 2>/dev/null | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+            fi
+            
+            if [ -n "$LATEST_RELEASE" ]; then
+                echo "$LATEST_RELEASE"
+                return 0
+            fi
+        done
+    done
+    
+    echo ""
 }
 
 VERSION=$(get_latest_release)
@@ -201,14 +217,40 @@ if [ -f "$BOT_BINARY" ]; then
 fi
 
 # 下载二进制文件
-BINARY_URL="https://github.com/$REPO/releases/download/$VERSION/vps-tg-bot-rust-linux-amd64"
 echo "正在下载二进制文件..."
 
-if command -v wget &> /dev/null; then
-    wget -O /tmp/$BOT_NAME "$BINARY_URL" || { echo "下载失败"; exit 1; }
-else
-    curl -L -o /tmp/$BOT_NAME "$BINARY_URL" || { echo "下载失败"; exit 1; }
+# 尝试多个仓库和镜像源
+DOWNLOAD_SUCCESS=false
+REPOS=("$REPO" "$FALLBACK_REPO")
+MIRRORS=("" "https://ghproxy.com/https://" "https://mirror.ghproxy.com/https://" "https://pd.zwc365.com/https://")
+
+for repo in "${REPOS[@]}"; do
+    for mirror in "${MIRRORS[@]}"; do
+        BINARY_URL="${mirror}github.com/${repo}/releases/download/${VERSION}/vps-tg-bot-rust-linux-amd64"
+        echo "尝试从 $BINARY_URL 下载..."
+        
+        if command -v wget &> /dev/null; then
+            if wget -O /tmp/$BOT_NAME --timeout=30 "$BINARY_URL" 2>/dev/null; then
+                DOWNLOAD_SUCCESS=true
+                break 2
+            fi
+        else
+            if curl -L -o /tmp/$BOT_NAME --max-time 30 "$BINARY_URL" 2>/dev/null; then
+                DOWNLOAD_SUCCESS=true
+                break 2
+            fi
+        fi
+    done
+done
+
+if [ "$DOWNLOAD_SUCCESS" != "true" ]; then
+    echo "❌ 无法从任何源下载二进制文件"
+    echo "请检查网络连接或手动下载："
+    echo "https://github.com/$REPO/releases"
+    exit 1
 fi
+
+echo "✅ 下载成功"
 
 # 安装二进制文件
 echo "正在安装二进制文件..."
