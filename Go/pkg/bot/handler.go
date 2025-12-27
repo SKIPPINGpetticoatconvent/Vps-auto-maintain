@@ -131,6 +131,7 @@ func (t *TGBotHandler) handleCallback(query *tgbotapi.CallbackQuery) error {
 	case "update_singbox":
 		return t.handleUpdateSingbox(query)
 	case "schedule_menu":
+		log.Printf("用户进入调度设置，显示多级菜单")
 		return t.BuildTaskTypeMenu(query.Message.Chat.ID)
 	case "schedule_core":
 		return t.handleSetCoreSchedule(query)
@@ -172,19 +173,23 @@ func (t *TGBotHandler) handleCallback(query *tgbotapi.CallbackQuery) error {
 		if strings.HasPrefix(query.Data, "menu_freq_") {
 			parts := strings.Split(query.Data, "_")
 			log.Printf("解析频率菜单回调数据: %s, 分割结果: %v", query.Data, parts)
-			if len(parts) >= 4 {
-				taskType := TaskType(parts[2])
-				frequency := Frequency(parts[3])
+			if len(parts) >= 5 {
+				// 修复解析逻辑: menu_freq_core_maintain_daily
+				// parts: [menu, freq, core, maintain, daily]
+				taskType := TaskType(fmt.Sprintf("%s_%s", parts[2], parts[3]))
+				frequency := Frequency(parts[4])
 				log.Printf("解析结果 - 任务类型: %s, 频率: %s", taskType, frequency)
 				return t.HandleFrequencySelection(query, taskType, frequency)
 			}
 		} else if strings.HasPrefix(query.Data, "menu_time_") {
 			parts := strings.Split(query.Data, "_")
 			log.Printf("解析时间选择回调数据: %s, 分割结果: %v", query.Data, parts)
-			if len(parts) >= 5 {
-				taskType := TaskType(parts[2])
-				frequency := Frequency(parts[3])
-				timeValue := strings.Join(parts[4:], "_")
+			if len(parts) >= 6 {
+				// 修复解析逻辑: menu_time_core_maintain_daily_4
+				// parts: [menu, time, core, maintain, daily, 4]
+				taskType := TaskType(fmt.Sprintf("%s_%s", parts[2], parts[3]))
+				frequency := Frequency(parts[4])
+				timeValue := parts[5]
 				log.Printf("解析结果 - 任务类型: %s, 频率: %s, 时间: %s", taskType, frequency, timeValue)
 				return t.HandleTimeSelection(query, taskType, frequency, timeValue)
 			}

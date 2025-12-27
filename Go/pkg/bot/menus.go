@@ -307,6 +307,7 @@ func (t *TGBotHandler) HandleFrequencySelection(query *tgbotapi.CallbackQuery, t
 
 	// 其他频率：显示时间选择界面
 	log.Printf("显示时间选择界面: 任务类型=%s, 频率=%s", taskType, frequency)
+	log.Printf("即将调用 BuildTimeSelectionKeyboard 生成时间选择选项")
 	return t.BuildTimeSelectionKeyboard(query.Message.Chat.ID, taskType, frequency)
 }
 
