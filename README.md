@@ -2,29 +2,34 @@
 
 > 简体中文 | [English](#english)
 
-一个强大的 VPS 自动化维护工具集，提供一键部署、定时维护和安全配置功能，包含 Python 和 Go 两种实现版本的 Telegram Bot 管理系统。
+一个强大的 VPS 自动化维护工具集，提供一键部署、定时维护和安全配置功能，包含 Python、Go 和 Rust 三种实现版本的 Telegram Bot 管理系统。
 
 ## 功能特性
 
 - 🔄 **自动维护**: 系统更新、Xray/Sing-box 核心更新、定时重启
 - 🤖 **Telegram 通知**: 实时状态监控、维护结果通知、封禁提醒
 - 🛡️ **安全配置**: 防火墙自动配置、Fail2Ban SSH 防护、三档防护模式
-- 📱 **Bot 管理**: 通过 Telegram Bot 交互式远程管理 VPS（支持 Python 和 Go 两种实现）
+- 📱 **Bot 管理**: 通过 Telegram Bot 交互式远程管理 VPS（支持 Python、Go 和 Rust 三种实现）
 - ⏰ **定时任务**: 智能调度、时区自适应、持久化存储
 - 📊 **状态监控**: 实时查看系统状态、代理服务状态、定时任务状态
 - 💾 **内存优化**: 系统日志内存化存储、内存使用优化
 - 🔒 **安全更新**: 无人值守安全补丁、自动重启、多种部署模式
-- 🚀 **多语言支持**: Python 版本（成熟稳定）、Go 版本（高性能、低资源占用）
+- 🚀 **多语言支持**: Python 版本（成熟稳定）、Go 版本（高性能、低资源占用）、Rust 版本（类型安全、高性能）
 
 ## 项目文件
 
 ### 脚本列表
 
 - `deploy.sh` - VPS 自动维护一键部署脚本 (v4.4)
-- `Telegram-Bot.sh` - Telegram Bot 管理系统部署脚本 (v5.3)
-- `vps_secure_xpanel_fixed.sh` - VPS 终极安全与自动维护脚本 (V3.7.3)
+- `vps_secure_xpanel.sh` - VPS 安全配置与自动维护脚本 (v3.7)
+- `test.sh` - 项目测试脚本
 - `Debian/security-auto-update.sh` - Debian 安全更新专用脚本 (v2.1)
 - `Go/vps-tg-bot-install.sh` - Go 版本 Telegram Bot 一键部署脚本 (v1.0)
+- `Go/vps-tg-bot-test` - Go 版本测试脚本
+- `Rust/install.sh` - Rust 版本 Telegram Bot 一键部署脚本 (v0.1.0)
+- `Rust/vps-tg-bot/` - Rust 版本 Telegram Bot 项目目录
+- `Rust/vps-tg-bot/` - Rust 版本 Telegram Bot 主项目
+- `TG/vps-tg-bot-install-5.3.1-weekly.sh` - Python 版本 Telegram Bot 周维护脚本
 - `LICENSE` - MIT 许可证
 - `.gitignore` - Git 忽略文件
 
@@ -38,9 +43,26 @@
   - `BUILD.md` - 构建指南
   - `CI.md` - CI/CD 工作流说明
   - `CONFIG.md` - 配置详细说明
+  - `vps-tg-bot-install.sh` - 一键部署脚本
+  - `vps-tg-bot-test` - 测试脚本
+  - 多个修复报告和架构文档
+- `Rust/` - Rust 语言实现的 Telegram Bot 管理系统
+  - `vps-tg-bot/` - 主项目目录
+    - `src/` - 源代码（main.rs、config、bot、system、scheduler 模块）
+    - `tests/` - 测试文件
+    - `Cargo.toml` - Rust 项目配置
+    - `Cargo.lock` - 依赖锁定文件
+    - `README.md` - Rust 版本详细文档
+    - 完整的修复报告和架构文档
+  - `install.sh` - Rust 版本一键部署脚本
+  - `SPECIFICATION.md` - 规格说明文档
 - `TG/` - Telegram Bot 相关脚本
+  - `vps-tg-bot-install-5.3.1-weekly.sh` - Python 版本 Bot 周维护脚本
 - `Debian/` - Debian 系统专用脚本
+  - `security-auto-update.sh` - 安全更新脚本
 - `.github/` - GitHub Actions 工作流
+  - CI/CD 配置文件
+  - 多语言版本支持（Python、Go、Rust）
 
 ### 主要功能模块
 
@@ -51,18 +73,28 @@
 - Telegram 通知集成
 
 #### 2. Telegram Bot 管理
-- **Python 版本** (`Telegram-Bot.sh`) - 成熟稳定的管理系统 (v5.3)
+- **Python 版本** (`TG/vps-tg-bot-install-5.3.1-weekly.sh`) - 成熟稳定的管理系统 (v5.3.1-weekly)
   - 交互式 VPS 管理界面
   - 即时维护命令执行
   - 定时任务管理（持久化存储）
   - 系统日志查看
+  - UV 包管理器集成
 - **Go 版本** (`Go/`) - 高性能、低资源占用的管理系统 (v1.0)
   - 基于 Go 语言重构
   - 单一二进制文件部署
   - 更低的内存占用
   - 更快的启动速度
+  - 模块化架构设计
+- **Rust 版本** (`Rust/vps-tg-bot/`) - 类型安全、高性能的管理系统 (v0.1.0)
+  - 基于 Rust 语言和 Teloxide 框架
+  - 完整的类型安全保障
+  - Inline Keyboard 交互界面
+  - 细粒度维护操作
+  - 调度计划持久化存储
+  - 实时状态反馈
+  - 完善的错误处理和日志管理
 
-#### 3. 安全配置 (`vps_secure_xpanel_fixed.sh`)
+#### 3. 安全配置 (`vps_secure_xpanel.sh`)
 - UFW/firewalld 防火墙配置
 - Fail2Ban SSH 防护（三种模式）
 - 端口自动检测和开放
@@ -74,6 +106,11 @@
 - 内存日志存储优化
 - 03:00 自动重启
 - 轻量化环境专用
+
+#### 5. 项目测试 (`test.sh`)
+- 自动化测试脚本
+- 多语言版本兼容性验证
+- 功能完整性检查
 
 ## 快速开始
 
@@ -87,13 +124,14 @@
 
 #### 选择适合您的部署方案
 
-项目提供五种部署方案，请根据需求选择：
+项目提供六种部署方案，请根据需求选择：
 
 1. **完整维护方案** (`deploy.sh`) - 系统维护 + 定时任务 + Telegram 通知
-2. **Bot 管理方案（Python）** (`Telegram-Bot.sh`) - 成熟稳定的交互式 Bot 管理界面
-3. **Bot 管理方案（Go）** (`Go/vps-tg-bot-install.sh`) - 高性能的 Go 版本 Bot 管理系统
-4. **安全防护方案** (`vps_secure_xpanel_fixed.sh`) - 全面的安全配置和防护
-5. **轻量更新方案** (`Debian/security-auto-update.sh`) - 仅安全更新，轻量部署
+2. **Bot 管理方案（Python）** (`TG/vps-tg-bot-install-5.3.1-weekly.sh`) - 成熟稳定的交互式 Bot 管理界面 (v5.3.1-weekly)
+3. **Bot 管理方案（Go）** (`Go/vps-tg-bot-install.sh`) - 高性能的 Go 版本 Bot 管理系统 (v1.0)
+4. **Bot 管理方案（Rust）** (`Rust/install.sh`) - 类型安全的 Rust 版本 Bot 管理系统 (v0.1.0)
+5. **安全防护方案** (`vps_secure_xpanel.sh`) - 全面的安全配置和防护
+6. **轻量更新方案** (`Debian/security-auto-update.sh`) - 仅安全更新，轻量部署
 
 #### 方法一：在线运行（推荐，方便快捷）
 
@@ -104,22 +142,32 @@ bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/
 
 ```
 # Telegram Bot 管理部署 (Python 版本)
-bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/TG/Telegram-Bot.sh)
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/TG/vps-tg-bot-install-5.3.1-weekly.sh)
 ```
 
 ```
 # Telegram Bot 管理部署 (Go 版本)
-bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/Go/deploy.sh)
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/Go/vps-tg-bot-install.sh)
+```
+
+```
+# Telegram Bot 管理部署 (Rust 版本)
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/Rust/install.sh)
 ```
 
 ```
 # 安全配置
-bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/vps_secure_xpanel_fixed.sh)
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/vps_secure_xpanel.sh)
 ```
 
 ```
 # 安全更新专用
 bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/Debian/security-auto-update.sh)
+```
+
+```
+# 项目测试
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/test.sh)
 ```
 
 
@@ -137,16 +185,22 @@ bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/
    chmod +x deploy.sh && ./deploy.sh
 
    # Telegram Bot 管理 (Python 版本)
-   chmod +x TG/Telegram-Bot.sh && ./TG/Telegram-Bot.sh
+   chmod +x TG/vps-tg-bot-install-5.3.1-weekly.sh && ./TG/vps-tg-bot-install-5.3.1-weekly.sh
 
    # Telegram Bot 管理 (Go 版本)
    chmod +x Go/vps-tg-bot-install.sh && ./Go/vps-tg-bot-install.sh
 
+   # Telegram Bot 管理 (Rust 版本)
+   chmod +x Rust/install.sh && ./Rust/install.sh
+
    # 安全配置
-   chmod +x vps_secure_xpanel_fixed.sh && ./vps_secure_xpanel_fixed.sh
+   chmod +x vps_secure_xpanel.sh && ./vps_secure_xpanel.sh
 
    # 安全更新专用
    chmod +x Debian/security-auto-update.sh && ./Debian/security-auto-update.sh
+
+   # 项目测试
+   chmod +x test.sh && ./test.sh
    ```
 
 ## 使用说明
@@ -205,13 +259,13 @@ Fail2Ban 提供三种防护模式：
 
 ### 脚本参数说明
 
-#### deploy.sh 和 TG/Telegram-Bot.sh
+#### deploy.sh 和 TG/vps-tg-bot-install-5.3.1-weekly.sh
 - 智能检测 Xray/Sing-box 安装状态
 - 按需创建维护脚本和定时任务
 - 支持手动或自动时间配置
 - 使用内存日志优化系统性能
 
-#### vps_secure_xpanel_fixed.sh
+#### vps_secure_xpanel.sh
 - `--status`: 查看当前安全配置状态
 - `--uninstall`: 尝试还原安全配置
 - 支持 Telegram 实时通知
@@ -223,6 +277,11 @@ Fail2Ban 提供三种防护模式：
 - 支持卸载模式 (--uninstall/-u)
 - 不包含复杂的交互功能
 - 专为 Debian 系统优化
+
+#### test.sh
+- 自动测试所有脚本功能
+- 验证多语言版本兼容性
+- 检查部署流程完整性
 
 ## 架构设计
 
@@ -237,14 +296,19 @@ VPS Auto Maintain
 │   ├── 规则更新脚本
 │   └── 重启通知脚本
 ├── 管理层
-│   ├── Telegram Bot (Python/Go)
+│   ├── Telegram Bot (Python/Go/Rust)
 │   │   ├── Python 版本 (成熟稳定)
-│   │   └── Go 版本 (高性能)
+│   │   ├── Go 版本 (高性能)
+│   │   └── Rust 版本 (类型安全)
 │   └── Web 界面 (可选)
-└── 安全层
-    ├── 防火墙 (UFW/firewalld)
-    ├── Fail2Ban
-    └── 端口管理
+├── 安全层
+│   ├── 防火墙 (UFW/firewalld)
+│   ├── Fail2Ban
+│   └── 端口管理
+└── 测试层
+    ├── 自动化测试 (test.sh)
+    ├── 多语言兼容性验证
+    └── 功能完整性检查
 ```
 
 ## 更新日志
@@ -255,20 +319,21 @@ VPS Auto Maintain
 - 内存化日志存储优化
 - Xray核心和Sing-box独立更新逻辑
 
-### v5.3 (Telegram-Bot.sh)
-- 持久化定时任务存储（SQLite）
-- 兼容性修复和优化
-- UV 包管理器集成
-- 完整的交互式管理界面
-- 错误处理和日志记录改进
-
-### V3.7.3 (vps_secure_xpanel_fixed.sh)
-- 终极安全配置脚本
+### v3.7 (vps_secure_xpanel.sh)
+- 增强安全配置脚本
 - 三档 Fail2Ban 防护模式
 - 智能端口检测和开放
 - X-Panel/X-UI 兼容性支持
 - Telegram 实时封禁通知
 - 自动检测 Fail2Ban action 文件
+
+### v5.3.1-weekly (TG/vps-tg-bot-install-5.3.1-weekly.sh)
+- Python 版本的周维护管理脚本
+- 持久化定时任务存储（SQLite）
+- 兼容性修复和优化
+- UV 包管理器集成
+- 完整的交互式管理界面
+- 错误处理和日志记录改进
 
 ### v2.1 (Debian/security-auto-update.sh)
 - 轻量化安全更新方案
@@ -289,6 +354,35 @@ VPS Auto Maintain
 - systemd 服务自动管理
 - 详细的架构和构建文档
 
+### v0.1.0 (Rust/vps-tg-bot)
+- Rust 语言实现的 Telegram Bot 管理系统
+- 基于 Rust 语言和 Teloxide 框架
+- 完整的类型安全保障
+- Inline Keyboard 交互界面
+- 细粒度维护操作（核心维护、规则维护、特定软件更新）
+- 调度计划持久化存储
+- 实时状态反馈
+- 支持 Cron 表达式的定时维护任务
+- 系统信息监控（CPU、内存、磁盘、网络）
+- 完善的错误处理和日志管理
+
+### v1.0 (Go/vps-tg-bot-install.sh)
+- Go 版本一键部署脚本
+- 自动化依赖安装
+- 系统服务配置
+- 配置向导支持
+
+### v0.1.0 (Rust/install.sh)
+- Rust 版本一键部署脚本
+- 自动化编译和部署
+- 环境配置检查
+- 服务管理集成
+
+### 初始版本 (test.sh)
+- 项目测试脚本
+- 多语言版本验证
+- 自动化测试流程
+
 ## 注意事项
 
 - ⚠️ 请在测试环境先验证脚本
@@ -296,6 +390,7 @@ VPS Auto Maintain
 - ⏱️ 维护任务可能导致服务短暂中断
 - 🛡️ 防火墙配置请谨慎操作
 - 📊 建议定期检查 Bot 运行状态
+- 🧪 使用 test.sh 进行定期功能验证
 
 ## 许可证
 
@@ -311,29 +406,33 @@ VPS Auto Maintain
 
 # VPS Auto Maintain
 
-A powerful VPS automation maintenance toolkit that provides one-click deployment, scheduled maintenance, and security configuration, including both Python and Go implementations of Telegram Bot management systems.
+A powerful VPS automation maintenance toolkit that provides one-click deployment, scheduled maintenance, and security configuration, including Python, Go, and Rust implementations of Telegram Bot management systems.
 
 ## Features
 
 - 🔄 **Auto Maintenance**: System updates, Xray/Sing-box core updates, scheduled reboots
 - 🤖 **Telegram Notifications**: Real-time monitoring, maintenance notifications, ban alerts
 - 🛡️ **Security Configuration**: Automatic firewall setup, Fail2Ban SSH protection, three protection modes
-- 📱 **Bot Management**: Interactive remote VPS management via Telegram Bot (Python & Go versions available)
+- 📱 **Bot Management**: Interactive remote VPS management via Telegram Bot (Python, Go & Rust versions available)
 - ⏰ **Scheduled Tasks**: Smart scheduling, timezone adaptation, persistent storage
 - 📊 **Status Monitoring**: Real-time system status, proxy service status, task status
 - 💾 **Memory Optimization**: System logs in memory storage, memory usage optimization
 - 🔒 **Security Updates**: Unattended security patches, automatic reboot, multiple deployment modes
-- 🚀 **Multi-Language Support**: Python version (mature and stable), Go version (high-performance, low resource usage)
+- 🚀 **Multi-Language Support**: Python version (mature and stable), Go version (high-performance, low resource usage), Rust version (type-safe, high-performance)
 
 ## Project Files
 
 ### Script List
 
 - `deploy.sh` - VPS auto maintenance one-click deployment script (v4.4)
-- `Telegram-Bot.sh` - Telegram Bot management system deployment script (v5.3)
-- `vps_secure_xpanel_fixed.sh` - Ultimate VPS security and auto maintenance script (V3.7.3)
+- `vps_secure_xpanel.sh` - VPS security configuration and auto maintenance script (v3.7)
+- `test.sh` - Project testing script
 - `Debian/security-auto-update.sh` - Debian security update dedicated script (v2.1)
 - `Go/vps-tg-bot-install.sh` - Go version Telegram Bot one-click deployment script (v1.0)
+- `Go/vps-tg-bot-test` - Go version test script
+- `Rust/install.sh` - Rust version Telegram Bot one-click deployment script (v0.1.0)
+- `Rust/vps-tg-bot/` - Rust version Telegram Bot project directory
+- `TG/vps-tg-bot-install-5.3.1-weekly.sh` - Python version Telegram Bot weekly maintenance script
 - `LICENSE` - MIT License
 - `.gitignore` - Git ignore file
 
@@ -346,7 +445,7 @@ A powerful VPS automation maintenance toolkit that provides one-click deployment
 - Telegram notification integration
 
 #### 2. Telegram Bot Management
-- **Python version** (`Telegram-Bot.sh`) - Mature and stable management system (v5.3)
+- **Python version** (`TG/vps-tg-bot-install-5.3.1-weekly.sh`) - Mature and stable management system (v5.3.1-weekly)
   - Interactive VPS management interface
   - Instant maintenance command execution
   - Scheduled task management (persistent storage)
@@ -356,8 +455,16 @@ A powerful VPS automation maintenance toolkit that provides one-click deployment
   - Single binary deployment, no Python environment required
   - Lower memory usage and faster startup
   - Modular architecture for easy maintenance and expansion
+- **Rust version** (`Rust/vps-tg-bot/`) - Type-safe, high-performance management system (v0.1.0)
+  - Built with Rust language and Teloxide framework
+  - Complete type safety guarantees
+  - Inline Keyboard interactive interface
+  - Granular maintenance operations
+  - Persistent storage of scheduling plans
+  - Real-time status feedback
+  - Comprehensive error handling and logging management
 
-#### 3. Security Configuration (`vps_secure_xpanel_fixed.sh`)
+#### 3. Security Configuration (`vps_secure_xpanel.sh`)
 - UFW/firewalld firewall configuration
 - Fail2Ban SSH protection (three modes)
 - Automatic port detection and opening
@@ -369,6 +476,11 @@ A powerful VPS automation maintenance toolkit that provides one-click deployment
 - Memory-based log storage optimization
 - 03:00 automatic reboot
 - Lightweight environment dedicated
+
+#### 5. Project Testing (`test.sh`)
+- Automated testing script
+- Multi-language version compatibility verification
+- Feature completeness checks
 
 ## Quick Start
 
@@ -382,13 +494,14 @@ A powerful VPS automation maintenance toolkit that provides one-click deployment
 
 #### Choose Your Deployment Plan
 
-The project provides five deployment options, please choose according to your needs:
+The project provides six deployment options, please choose according to your needs:
 
 1. **Complete Maintenance Plan** (`deploy.sh`) - System maintenance + scheduled tasks + Telegram notifications
-2. **Bot Management Plan (Python)** (`Telegram-Bot.sh`) - Mature and stable interactive Bot management interface
-3. **Bot Management Plan (Go)** (`Go/vps-tg-bot-install.sh`) - High-performance Go version Bot management system
-4. **Security Protection Plan** (`vps_secure_xpanel_fixed.sh`) - Comprehensive security configuration and protection
-5. **Lightweight Update Plan** (`Debian/security-auto-update.sh`) - Security updates only, lightweight deployment
+2. **Bot Management Plan (Python)** (`TG/vps-tg-bot-install-5.3.1-weekly.sh`) - Mature and stable interactive Bot management interface (v5.3.1-weekly)
+3. **Bot Management Plan (Go)** (`Go/vps-tg-bot-install.sh`) - High-performance Go version Bot management system (v1.0)
+4. **Bot Management Plan (Rust)** (`Rust/install.sh`) - Type-safe Rust version Bot management system (v0.1.0)
+5. **Security Protection Plan** (`vps_secure_xpanel.sh`) - Comprehensive security configuration and protection
+6. **Lightweight Update Plan** (`Debian/security-auto-update.sh`) - Security updates only, lightweight deployment
 
 #### Method 1: Run Online (Recommended, Quick and Easy)
 
@@ -397,16 +510,22 @@ The project provides five deployment options, please choose according to your ne
 bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/deploy.sh)
 
 # Telegram Bot management deployment (Python version)
-bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/TG/Telegram-Bot.sh)
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/TG/vps-tg-bot-install-5.3.1-weekly.sh)
 
 # Telegram Bot management deployment (Go version)
 bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/Go/vps-tg-bot-install.sh)
 
+# Telegram Bot management deployment (Rust version)
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/Rust/install.sh)
+
 # Security configuration
-bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/vps_secure_xpanel_fixed.sh)
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/vps_secure_xpanel.sh)
 
 # Security update only
 bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/Debian/security-auto-update.sh)
+
+# Project testing
+bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/test.sh)
 ```
 
 #### Method 2: Clone and Run
@@ -423,16 +542,22 @@ bash <(curl -sL https://raw.githubusercontent.com/FTDRTD/Vps-auto-maintain/main/
    chmod +x deploy.sh && ./deploy.sh
 
    # Telegram Bot management (Python version)
-   chmod +x TG/Telegram-Bot.sh && ./TG/Telegram-Bot.sh
+   chmod +x TG/vps-tg-bot-install-5.3.1-weekly.sh && ./TG/vps-tg-bot-install-5.3.1-weekly.sh
 
    # Telegram Bot management (Go version)
    chmod +x Go/vps-tg-bot-install.sh && ./Go/vps-tg-bot-install.sh
 
+   # Telegram Bot management (Rust version)
+   chmod +x Rust/install.sh && ./Rust/install.sh
+
    # Security configuration
-   chmod +x vps_secure_xpanel_fixed.sh && ./vps_secure_xpanel_fixed.sh
+   chmod +x vps_secure_xpanel.sh && ./vps_secure_xpanel.sh
 
    # Security update only
    chmod +x Debian/security-auto-update.sh && ./Debian/security-auto-update.sh
+
+   # Project testing
+   chmod +x test.sh && ./test.sh
    ```
 
 ## Usage Guide
@@ -491,13 +616,13 @@ Provides three SSH protection levels:
 
 ### Script Parameter Guide
 
-#### deploy.sh and TG/Telegram-Bot.sh
+#### deploy.sh and TG/vps-tg-bot-install-5.3.1-weekly.sh
 - Smart detection of Xray/Sing-box installation status
 - Creates maintenance scripts and scheduled tasks as needed
 - Supports manual or automatic time configuration
 - Uses memory logging for system optimization
 
-#### vps_secure_xpanel_fixed.sh
+#### vps_secure_xpanel.sh
 - `--status`: View current security configuration status
 - `--uninstall`: Attempt to restore security configuration
 - Supports Telegram real-time notifications
@@ -509,6 +634,11 @@ Provides three SSH protection levels:
 - Supports uninstall mode (--uninstall/-u)
 - No complex interaction features included
 - Optimized specifically for Debian systems
+
+#### test.sh
+- Automated testing of all script functionality
+- Multi-language version compatibility verification
+- Complete deployment flow validation
 
 ## Architecture Design
 
@@ -523,14 +653,19 @@ VPS Auto Maintain
 │   ├── Rules Update Script
 │   └── Reboot Notification Script
 ├── Management Layer
-│   ├── Telegram Bot (Python/Go)
+│   ├── Telegram Bot (Python/Go/Rust)
 │   │   ├── Python Version (Mature & Stable)
-│   │   └── Go Version (High-Performance)
+│   │   ├── Go Version (High-Performance)
+│   │   └── Rust Version (Type-Safe)
 │   └── Web Interface (optional)
-└── Security Layer
-    ├── Firewall (UFW/firewalld)
-    ├── Fail2Ban
-    └── Port Management
+├── Security Layer
+│   ├── Firewall (UFW/firewalld)
+│   ├── Fail2Ban
+│   └── Port Management
+└── Testing Layer
+    ├── Automated Testing (test.sh)
+    ├── Multi-Language Compatibility Verification
+    └── Feature Completeness Checks
 ```
 
 ## Changelog
@@ -541,20 +676,21 @@ VPS Auto Maintain
 - Memory-based log storage optimization
 - Independent update logic for Xray core and Sing-box
 
-### v5.3 (Telegram-Bot.sh)
+### v3.7 (vps_secure_xpanel.sh)
+- Enhanced security configuration script
+- Three-level Fail2Ban protection modes
+- Smart port detection and opening
+- X-Panel/X-UI compatibility support
+- Telegram real-time ban notifications
+- Automatic Fail2Ban action file detection
+
+### v5.3.1-weekly (TG/vps-tg-bot-install-5.3.1-weekly.sh)
+- Python version weekly maintenance management script
 - Persistent scheduled task storage (SQLite)
 - Compatibility fixes and optimizations
 - UV package manager integration
 - Complete interactive management interface
 - Improved error handling and logging
-
-### V3.7.3 (vps_secure_xpanel_fixed.sh)
-- Ultimate security configuration script
-- Three-level Fail2Ban protection modes
-- Smart port detection and opening
-- X-Panel/X-UI panel compatibility support
-- Telegram real-time ban notifications
-- Automatic Fail2Ban action file detection
 
 ### v2.1 (Debian/security-auto-update.sh)
 - Lightweight security update solution
@@ -575,6 +711,35 @@ VPS Auto Maintain
 - Automatic systemd service management
 - Detailed architecture and build documentation
 
+### v0.1.0 (Rust/vps-tg-bot)
+- Rust language implementation of Telegram Bot management system
+- Built with Rust language and Teloxide framework
+- Complete type safety guarantees
+- Inline Keyboard interactive interface
+- Granular maintenance operations (core maintenance, rules maintenance, specific software updates)
+- Persistent storage of scheduling plans
+- Real-time status feedback
+- Support for Cron expression scheduled maintenance tasks
+- System information monitoring (CPU, memory, disk, network)
+- Comprehensive error handling and logging management
+
+### v1.0 (Go/vps-tg-bot-install.sh)
+- Go version one-click deployment script
+- Automated dependency installation
+- System service configuration
+- Configuration wizard support
+
+### v0.1.0 (Rust/install.sh)
+- Rust version one-click deployment script
+- Automated compilation and deployment
+- Environment configuration check
+- Service management integration
+
+### Initial Version (test.sh)
+- Project testing script
+- Multi-language version verification
+- Automated testing workflow
+
 ## Important Notes
 
 - ⚠️ Please test scripts in a test environment first
@@ -582,6 +747,7 @@ VPS Auto Maintain
 - ⏱️ Maintenance tasks may cause brief service interruptions
 - 🛡️ Be cautious with firewall configurations
 - 📊 Regularly check Bot running status
+- 🧪 Use test.sh for regular feature validation
 
 ## License
 
