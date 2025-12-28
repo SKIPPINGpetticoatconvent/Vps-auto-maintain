@@ -84,11 +84,10 @@ type PerformanceTestSuite struct {
 }
 
 func NewPerformanceTestSuite(t *testing.T) *PerformanceTestSuite {
-	stateFile := fmt.Sprintf("test_perf_state_%d.json", time.Now().UnixNano())
-	historyFile := fmt.Sprintf("test_perf_history_%d.json", time.Now().UnixNano())
-
 	// 创建测试脚本
 	cwd, _ := os.Getwd()
+	stateFile := cwd + fmt.Sprintf("/test_perf_state_%d.json", time.Now().UnixNano())
+	historyFile := cwd + fmt.Sprintf("/test_perf_history_%d.json", time.Now().UnixNano())
 	coreScript := cwd + "/test_core.sh"
 	rulesScript := cwd + "/test_rules.sh"
 	os.WriteFile(coreScript, []byte("#!/bin/bash\necho 'Core maintenance completed'"), 0755)
