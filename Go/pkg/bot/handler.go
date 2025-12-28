@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"vps-tg-bot/pkg/config"
 	"vps-tg-bot/pkg/scheduler"
 	"vps-tg-bot/pkg/system"
@@ -148,6 +149,8 @@ func (t *TGBotHandler) handleCallback(query *tgbotapi.CallbackQuery) error {
 		return t.handleViewHistory(query)
 	case "reboot_confirm":
 		return t.handleRebootConfirm(query)
+	case "reboot_execute":
+		return t.handleRebootExecute(query)
 	case "back_main":
 		return t.handleBackToMain(query)
 	
@@ -176,29 +179,57 @@ func (t *TGBotHandler) handleCallback(query *tgbotapi.CallbackQuery) error {
 			parts := strings.Split(query.Data, "_")
 			if len(parts) >= 4 {
 				if taskID, err := strconv.Atoi(parts[3]); err == nil {
+					log.Printf("处理删除任务: ID=%d", taskID)
 					return t.HandleDeleteTask(query, taskID)
+				} else {
+					log.Printf("删除任务ID解析错误: %s", parts[3])
+					return t.SendMessage(query.Message.Chat.ID, "❌ 任务ID格式错误")
 				}
+			} else {
+				log.Printf("删除任务回调数据格式错误: %s", query.Data)
+				return t.SendMessage(query.Message.Chat.ID, "❌ 删除任务数据格式错误")
 			}
 		} else if strings.HasPrefix(query.Data, "menu_task_edit_") {
 			parts := strings.Split(query.Data, "_")
 			if len(parts) >= 4 {
 				if taskID, err := strconv.Atoi(parts[3]); err == nil {
+					log.Printf("处理编辑任务: ID=%d", taskID)
 					return t.HandleEditTask(query, taskID)
+				} else {
+					log.Printf("编辑任务ID解析错误: %s", parts[3])
+					return t.SendMessage(query.Message.Chat.ID, "❌ 任务ID格式错误")
 				}
+			} else {
+				log.Printf("编辑任务回调数据格式错误: %s", query.Data)
+				return t.SendMessage(query.Message.Chat.ID, "❌ 编辑任务数据格式错误")
 			}
 		} else if strings.HasPrefix(query.Data, "menu_task_enable_") {
 			parts := strings.Split(query.Data, "_")
-			if len(parts) >= 5 {
-				if taskID, err := strconv.Atoi(parts[4]); err == nil {
+			if len(parts) >= 4 {
+				if taskID, err := strconv.Atoi(parts[3]); err == nil {
+					log.Printf("处理启用任务: ID=%d", taskID)
 					return t.HandleToggleTask(query, taskID, true)
+				} else {
+					log.Printf("启用任务ID解析错误: %s", parts[3])
+					return t.SendMessage(query.Message.Chat.ID, "❌ 任务ID格式错误")
 				}
+			} else {
+				log.Printf("启用任务回调数据格式错误: %s", query.Data)
+				return t.SendMessage(query.Message.Chat.ID, "❌ 启用任务数据格式错误")
 			}
 		} else if strings.HasPrefix(query.Data, "menu_task_disable_") {
 			parts := strings.Split(query.Data, "_")
-			if len(parts) >= 5 {
-				if taskID, err := strconv.Atoi(parts[4]); err == nil {
+			if len(parts) >= 4 {
+				if taskID, err := strconv.Atoi(parts[3]); err == nil {
+					log.Printf("处理禁用任务: ID=%d", taskID)
 					return t.HandleToggleTask(query, taskID, false)
+				} else {
+					log.Printf("禁用任务ID解析错误: %s", parts[3])
+					return t.SendMessage(query.Message.Chat.ID, "❌ 任务ID格式错误")
 				}
+			} else {
+				log.Printf("禁用任务回调数据格式错误: %s", query.Data)
+				return t.SendMessage(query.Message.Chat.ID, "❌ 禁用任务数据格式错误")
 			}
 		} else if strings.HasPrefix(query.Data, "menu_freq_") {
 			parts := strings.Split(query.Data, "_")
@@ -210,6 +241,9 @@ func (t *TGBotHandler) handleCallback(query *tgbotapi.CallbackQuery) error {
 				frequency := Frequency(parts[4])
 				log.Printf("解析结果 - 任务类型: %s, 频率: %s", taskType, frequency)
 				return t.HandleFrequencySelection(query, taskType, frequency)
+			} else {
+				log.Printf("频率菜单回调数据格式错误: %s", query.Data)
+				return t.SendMessage(query.Message.Chat.ID, "❌ 频率选择数据格式错误，请重试")
 			}
 		} else if strings.HasPrefix(query.Data, "menu_time_") {
 			parts := strings.Split(query.Data, "_")
@@ -222,6 +256,9 @@ func (t *TGBotHandler) handleCallback(query *tgbotapi.CallbackQuery) error {
 				timeValue := parts[5]
 				log.Printf("解析结果 - 任务类型: %s, 频率: %s, 时间: %s", taskType, frequency, timeValue)
 				return t.HandleTimeSelection(query, taskType, frequency, timeValue)
+			} else {
+				log.Printf("时间选择回调数据格式错误: %s", query.Data)
+				return t.SendMessage(query.Message.Chat.ID, "❌ 时间选择数据格式错误，请重试")
 			}
 		} else {
 			log.Printf("未知的回调数据: %s", query.Data)
@@ -656,6 +693,33 @@ func (t *TGBotHandler) handleRebootConfirm(query *tgbotapi.CallbackQuery) error 
 	
 	text := "⚠️ *确认重启 VPS*\n\n⚠️ VPS 将在 30 秒后重启，请确保所有工作已保存。\n\n请确认是否继续？"
 	return t.SendInlineKeyboard(query.Message.Chat.ID, text, keyboard)
+}
+
+// handleRebootExecute 处理执行VPS重启
+func (t *TGBotHandler) handleRebootExecute(query *tgbotapi.CallbackQuery) error {
+	log.Printf("用户确认重启VPS，执行重启操作...")
+	
+	// 发送确认消息
+	text := "⚠️ *VPS 重启中...*\n\nVPS将在30秒后重启，请耐心等待。"
+	t.SendMessage(query.Message.Chat.ID, text)
+	
+	// 在goroutine中执行重启操作
+	go func() {
+		// 等待5秒让用户看到确认消息
+		time.Sleep(5 * time.Second)
+		
+		// 执行重启命令
+		err := t.systemExec.Reboot()
+		if err != nil {
+			log.Printf("VPS重启失败: %v", err)
+			t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ VPS重启失败: %v\n\n请手动重启VPS。", err))
+		} else {
+			log.Printf("VPS重启命令执行成功")
+			// VPS重启后Bot会断开连接，这里不需要发送更多消息
+		}
+	}()
+	
+	return nil
 }
 
 // handleBackToMain 处理返回主菜单
