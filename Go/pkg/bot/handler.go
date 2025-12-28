@@ -768,16 +768,40 @@ func (t *TGBotHandler) generateTaskName(taskType TaskType, frequency Frequency, 
 
 // generateCronExpression 生成 Cron 表达式
 func (t *TGBotHandler) generateCronExpression(frequency Frequency, timeValue string) string {
+	timeValue = strings.TrimSpace(timeValue)
+	
 	switch frequency {
 	case FrequencyDaily:
-		// 每日: 0 {timeValue} * * *
-		return fmt.Sprintf("0 %s * * *", timeValue)
+		// 每日: 0 {hour} * * * * (6字段格式: 秒 分 时 日 月 星期)
+		return fmt.Sprintf("0 0 %s * * *", timeValue)
 	case FrequencyWeekly:
-		// 每周: 0 {timeValue} * * 0 (周日)
-		return fmt.Sprintf("0 %s * * 0", timeValue)
+		// 每周: timeValue格式 "0 {hour}" 表示周日{hour}点
+		// 解析并重组为标准6字段格式: 秒 分 时 日 月 星期
+		parts := strings.Fields(timeValue)
+		if len(parts) == 2 {
+			// parts[0] 是秒(应该为0), parts[1] 是小时
+			return fmt.Sprintf("0 0 %s * * 0", parts[1])
+		}
+		// 如果解析失败，尝试直接解析数字
+		if hour, err := strconv.Atoi(timeValue); err == nil {
+			return fmt.Sprintf("0 0 %d * * 0", hour)
+		}
+		// 默认值
+		return "0 0 4 * * 0" // 默认每周日凌晨4点
 	case FrequencyMonthly:
-		// 每月: 0 {timeValue} 1 * *
-		return fmt.Sprintf("0 %s 1 * *", timeValue)
+		// 每月: timeValue格式 "{hour} 1" 表示每月1号{hour}点
+		// 解析并重组为标准6字段格式: 秒 分 时 日 月 星期
+		parts := strings.Fields(timeValue)
+		if len(parts) == 2 {
+			// parts[0] 是小时, parts[1] 是日期(应该为1)
+			return fmt.Sprintf("0 0 %s 1 * *", parts[0])
+		}
+		// 如果解析失败，尝试直接解析数字
+		if hour, err := strconv.Atoi(timeValue); err == nil {
+			return fmt.Sprintf("0 0 %d 1 * *", hour)
+		}
+		// 默认值
+		return "0 0 4 1 * *" // 默认每月1号凌晨4点
 	default:
 		return timeValue // 自定义模式直接返回用户输入
 	}
@@ -789,10 +813,13 @@ func (t *TGBotHandler) validateCronExpression(cronExpr string) error {
 		return fmt.Errorf("Cron 表达式不能为空")
 	}
 	
+	// 清理空格
+	cronExpr = strings.TrimSpace(cronExpr)
+	
 	// 基本的字段数量验证
 	fields := strings.Fields(cronExpr)
-	if len(fields) != 5 && len(fields) != 6 {
-		return fmt.Errorf("Cron 表达式必须包含5个或6个字段")
+	if len(fields) != 6 {
+		return fmt.Errorf("Cron 表达式必须包含6个字段: 秒 分 时 日 月 星期")
 	}
 	
 	// TODO: 可以使用更严格的验证，比如调用调度器的 validateCron 方法
