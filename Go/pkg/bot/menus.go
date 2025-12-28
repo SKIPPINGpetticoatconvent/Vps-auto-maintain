@@ -3,7 +3,6 @@ package bot
 import (
 	"fmt"
 	"log"
-	"strconv"
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -301,168 +300,14 @@ func (t *TGBotHandler) HandleFrequencySelection(query *tgbotapi.CallbackQuery, t
 		_, err = t.api.Send(replyMsg)
 		if err != nil {
 			log.Printf("发送 ForceReply 消息失败: %v", err)
+			return err
 		}
-		return err
-	}
-
-	// 其他频率：显示时间选择界面
-	log.Printf("显示时间选择界面: 任务类型=%s, 频率=%s", taskType, frequency)
-	log.Printf("即将调用 BuildTimeSelectionKeyboard 生成时间选择选项")
-	return t.BuildTimeSelectionKeyboard(query.Message.Chat.ID, taskType, frequency)
-}
-
-// HandleTimeSelection 处理时间选择
-func (t *TGBotHandler) HandleTimeSelection(query *tgbotapi.CallbackQuery, taskType TaskType, frequency Frequency, timeValue string) error {
-	// 构建 Cron 表达式
-	cronExpr := t.buildCronExpression(frequency, timeValue)
-
-	// 生成任务名称
-	taskDisplayName := getTaskDisplayName(string(taskType))
-	frequencyDisplayName := getFrequencyDisplayName(frequency)
-	timeDisplayName := t.formatTimeDisplay(frequency, timeValue)
-
-	// 显示确认信息
-	text := fmt.Sprintf("⏰ *任务设置确认*\n\n✅ 任务类型: %s\n✅ 执行频率: %s\n✅ 执行时间: %s\n✅ Cron 表达式: `%s`\n\n🔄 正在设置定时任务...", 
-		taskDisplayName, frequencyDisplayName, timeDisplayName, cronExpr)
-
-	msg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, text)
-	msg.ParseMode = tgbotapi.ModeMarkdown
-	_, err := t.api.Send(msg)
-	if err != nil {
-		return err
-	}
-
-	// 在后台设置任务
-	go func() {
-		err := t.setScheduledTask(taskType, cronExpr)
-		if err != nil {
-			t.SendMessage(query.Message.Chat.ID, fmt.Sprintf("❌ 设置定时任务失败: %v", err))
-			return
-		}
-
-		// 成功消息
-		successText := fmt.Sprintf("✅ *定时任务设置成功*\n\n🔧 任务: %s\n⏰ 时间: %s %s\n🆔 Cron: `%s`", 
-			taskDisplayName, frequencyDisplayName, timeDisplayName, cronExpr)
-
-		t.SendMessage(query.Message.Chat.ID, successText)
-	}()
-
-	return nil
-}
-
-// buildCronExpression 构建 Cron 表达式
-func (t *TGBotHandler) buildCronExpression(frequency Frequency, timeValue string) string {
-	switch frequency {
-	case FrequencyDaily:
-		// 每日: "0 0 {hour} * * *" (支持秒的6字段格式)
-		return fmt.Sprintf("0 0 %s * * *", timeValue)
-	case FrequencyWeekly:
-		// 每周: "0 0 {minute} {hour} * * 0"
-		parts := strings.Split(timeValue, " ")
-		if len(parts) == 2 {
-			return fmt.Sprintf("0 0 %s %s * * 0", parts[0], parts[1])
-		}
-		return fmt.Sprintf("0 0 %s * * * 0", timeValue)
-	case FrequencyMonthly:
-		// 每月: "0 0 {hour} {day} * *"
-		parts := strings.Split(timeValue, " ")
-		if len(parts) == 2 {
-			return fmt.Sprintf("0 0 %s %s * * *", parts[0], parts[1])
-		}
-		return fmt.Sprintf("0 0 %s * * *", timeValue)
-	default:
-		return timeValue
-	}
-}
-
-// formatTimeDisplay 格式化时间显示
-func (t *TGBotHandler) formatTimeDisplay(frequency Frequency, timeValue string) string {
-	switch frequency {
-	case FrequencyDaily:
-		hour, _ := strconv.Atoi(timeValue)
-		return formatHourLabel(hour)
-	case FrequencyWeekly:
-		parts := strings.Split(timeValue, " ")
-		if len(parts) == 2 {
-			hour, _ := strconv.Atoi(parts[1])
-			return fmt.Sprintf("周日 %s", formatHourLabel(hour))
-		}
-		return timeValue
-	case FrequencyMonthly:
-		parts := strings.Split(timeValue, " ")
-		if len(parts) == 2 {
-			hour, _ := strconv.Atoi(parts[0])
-			return fmt.Sprintf("每月1号 %s", formatHourLabel(hour))
-		}
-		return timeValue
-	default:
-		return timeValue
-	}
-}
-
-// setScheduledTask 设置定时任务
-func (t *TGBotHandler) setScheduledTask(taskType TaskType, cronExpr string) error {
-	// 生成任务名称
-	taskDisplayName := getTaskDisplayName(string(taskType))
-	taskName := fmt.Sprintf("%s %s", taskDisplayName, "定时任务")
-
-	// 使用调度器的 AddJob 方法
-	_, err := t.jobManager.AddJob(taskName, string(taskType), cronExpr)
-	return err
-}
-
-// HandleCustomCronInput 处理自定义 Cron 输入
-func (t *TGBotHandler) HandleCustomCronInput(message *tgbotapi.Message, taskType TaskType) error {
-	cronExpr := strings.TrimSpace(message.Text)
-	
-	// 验证 Cron 表达式
-	if err := t.validateCronExpression(cronExpr); err != nil {
-		return t.SendMessage(message.Chat.ID, fmt.Sprintf("❌ Cron 表达式格式错误: %v\n\n请重新输入有效的 Cron 表达式。", err))
-	}
-
-	// 生成任务名称
-	taskDisplayName := getTaskDisplayName(string(taskType))
-	taskName := fmt.Sprintf("%s 自定义定时任务", taskDisplayName)
-
-	// 显示设置进度
-	progressText := fmt.Sprintf("⏰ *设置自定义定时任务*\n\n🔧 任务: %s\n🆔 Cron: `%s`\n\n🔄 正在设置...", 
-		taskDisplayName, cronExpr)
-	
-	t.SendMessage(message.Chat.ID, progressText)
-
-	// 在后台设置任务
-	go func() {
-		_, err := t.jobManager.AddJob(taskName, string(taskType), cronExpr)
-		if err != nil {
-			t.SendMessage(message.Chat.ID, fmt.Sprintf("❌ 设置定时任务失败: %v", err))
-			return
-		}
-
-		// 成功消息
-		successText := fmt.Sprintf("✅ *定时任务设置成功*\n\n🔧 任务: %s\n🆔 Cron: `%s`", 
-			taskDisplayName, cronExpr)
 		
-		t.SendMessage(message.Chat.ID, successText)
-	}()
-
-	return nil
-}
-
-// validateCronExpression 验证 Cron 表达式
-func (t *TGBotHandler) validateCronExpression(cronExpr string) error {
-	if strings.TrimSpace(cronExpr) == "" {
-		return fmt.Errorf("Cron 表达式不能为空")
+		return nil
 	}
 
-	// 基本的格式验证（6个字段，支持秒）
-	fields := strings.Fields(cronExpr)
-	if len(fields) != 6 {
-		return fmt.Errorf("Cron 表达式必须包含6个字段（秒 分 时 日 月 星期）")
-	}
-
-	// TODO: 可以使用更严格的验证，比如调用调度器的 validateCron 方法
-	// 这里暂时使用基本的验证
-	return nil
+	// 非自定义模式，直接进入时间选择
+	return t.BuildTimeSelectionKeyboard(query.Message.Chat.ID, taskType, frequency)
 }
 
 // HandleViewTasks 处理查看任务列表
@@ -475,6 +320,9 @@ func (t *TGBotHandler) HandleViewTasks(query *tgbotapi.CallbackQuery) error {
 		keyboard := [][]tgbotapi.InlineKeyboardButton{
 			{
 				tgbotapi.NewInlineKeyboardButtonData("➕ 添加任务", "menu_task_add"),
+				tgbotapi.NewInlineKeyboardButtonData("🗑️ 清除所有", "menu_task_clear_all"),
+			},
+			{
 				tgbotapi.NewInlineKeyboardButtonData("🔙 返回", "menu_back_task_types"),
 			},
 		}
@@ -482,28 +330,68 @@ func (t *TGBotHandler) HandleViewTasks(query *tgbotapi.CallbackQuery) error {
 		return t.SendInlineKeyboardWithEdit(query.Message.Chat.ID, query.Message.MessageID, text, keyboard)
 	}
 
-	// 构建任务列表文本
+	// 构建任务列表文本和操作按钮
 	text := "📋 *任务列表*\n\n"
-	for _, job := range jobList {
+	var keyboard [][]tgbotapi.InlineKeyboardButton
+	
+	// 为每个任务显示详细信息和操作按钮
+	for i, job := range jobList {
 		statusIcon := "✅"
 		if !job.Enabled {
 			statusIcon = "⏸️"
 		}
 		
 		taskDisplayName := getTaskDisplayName(job.Type)
-		text += fmt.Sprintf("%s *%s*\n", statusIcon, job.Name)
+		text += fmt.Sprintf("%s *%s* (ID: %d)\n", statusIcon, job.Name, job.ID)
 		text += fmt.Sprintf("   任务: %s\n", taskDisplayName)
 		text += fmt.Sprintf("   时间: `%s`\n", job.Spec)
-		text += fmt.Sprintf("   ID: %d\n\n", job.ID)
+		
+		// 如果任务数量不多，为每个任务添加操作按钮
+		if len(jobList) <= 5 {
+			// 第一行：启用/禁用按钮
+			if i == 0 || len(keyboard) == 0 || len(keyboard[len(keyboard)-1]) >= 2 {
+				keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{})
+			}
+			
+			toggleText := "⏸️ 禁用" 
+			toggleAction := "menu_task_disable"
+			if !job.Enabled {
+				toggleText = "▶️ 启用"
+				toggleAction = "menu_task_enable"
+			}
+			
+			lastRow := &keyboard[len(keyboard)-1]
+			*lastRow = append(*lastRow, tgbotapi.NewInlineKeyboardButtonData(toggleText, fmt.Sprintf("%s_%d", toggleAction, job.ID)))
+			
+			// 第二行：编辑和删除按钮
+			if i == 0 || len(keyboard) == 1 || len(keyboard[len(keyboard)-1]) >= 2 {
+				keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{})
+			}
+			
+			editRow := &keyboard[len(keyboard)-1]
+			*editRow = append(*editRow, tgbotapi.NewInlineKeyboardButtonData("✏️ 编辑", fmt.Sprintf("menu_task_edit_%d", job.ID)))
+			*editRow = append(*editRow, tgbotapi.NewInlineKeyboardButtonData("🗑️ 删除", fmt.Sprintf("menu_task_delete_%d", job.ID)))
+		}
+		
+		text += "\n"
 	}
 
-	// 构建键盘
-	keyboard := [][]tgbotapi.InlineKeyboardButton{
-		{
-			tgbotapi.NewInlineKeyboardButtonData("➕ 添加任务", "menu_task_add"),
-			tgbotapi.NewInlineKeyboardButtonData("🔙 返回", "menu_back_task_types"),
-		},
+	// 添加全局操作按钮
+	if len(jobList) <= 5 {
+		// 如果任务较少，添加一个空行分隔
+		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{})
 	}
+	
+	// 添加操作按钮行
+	keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData("➕ 添加任务", "menu_task_add"),
+		tgbotapi.NewInlineKeyboardButtonData("🗑️ 清除所有", "menu_task_clear_all"),
+	})
+	
+	// 添加返回按钮
+	keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData("🔙 返回", "menu_back_task_types"),
+	})
 
 	return t.SendInlineKeyboardWithEdit(query.Message.Chat.ID, query.Message.MessageID, text, keyboard)
 }
