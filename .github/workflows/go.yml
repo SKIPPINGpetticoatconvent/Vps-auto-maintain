@@ -2,19 +2,19 @@ name: Go CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main", "develop" ]
+    branches: ["main", "develop"]
     tags:
-      - 'v*'
+      - "v*"
     paths:
-      - 'Go/**'
+      - "Go/**"
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
     paths:
-      - 'Go/**'
-  workflow_dispatch:  # ✅ 手动触发
+      - "Go/**"
+  workflow_dispatch: # ✅ 手动触发
 
 env:
-  GO_VERSION: '1.25'
+  GO_VERSION: "1.25"
 
 jobs:
   # ==============================
@@ -27,61 +27,40 @@ jobs:
       run:
         working-directory: ./Go
     steps:
-    - name: 检出代码
-      uses: actions/checkout@v4
+      - name: 检出代码
+        uses: actions/checkout@v4
 
-    - name: 设置 Go 环境
-      uses: actions/setup-go@v5
-      with:
-        go-version: ${{ env.GO_VERSION }}
-        cache: true
-        cache-dependency-path: Go/go.sum
+      - name: 设置 Go 环境
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: Go/go.sum
 
-    - name: 下载依赖
-      run: go mod download
+      - name: 下载依赖
+        run: go mod download
 
-    - name: 验证依赖
-      run: go mod verify
+      - name: 验证依赖
+        run: go mod verify
 
-    - name: 构建项目
-      run: |
-        mkdir -p dist
-        if [ -d "cmd/vps-tg-bot" ]; then
-          go build -v -trimpath -ldflags "-s -w" -o dist/vps-tg-bot-go-linux-amd64 ./cmd/vps-tg-bot
-        elif [ -f "main.go" ]; then
-          go build -v -trimpath -ldflags "-s -w" -o dist/vps-tg-bot-go-linux-amd64 .
-        else
-          echo "❌ 未找到入口文件 (main.go 或 cmd/vps-tg-bot)"
-          exit 1
-        fi
+      - name: 构建项目
+        run: |
+          mkdir -p dist
+          if [ -d "cmd/vps-tg-bot" ]; then
+            go build -v -trimpath -ldflags "-s -w" -o dist/vps-tg-bot-go-linux-amd64 ./cmd/vps-tg-bot
+          elif [ -f "main.go" ]; then
+            go build -v -trimpath -ldflags "-s -w" -o dist/vps-tg-bot-go-linux-amd64 .
+          else
+            echo "❌ 未找到入口文件 (main.go 或 cmd/vps-tg-bot)"
+            exit 1
+          fi
 
-    - name: 运行测试
-      run: |
-        if find . -name "*_test.go" -type f | grep -q .; then
-          go test -v -coverprofile=coverage.out ./...
-        else
-          echo "⚠️  没有找到测试文件，跳过测试"
-        fi
-
-    - name: 生成覆盖率报告
-      if: hashFiles('Go/coverage.out') != ''
-      run: go tool cover -html=coverage.out -o coverage.html
-
-    - name: 上传测试报告
-      if: hashFiles('Go/coverage.out') != ''
-      uses: actions/upload-artifact@v4
-      with:
-        name: coverage-report
-        path: |
-          Go/coverage.out
-          Go/coverage.html
-
-    - name: 上传构建产物
-      if: success()
-      uses: actions/upload-artifact@v4
-      with:
-        name: vps-tg-bot-go-linux-amd64
-        path: Go/dist/vps-tg-bot-go-linux-amd64
+      - name: 上传构建产物
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vps-tg-bot-go-linux-amd64
+          path: Go/dist/vps-tg-bot-go-linux-amd64
 
   # ==============================
   # 🚀 创建 Release
@@ -95,29 +74,29 @@ jobs:
       run:
         working-directory: ./Go
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-go@v5
-      with:
-        go-version: ${{ env.GO_VERSION }}
-        cache: true
-        cache-dependency-path: Go/go.sum
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: Go/go.sum
 
-    - name: 构建多平台二进制文件
-      run: |
-        mkdir -p dist
-        GOOS=linux   GOARCH=amd64 go build -o dist/vps-tg-bot-go-linux-amd64   ./cmd/vps-tg-bot
-        GOOS=linux   GOARCH=arm64 go build -o dist/vps-tg-bot-go-linux-arm64   ./cmd/vps-tg-bot
-        GOOS=windows GOARCH=amd64 go build -o dist/vps-tg-bot-go-windows-amd64.exe ./cmd/vps-tg-bot
-        GOOS=darwin  GOARCH=amd64 go build -o dist/vps-tg-bot-go-darwin-amd64  ./cmd/vps-tg-bot
-        GOOS=darwin  GOARCH=arm64 go build -o dist/vps-tg-bot-go-darwin-arm64  ./cmd/vps-tg-bot
+      - name: 构建多平台二进制文件
+        run: |
+          mkdir -p dist
+          GOOS=linux   GOARCH=amd64 go build -o dist/vps-tg-bot-go-linux-amd64   ./cmd/vps-tg-bot
+          GOOS=linux   GOARCH=arm64 go build -o dist/vps-tg-bot-go-linux-arm64   ./cmd/vps-tg-bot
+          GOOS=windows GOARCH=amd64 go build -o dist/vps-tg-bot-go-windows-amd64.exe ./cmd/vps-tg-bot
+          GOOS=darwin  GOARCH=amd64 go build -o dist/vps-tg-bot-go-darwin-amd64  ./cmd/vps-tg-bot
+          GOOS=darwin  GOARCH=arm64 go build -o dist/vps-tg-bot-go-darwin-arm64  ./cmd/vps-tg-bot
 
-    - name: 创建 GitHub Release
-      uses: softprops/action-gh-release@v2
-      with:
-        files: |
-          Go/dist/vps-tg-bot-go-*
-          Go/docker-compose.yml
-          Go/vps-tg-bot-install.sh
-        generate_release_notes: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Go/dist/vps-tg-bot-go-*
+            Go/docker-compose.yml
+            Go/vps-tg-bot-install.sh
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
