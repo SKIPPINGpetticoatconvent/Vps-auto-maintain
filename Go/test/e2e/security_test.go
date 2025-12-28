@@ -39,11 +39,33 @@ func NewSecurityTestSuite(t *testing.T) *SecurityTestSuite {
 	stateFile := filepath.Join(tempDir, "security_test_state.json")
 	historyFile := filepath.Join(tempDir, "security_test_history.json")
 
+	// 创建临时脚本文件用于测试
+	coreScriptFile := filepath.Join(tempDir, "vps-maintain-core.sh")
+	rulesScriptFile := filepath.Join(tempDir, "vps-maintain-rules.sh")
+
+	// 创建核心维护脚本
+	coreScriptContent := `#!/bin/bash
+echo "核心维护脚本执行完成"
+exit 0`
+	if err := os.WriteFile(coreScriptFile, []byte(coreScriptContent), 0755); err != nil {
+		t.Fatalf("创建核心维护脚本失败: %v", err)
+	}
+
+	// 创建规则维护脚本
+	rulesScriptContent := `#!/bin/bash
+echo "规则维护脚本执行完成"
+exit 0`
+	if err := os.WriteFile(rulesScriptFile, []byte(rulesScriptContent), 0755); err != nil {
+		t.Fatalf("创建规则维护脚本失败: %v", err)
+	}
+
 	// 设置环境变量
 	SetTestEnv("TG_TOKEN", "123456789:ABCdefGHIjklMNOpqrsTUVwxyz1234567")
 	SetTestEnv("TG_CHAT_ID", "123456789")
 	SetTestEnv("STATE_FILE", stateFile)
 	SetTestEnv("HISTORY_FILE", historyFile)
+	SetTestEnv("CORE_SCRIPT", coreScriptFile)
+	SetTestEnv("RULES_SCRIPT", rulesScriptFile)
 	SetTestEnv("TEST_MODE", "true")
 
 	cfg, err := config.LoadConfig()
@@ -80,6 +102,8 @@ func (s *SecurityTestSuite) Cleanup() {
 	UnsetTestEnv("TG_CHAT_ID")
 	UnsetTestEnv("STATE_FILE")
 	UnsetTestEnv("HISTORY_FILE")
+	UnsetTestEnv("CORE_SCRIPT")
+	UnsetTestEnv("RULES_SCRIPT")
 	UnsetTestEnv("TEST_MODE")
 	
 	// 清理临时目录
