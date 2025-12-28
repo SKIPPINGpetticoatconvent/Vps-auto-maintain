@@ -93,21 +93,8 @@ func setupSecurityMockSystemCommands(mockSys *system.MockSystemExecutor) {
 	mockSys.CommandOutput["free -h"] = "              total        used        free      shared  buff/cache   available\nMem:           2Gi       512Mi       1.2Gi        16Mi       256Mi       1.5Gi"
 	mockSys.CommandOutput["df -h /"] = "Filesystem      Size  Used Avail Use% Mounted on\n/dev/sda1        20G   8.0G   12G  40% /"
 	
-	// 安全处理：过滤危险命令
-	mockSys.SafeCommands = map[string]bool{
-		"uptime":    true,
-		"free":      true,
-		"df":        true,
-		"ps":        true,
-		"whoami":    true,
-		"date":      true,
-		"uname":     true,
-		"hostname":  true,
-		"cat":       true,
-		"ls":        true,
-		"pwd":       true,
-		"id":        true,
-	}
+	// 安全处理：在MockSystemExecutor中实现命令过滤
+	// mockSys.SafeCommands 字段已集成到MockSystemExecutor中
 	
 	mockSys.SystemTime = time.Now()
 	mockSys.Timezone = "Asia/Shanghai"
@@ -416,9 +403,6 @@ func TestSecurity_RaceCondition(t *testing.T) {
 	var wg sync.WaitGroup
 	errors := make(chan error, iterations)
 	
-	// 创建共享状态文件
-	stateFile := filepath.Join(suite.tempDir, "race_test_state.json")
-	
 	for i := 0; i < iterations; i++ {
 		wg.Add(1)
 		go func(iteration int) {
@@ -574,12 +558,4 @@ func TestSecurity_DenialOfService(t *testing.T) {
 	}
 }
 
-// 辅助函数
-
-func SetTestEnv(key, value string) {
-	// 这里简化实现，实际应该使用 os.Setenv
-}
-
-func UnsetTestEnv(key string) {
-	// 这里简化实现，实际应该使用 os.Unsetenv
-}
+// 辅助函数已在测试框架中定义

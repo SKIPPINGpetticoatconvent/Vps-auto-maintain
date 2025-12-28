@@ -107,6 +107,8 @@ func (t *TGBotHandler) handleCallback(query *tgbotapi.CallbackQuery) error {
 	if query.Message.Chat.ID != t.adminChatID {
 		callback := tgbotapi.NewCallback(query.ID, "❌ 无权限访问")
 		t.api.Request(callback)
+		// 同时发送拒绝消息给用户
+		t.SendMessage(query.Message.Chat.ID, "❌ 您没有权限访问此 Bot")
 		return nil
 	}
 	

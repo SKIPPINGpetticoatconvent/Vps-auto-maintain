@@ -2,8 +2,8 @@ package e2e
 
 import (
 	"bytes"
-	"context"
 	"fmt"
+	"os"
 	"runtime"
 	"sync"
 	"testing"
@@ -88,11 +88,11 @@ func NewPerformanceTestSuite(t *testing.T) *PerformanceTestSuite {
 	historyFile := fmt.Sprintf("test_perf_history_%d.json", time.Now().UnixNano())
 
 	// 创建测试脚本
-	cwd, _ := GetCurrentDir()
+	cwd, _ := os.Getwd()
 	coreScript := cwd + "/test_core.sh"
 	rulesScript := cwd + "/test_rules.sh"
-	WriteTestScript(coreScript, "#!/bin/bash\necho 'Core maintenance completed'")
-	WriteTestScript(rulesScript, "#!/bin/bash\necho 'Rules update completed'")
+	os.WriteFile(coreScript, []byte("#!/bin/bash\necho 'Core maintenance completed'"), 0755)
+	os.WriteFile(rulesScript, []byte("#!/bin/bash\necho 'Rules update completed'"), 0755)
 
 	// 设置环境变量
 	SetTestEnv("TG_TOKEN", "123456789:ABCdefGHIjklMNOpqrsTUVwxyz1234567")
@@ -136,30 +136,17 @@ func (s *PerformanceTestSuite) Cleanup() {
 	UnsetTestEnv("RULES_SCRIPT")
 	UnsetTestEnv("HISTORY_FILE")
 	
-	cwd, _ := GetCurrentDir()
-	RemoveTestFile(cwd + "/test_core.sh")
-	RemoveTestFile(cwd + "/test_rules.sh")
+	os.Remove("test_core.sh")
+	os.Remove("test_rules.sh")
 }
 
 // 工具函数
-func GetCurrentDir() (string, error) {
-	return fmt.Sprintf("%s", "."), nil
-}
-
-func WriteTestScript(path, content string) {
-	// 这里简化实现，实际应该使用 os.WriteFile
-}
-
 func SetTestEnv(key, value string) {
-	// 这里简化实现，实际应该使用 os.Setenv
+	os.Setenv(key, value)
 }
 
 func UnsetTestEnv(key string) {
-	// 这里简化实现，实际应该使用 os.Unsetenv
-}
-
-func RemoveTestFile(path string) {
-	// 这里简化实现，实际应该使用 os.Remove
+	os.Unsetenv(key)
 }
 
 // ===================== 性能测试用例 =====================
@@ -323,8 +310,8 @@ func TestPerformance_MemoryUsage(t *testing.T) {
 	var m2 runtime.MemStats
 	runtime.ReadMemStats(&m2)
 
-	allocDiff := m2.Alloc - m1.Alloc
-	sysDiff := m2.Sys - m1.Sys
+	allocDiff := int64(m2.Alloc) - int64(m1.Alloc)
+	sysDiff := int64(m2.Sys) - int64(m1.Sys)
 
 	t.Logf("内存使用统计:")
 	t.Logf("  操作前 Alloc: %d KB", m1.Alloc/1024)
@@ -457,7 +444,6 @@ func TestPerformance_StressTest(t *testing.T) {
 	defer suite.Cleanup()
 
 	// 压力测试参数
-	duration := 30 * time.Second
 	workers := 10
 	requestsPerWorker := 100
 	
