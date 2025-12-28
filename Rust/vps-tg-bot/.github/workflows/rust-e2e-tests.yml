@@ -1,0 +1,471 @@
+name: Rust E2E Tests with Podman
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'Rust/**'
+      - '!.github/workflows/rust-e2e-tests.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'Rust/**'
+
+env:
+  RUST_VERSION: '1.70'
+  PODMAN_VERSION: '4.9'
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Rust 单元测试
+  rust-unit-tests:
+    name: Rust Unit Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust-version: ['1.70', '1.71']
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        path: ./Rust
+
+    - name: Install Rust ${{ matrix.rust-version }}
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.rust-version }}
+        components: rustfmt, clippy
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          Rust/target
+        key: ${{ runner.os }}-rust-${{ matrix.rust-version }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-rust-${{ matrix.rust-version }}-
+          ${{ runner.os }}-rust-
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libssl-dev pkg-config
+
+    - name: Run Rust unit tests
+      working-directory: Rust/vps-tg-bot
+      run: |
+        cargo test --lib --bins --tests --benches --verbose
+
+    - name: Run Rust doc tests
+      working-directory: Rust/vps-tg-bot
+      run: |
+        cargo test --doc --verbose
+
+    - name: Check Rust formatting
+      working-directory: Rust/vps-tg-bot
+      run: |
+        cargo fmt -- --check
+
+    - name: Run Rust clippy
+      working-directory: Rust/vps-tg-bot
+      run: |
+        cargo clippy --all-targets --all-features -- -D warnings
+
+    - name: Run Rust security audit
+      working-directory: Rust/vps-tg-bot
+      run: |
+        cargo install cargo-audit
+        cargo audit
+
+    - name: Generate coverage report
+      working-directory: Rust/vps-tg-bot
+      run: |
+        cargo install cargo-tarpaulin
+        cargo tarpaulin --out=Xml --output-dir=./coverage
+      continue-on-error: true
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: Rust/vps-tg-bot/coverage/cobertura.xml
+        flags: rust-unittests
+        name: rust-codecov-${{ matrix.rust-version }}
+
+  # Rust 集成测试
+  rust-integration-tests:
+    name: Rust Integration Tests
+    runs-on: ubuntu-latest
+    needs: rust-unit-tests
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        path: ./Rust
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ env.RUST_VERSION }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libssl-dev pkg-config
+
+    - name: Run integration tests
+      working-directory: Rust/vps-tg-bot
+      run: |
+        cargo test --test integration_test --verbose
+
+    - name: Run E2E tests
+      working-directory: Rust/vps-tg-bot
+      run: |
+        cargo test --test e2e_test --verbose
+
+    - name: Run scheduler tests
+      working-directory: Rust/vps-tg-bot
+      run: |
+        cargo test --test scheduler_test --verbose
+
+  # Podman E2E 测试
+  podman-rust-e2e-tests:
+    name: Rust Podman E2E Tests
+    runs-on: ubuntu-latest
+    needs: [rust-unit-tests, rust-integration-tests]
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        distro: [debian, ubuntu]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        path: ./Rust
+
+    - name: Set up Podman
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y podman
+        podman --version
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ env.RUST_VERSION }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libssl-dev pkg-config
+
+    - name: Build Rust binary (release)
+      working-directory: Rust/vps-tg-bot
+      run: |
+        cargo build --release
+
+    - name: Run basic Rust E2E tests
+      working-directory: Rust/vps-tg-bot/tests/e2e
+      run: |
+        chmod +x run_podman_e2e.sh
+        ./run_podman_e2e.sh --rust-tests
+
+    - name: Run Rust performance tests
+      working-directory: Rust/vps-tg-bot/tests/e2e
+      run: |
+        cargo test performance_test --release --verbose
+
+    - name: Run Rust security tests
+      working-directory: Rust/vps-tg-bot/tests/e2e
+      run: |
+        cargo test security_test --release --verbose
+
+    - name: Build Rust Podman image
+      working-directory: Rust/vps-tg-bot
+      run: |
+        podman build -f tests/e2e/Dockerfile.e2e -t vps-tg-bot-rust-e2e .
+
+    - name: Test Rust container execution
+      working-directory: Rust/vps-tg-bot/tests/e2e
+      run: |
+        chmod +x run_podman_e2e.sh
+        ./run_podman_e2e.sh --run-only
+
+  # 跨平台构建测试
+  cross-platform-tests:
+    name: Cross-Platform Build Tests
+    runs-on: ubuntu-latest
+    needs: rust-unit-tests
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        path: ./Rust
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ env.RUST_VERSION }}
+        targets: ${{ matrix.target }}
+
+    - name: Install cross
+      run: |
+        cargo install cross
+
+    - name: Install system dependencies (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libssl-dev pkg-config
+
+    - name: Build for ${{ matrix.target }}
+      working-directory: Rust/vps-tg-bot
+      run: |
+        cross build --release --target ${{ matrix.target }}
+
+    - name: Test binary execution (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      working-directory: Rust/vps-tg-bot
+      run: |
+        ./target/release/vps-tg-bot --help || true
+
+  # 性能基准测试
+  rust-performance-tests:
+    name: Rust Performance Benchmark Tests
+    runs-on: ubuntu-latest
+    needs: rust-unit-tests
+    timeout-minutes: 20
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        path: ./Rust
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ env.RUST_VERSION }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libssl-dev pkg-config
+
+    - name: Run Rust benchmarks
+      working-directory: Rust/vps-tg-bot
+      run: |
+        cargo bench --verbose
+
+    - name: Run Rust E2E performance tests
+      working-directory: Rust/vps-tg-bot/tests/e2e
+      run: |
+        cargo test performance_test::test_stress_test --release --verbose
+
+    - name: Compare with baseline
+      working-directory: Rust/vps-tg-bot
+      run: |
+        cargo bench --baseline main --compare-with origin/main || echo "No baseline available"
+
+  # 安全测试
+  rust-security-tests:
+    name: Rust Security Tests
+    runs-on: ubuntu-latest
+    needs: rust-unit-tests
+    timeout-minutes: 15
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        path: ./Rust
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ env.RUST_VERSION }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libssl-dev pkg-config
+
+    - name: Run security tests
+      working-directory: Rust/vps-tg-bot/tests/e2e
+      run: |
+        cargo test security_test --release --verbose
+
+    - name: Install and run cargo-audit
+      working-directory: Rust/vps-tg-bot
+      run: |
+        cargo audit
+
+    - name: Install and run cargo-deny
+      working-directory: Rust/vps-tg-bot
+      run: |
+        cargo install cargo-deny
+        cargo deny check
+
+    - name: Check for unsafe code
+      working-directory: Rust/vps-tg-bot
+      run: |
+        cargo install cargo-unsafe-check
+        cargo unsafe-check
+
+  # 构建和发布
+  rust-build-and-package:
+    name: Rust Build and Package
+    runs-on: ubuntu-latest
+    needs: [rust-unit-tests, rust-integration-tests, podman-rust-e2e-tests]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        path: ./Rust
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ env.RUST_VERSION }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libssl-dev pkg-config
+
+    - name: Build release binaries
+      working-directory: Rust/vps-tg-bot
+      run: |
+        cargo build --release
+
+    - name: Install cross for multi-platform builds
+      run: |
+        cargo install cross
+
+    - name: Build for multiple platforms
+      working-directory: Rust/vps-tg-bot
+      run: |
+        # Linux x86_64
+        cross build --release --target x86_64-unknown-linux-gnu
+        cp target/x86_64-unknown-linux-gnu/release/vps-tg-bot dist/vps-tg-bot-linux-x86_64
+        
+        # Linux ARM64
+        cross build --release --target aarch64-unknown-linux-gnu
+        cp target/aarch64-unknown-linux-gnu/release/vps-tg-bot dist/vps-tg-bot-linux-aarch64
+        
+        # macOS x86_64
+        cross build --release --target x86_64-apple-darwin
+        cp target/x86_64-apple-darwin/release/vps-tg-bot dist/vps-tg-bot-darwin-x86_64
+        
+        # macOS ARM64
+        cross build --release --target aarch64-apple-darwin
+        cp target/aarch64-apple-darwin/release/vps-tg-bot dist/vps-tg-bot-darwin-aarch64
+        
+        # Windows x86_64
+        cross build --release --target x86_64-pc-windows-msvc
+        cp target/x86_64-pc-windows-msvc/release/vps-tg-bot.exe dist/vps-tg-bot-windows-x86_64.exe
+
+    - name: Build Docker image
+      working-directory: Rust/vps-tg-bot
+      run: |
+        docker build -t vps-tg-bot-rust:latest .
+
+    - name: Build Podman image
+      working-directory: Rust/vps-tg-bot
+      run: |
+        podman build -f tests/e2e/Dockerfile.e2e -t vps-tg-bot-rust:latest .
+
+    - name: Create release archive
+      run: |
+        cd Rust/vps-tg-bot/dist
+        tar -czf vps-tg-bot-rust-linux-x86_64.tar.gz vps-tg-bot-linux-x86_64
+        tar -czf vps-tg-bot-rust-linux-aarch64.tar.gz vps-tg-bot-linux-aarch64
+        tar -czf vps-tg-bot-rust-darwin-x86_64.tar.gz vps-tg-bot-darwin-x86_64
+        tar -czf vps-tg-bot-rust-darwin-aarch64.tar.gz vps-tg-bot-darwin-aarch64
+        zip vps-tg-bot-rust-windows-x86_64.zip vps-tg-bot-windows-x86_64.exe
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: rust-build-artifacts
+        path: Rust/vps-tg-bot/dist/
+
+    - name: Upload Docker image
+      if: github.ref == 'refs/heads/main'
+      run: |
+        echo "Rust Docker image built successfully"
+        podman images
+
+  # Rust 测试报告
+  rust-test-report:
+    name: Rust Test Report
+    runs-on: ubuntu-latest
+    needs: [rust-unit-tests, rust-integration-tests, podman-rust-e2e-tests, rust-security-tests]
+    if: always()
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        path: ./Rust
+
+    - name: Download test artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: rust-build-artifacts
+        path: ./artifacts
+
+    - name: Generate Rust test report
+      run: |
+        echo "# Rust E2E Test Report" > rust-test-report.md
+        echo "" >> rust-test-report.md
+        echo "## Test Summary" >> rust-test-report.md
+        echo "- **Unit Tests**: ${{ needs.rust-unit-tests.result }}" >> rust-test-report.md
+        echo "- **Integration Tests**: ${{ needs.rust-integration-tests.result }}" >> rust-test-report.md
+        echo "- **E2E Tests**: ${{ needs.podman-rust-e2e-tests.result }}" >> rust-test-report.md
+        echo "- **Security Tests**: ${{ needs.rust-security-tests.result }}" >> rust-test-report.md
+        echo "" >> rust-test-report.md
+        echo "## Build Artifacts" >> rust-test-report.md
+        ls -la ./artifacts >> rust-test-report.md
+
+    - name: Upload Rust test report
+      uses: actions/upload-artifact@v3
+      with:
+        name: rust-test-report
+        path: Rust/rust-test-report.md
+
+  # 通知结果
+  rust-notify:
+    name: Notify Rust Results
+    runs-on: ubuntu-latest
+    needs: [rust-test-report]
+    if: always()
+    
+    steps:
+    - name: Notify Rust success
+      if: ${{ needs.rust-test-report.result == 'success' }}
+      run: |
+        echo "✅ All Rust E2E tests passed successfully!"
+
+    - name: Notify Rust failure
+      if: ${{ needs.rust-test-report.result == 'failure' }}
+      run: |
+        echo "❌ Some Rust E2E tests failed. Please check the logs."

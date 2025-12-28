@@ -1,112 +1,199 @@
-# Rust E2E 测试镜像 - 模拟真实 VPS 环境
-FROM rust:1.75-slim-bookworm AS builder
-
-WORKDIR /build
-
-# 安装构建依赖
-RUN apt-get update && apt-get install -y \
-    pkg-config \
-    libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# 复制源代码
-COPY . .
-
-# 构建 release 版本
-RUN cargo build --release
-
-# 运行时镜像
+# Rust VPS Telegram Bot - E2E 测试镜像
+# 基于 Debian Bookworm 模拟真实 VPS 环境
 FROM debian:bookworm-slim
 
-# 安装运行时依赖和系统工具
+# 安装必要的系统工具和依赖
 RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    libssl3 \
+    # 基础工具
     curl \
     wget \
-    procps \
     bash \
     coreutils \
-    iproute2 \
+    procps \
     net-tools \
+    iproute2 \
+    ca-certificates \
     tzdata \
+    jq \
+    \
+    # 系统管理工具
+    systemd \
+    sudo \
+    openssh-server \
+    cron \
+    \
+    # 网络和防火墙工具
+    iptables \
+    ufw \
+    fail2ban \
+    \
+    # Rust 编译环境
+    gcc \
+    g++ \
+    pkg-config \
+    libssl-dev \
+    libdbus-1-dev \
+    \
     && rm -rf /var/lib/apt/lists/*
 
-# 设置时区
+# 设置时区为 Asia/Shanghai
 ENV TZ=Asia/Shanghai
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 WORKDIR /app
 
-# 从构建阶段复制二进制文件
-COPY --from=builder /build/target/release/vps-tg-bot /app/vps-tg-bot
+# 复制编译好的二进制文件
+COPY target/release/vps-tg-bot /app/vps-tg-bot
+
+# 创建必要的目录结构
+RUN mkdir -p \
+    /usr/local/bin \
+    /opt/vps-maintain \
+    /var/lib/vps-bot \
+    /var/log/vps-bot \
+    /var/lib/fail2ban \
+    /etc/fail2ban \
+    /etc/systemd/system \
+    /tmp/vps-bot
 
 # 创建模拟的维护脚本
-RUN mkdir -p /usr/local/bin
-
-# 核心维护脚本
 RUN echo '#!/bin/bash\n\
-echo "=== VPS Core Maintenance (Rust) ==="\n\
+echo "=== VPS Core Maintenance Started ==="\n\
 echo "Date: $(date)"\n\
-echo "Updating system packages..."\n\
+echo "Updating package lists..."\n\
 sleep 1\n\
-echo "Packages updated: 5"\n\
-echo "System cleaned"\n\
-echo "=== Maintenance Complete ===" ' > /usr/local/bin/vps-maintain-core.sh && \
+echo "Available updates: 5 packages"\n\
+echo "Cleaning package cache..."\n\
+sleep 1\n\
+echo "Removing old kernels..."\n\
+sleep 1\n\
+echo "Updating locales..."\n\
+sleep 1\n\
+echo "=== Core Maintenance Completed Successfully ==="\n\
+exit 0' > /usr/local/bin/vps-maintain-core.sh && \
     chmod +x /usr/local/bin/vps-maintain-core.sh
 
 # 规则维护脚本
 RUN echo '#!/bin/bash\n\
-echo "=== VPS Rules Update (Rust) ==="\n\
+echo "=== VPS Rules Update Started ==="\n\
 echo "Date: $(date)"\n\
-echo "Downloading new rules..."\n\
+echo "Downloading latest rules..."\n\
+sleep 2\n\
+echo "Processing new rules..."\n\
 sleep 1\n\
 echo "Rules updated: 150 new entries"\n\
-echo "=== Rules Update Complete ===" ' > /usr/local/bin/vps-maintain-rules.sh && \
+echo "Updating iptables rules..."\n\
+sleep 1\n\
+echo "=== Rules Update Completed Successfully ==="\n\
+exit 0' > /usr/local/bin/vps-maintain-rules.sh && \
     chmod +x /usr/local/bin/vps-maintain-rules.sh
 
-# 模拟 Xray 服务
+# 模拟 Xray 服务管理脚本
 RUN echo '#!/bin/bash\n\
 case "$1" in\n\
+    "start")\n\
+        echo "Starting Xray service..."\n\
+        echo "Xray service started successfully"\n\
+        ;;\n\
+    "stop")\n\
+        echo "Stopping Xray service..."\n\
+        echo "Xray service stopped successfully"\n\
+        ;;\n\
     "restart")\n\
-        echo "Xray restarted successfully"\n\
+        echo "Restarting Xray service..."\n\
+        echo "Xray service restarted successfully"\n\
         ;;\n\
     "status")\n\
-        echo "Xray is running"\n\
+        echo "Xray service is running (PID: 1234)"\n\
         ;;\n\
     "update")\n\
-        echo "Xray updated to v1.8.0"\n\
+        echo "Updating Xray to latest version..."\n\
+        sleep 2\n\
+        echo "Xray updated to version 1.8.0 successfully"\n\
+        ;;\n\
+    "config")\n\
+        echo "Xray configuration is valid"\n\
         ;;\n\
     *)\n\
-        echo "Usage: x-ui {restart|status|update}"\n\
+        echo "Usage: x-ui {start|stop|restart|status|update|config}"\n\
+        exit 1\n\
         ;;\n\
-esac ' > /usr/local/bin/x-ui && \
+esac\n\
+exit 0' > /usr/local/bin/x-ui && \
     chmod +x /usr/local/bin/x-ui
 
-# 模拟 Sing-box 服务
+# 模拟 Sing-box 服务管理脚本
 RUN echo '#!/bin/bash\n\
 case "$1" in\n\
+    "start")\n\
+        echo "Starting Sing-box service..."\n\
+        echo "Sing-box service started successfully"\n\
+        ;;\n\
+    "stop")\n\
+        echo "Stopping Sing-box service..."\n\
+        echo "Sing-box service stopped successfully"\n\
+        ;;\n\
     "restart")\n\
-        echo "Sing-box restarted successfully"\n\
+        echo "Restarting Sing-box service..."\n\
+        echo "Sing-box service restarted successfully"\n\
         ;;\n\
     "status")\n\
-        echo "Sing-box is running"\n\
+        echo "Sing-box service is running (PID: 5678)"\n\
         ;;\n\
     "update")\n\
-        echo "Sing-box updated to v1.5.0"\n\
+        echo "Updating Sing-box to latest version..."\n\
+        sleep 2\n\
+        echo "Sing-box updated to version 1.5.0 successfully"\n\
+        ;;\n\
+    "config")\n\
+        echo "Sing-box configuration is valid"\n\
         ;;\n\
     *)\n\
-        echo "Usage: sb {restart|status|update}"\n\
+        echo "Usage: sb {start|stop|restart|status|update|config}"\n\
+        exit 1\n\
         ;;\n\
-esac ' > /usr/local/bin/sb && \
+esac\n\
+exit 0' > /usr/local/bin/sb && \
     chmod +x /usr/local/bin/sb
 
-# 环境变量
+# 创建 Fail2Ban 模拟配置
+RUN echo '[DEFAULT]\n\
+bantime = 3600\n\
+findtime = 600\n\
+maxretry = 3\n\
+\n\
+[sshd]\nenabled = true\n\
+port = ssh\n\
+filter = sshd\n\
+logpath = /var/log/auth.log\n\
+maxretry = 3' > /etc/fail2ban/jail.local
+
+# 创建模拟的日志文件
+RUN echo "Dec 28 13:00:00 vps systemd[1]: Started VPS Telegram Bot\n\
+Dec 28 13:01:00 vps vps-tg-bot: Bot started successfully\n\
+Dec 28 13:05:00 vps vps-tg-bot: Core maintenance executed\n\
+Dec 28 13:10:00 vps vps-tg-bot: Rules updated successfully" > /var/log/vps-bot/app.log
+
+# 设置环境变量
 ENV TELOXIDE_TOKEN=""
 ENV CHAT_ID=""
 ENV RUST_LOG=info
+ENV STATE_FILE="/app/state.json"
+ENV HISTORY_FILE="/app/maintain_history.json"
 
 # 设置权限
-RUN chmod +x /app/vps-tg-bot
+RUN chmod +x /app/vps-tg-bot && \
+    chown -R nobody:nogroup /app /var/lib/vps-bot /var/log/vps-bot
 
+# 暴露端口（如果需要）
+EXPOSE 8080
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD pgrep -f vps-tg-bot > /dev/null || exit 1
+
+# 设置入口点
 ENTRYPOINT ["/app/vps-tg-bot"]
+
+# 如果以 bash 方式启动，用于测试
+CMD ["/bin/bash"]
