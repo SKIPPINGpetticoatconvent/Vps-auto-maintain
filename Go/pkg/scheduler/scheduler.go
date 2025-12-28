@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"vps-tg-bot/pkg/system"
 
@@ -327,18 +328,22 @@ func (c *CronJobManager) LoadState() error {
 		
 		// 如果任务类型在注册表中，直接添加任务
 		if taskFunc, exists := c.taskRegistry[jobType]; exists {
-			// 验证 Cron 表达式
-			if err := c.validateCron(spec); err != nil {
+			// 验证并转换 Cron 表达式
+			convertedSpec, err := c.validateCron(spec)
+			if err != nil {
 				log.Printf("任务 '%s' 的 Cron 表达式无效: %v", name, err)
 				continue
 			}
 			
 			// 添加 cron 任务
-			entryID, err := c.cron.AddFunc(spec, taskFunc)
+			entryID, err := c.cron.AddFunc(convertedSpec, taskFunc)
 			if err != nil {
 				log.Printf("重新注册作业 '%s' 失败: %v", name, err)
 				continue
 			}
+			
+			// 更新为转换后的表达式
+			spec = convertedSpec
 			
 			// 创建任务条目
 			jobEntry := JobEntry{
@@ -365,10 +370,23 @@ func (c *CronJobManager) LoadState() error {
 	return nil
 }
 
-// validateCron 验证 Cron 表达式
-func (c *CronJobManager) validateCron(spec string) error {
+// validateCron 验证 Cron 表达式，返回转换后的表达式
+func (c *CronJobManager) validateCron(spec string) (string, error) {
 	if spec == "" {
-		return fmt.Errorf("Cron 表达式不能为空")
+		return "", fmt.Errorf("Cron 表达式不能为空")
+	}
+	
+	// 清理空格
+	spec = strings.TrimSpace(spec)
+	
+	// 自动转换5字段格式为6字段格式（向后兼容）
+	// 如果是5字段格式，在前面添加秒字段"0 "
+	fields := strings.Fields(spec)
+	if len(fields) == 5 {
+		spec = "0 " + spec
+		log.Printf("自动转换5字段格式为6字段: %s -> %s", strings.TrimSpace(spec), spec)
+	} else if len(fields) != 6 {
+		return "", fmt.Errorf("Cron 表达式必须包含5或6个字段: 秒 分 时 日 月 星期或 分 时 日 月 星期")
 	}
 	
 	// 使用 cron 库的解析器来验证表达式
@@ -376,16 +394,17 @@ func (c *CronJobManager) validateCron(spec string) error {
 	parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	_, err := parser.Parse(spec)
 	if err != nil {
-		return fmt.Errorf("无效的 Cron 表达式 '%s': %v", spec, err)
+		return "", fmt.Errorf("无效的 Cron 表达式 '%s': %v", spec, err)
 	}
 	
-	return nil
+	return spec, nil
 }
 
 // AddJob 动态添加任务
 func (c *CronJobManager) AddJob(name, jobType, spec string) (int, error) {
-	// 验证 Cron 表达式
-	if err := c.validateCron(spec); err != nil {
+	// 验证并转换 Cron 表达式
+	convertedSpec, err := c.validateCron(spec)
+	if err != nil {
 		return 0, err
 	}
 	
@@ -405,11 +424,14 @@ func (c *CronJobManager) AddJob(name, jobType, spec string) (int, error) {
 		return 0, fmt.Errorf("任务类型 '%s' 的函数未找到", jobType)
 	}
 	
-	// 添加 cron 任务
-	entryID, err := c.cron.AddFunc(spec, taskFunc)
+	// 添加 cron 任务（使用转换后的表达式）
+	entryID, err := c.cron.AddFunc(convertedSpec, taskFunc)
 	if err != nil {
 		return 0, fmt.Errorf("添加 Cron 任务失败: %v", err)
 	}
+	
+	// 更新为转换后的表达式
+	spec = convertedSpec
 	
 	// 创建任务条目
 	jobEntry := JobEntry{
@@ -487,8 +509,9 @@ func (c *CronJobManager) GetJobList() []JobEntry {
 
 // UpdateJobByID 根据 ID 更新任务时间
 func (c *CronJobManager) UpdateJobByID(id int, spec string) error {
-	// 验证 Cron 表达式
-	if err := c.validateCron(spec); err != nil {
+	// 验证并转换 Cron 表达式
+	convertedSpec, err := c.validateCron(spec)
+	if err != nil {
 		return err
 	}
 	
@@ -517,24 +540,27 @@ func (c *CronJobManager) UpdateJobByID(id int, spec string) error {
 		return fmt.Errorf("任务类型 '%s' 的函数未找到", targetJob.InternalName)
 	}
 	
-	// 添加新的 cron 任务
-	newEntryID, err := c.cron.AddFunc(spec, taskFunc)
+	// 添加新的 cron 任务（使用转换后的表达式）
+	newEntryID, err := c.cron.AddFunc(convertedSpec, taskFunc)
 	if err != nil {
 		return fmt.Errorf("更新 Cron 任务失败: %v", err)
 	}
 	
-	// 更新任务信息
-	targetJob.Spec = spec
+	// 更新任务信息（使用转换后的表达式）
+	targetJob.Spec = convertedSpec
 	targetJob.EntryID = newEntryID
 	
 	// 更新切片中的副本
 	for i, entry := range c.jobEntries {
 		if entry.ID == id {
-			c.jobEntries[i].Spec = spec
+			c.jobEntries[i].Spec = convertedSpec
 			c.jobEntries[i].EntryID = newEntryID
 			break
 		}
 	}
+	
+	// 更新输入参数为转换后的表达式
+	spec = convertedSpec
 	
 	// 自动保存状态
 	if err := c.SaveState(); err != nil {

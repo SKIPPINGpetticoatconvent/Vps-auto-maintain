@@ -803,11 +803,23 @@ func (t *TGBotHandler) generateCronExpression(frequency Frequency, timeValue str
 		// 默认值
 		return "0 0 4 1 * *" // 默认每月1号凌晨4点
 	default:
-		return timeValue // 自定义模式直接返回用户输入
+		// 默认情况：自定义模式
+		// 自定义模式：直接返回用户输入，保持原始格式
+		// 但需要支持5字段和6字段格式的自动转换
+		fields := strings.Fields(timeValue)
+		if len(fields) == 5 {
+			// 5字段格式自动转换为6字段格式
+			return "0 " + timeValue
+		} else if len(fields) == 6 {
+			// 6字段格式直接返回
+			return timeValue
+		} else {
+			// 如果格式不正确，返回默认值
+			log.Printf("自定义 Cron 格式不正确: %s", timeValue)
+			return "0 0 4 * * *" // 默认值
+		}
 	}
 }
-
-// validateCronExpression 验证 Cron 表达式
 func (t *TGBotHandler) validateCronExpression(cronExpr string) error {
 	if cronExpr == "" {
 		return fmt.Errorf("Cron 表达式不能为空")
@@ -816,13 +828,17 @@ func (t *TGBotHandler) validateCronExpression(cronExpr string) error {
 	// 清理空格
 	cronExpr = strings.TrimSpace(cronExpr)
 	
-	// 基本的字段数量验证
+	// 支持5字段和6字段格式
 	fields := strings.Fields(cronExpr)
-	if len(fields) != 6 {
-		return fmt.Errorf("Cron 表达式必须包含6个字段: 秒 分 时 日 月 星期")
+	if len(fields) == 5 {
+		// 5字段格式: 分 时 日 月 星期
+		log.Printf("检测到5字段格式Cron表达式: %s", cronExpr)
+		return nil // 基本验证通过，详细验证由调度器处理
+	} else if len(fields) == 6 {
+		// 6字段格式: 秒 分 时 日 月 星期
+		log.Printf("检测到6字段格式Cron表达式: %s", cronExpr)
+		return nil // 基本验证通过，详细验证由调度器处理
+	} else {
+		return fmt.Errorf("Cron 表达式必须包含5或6个字段: 分 时 日 月 星期 或 秒 分 时 日 月 星期")
 	}
-	
-	// TODO: 可以使用更严格的验证，比如调用调度器的 validateCron 方法
-	// 这里暂时使用基本的验证
-	return nil
 }
