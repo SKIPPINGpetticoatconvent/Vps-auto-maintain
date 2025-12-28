@@ -85,19 +85,22 @@ func TestCronExpressionFix(t *testing.T) {
 func TestValidateCron(t *testing.T) {
 	jobManager := scheduler.NewCronJobManager("test_validate.json")
 	
-	// 测试5字段和6字段格式
-	validExprs := []string{
-		"0 4 * * *",      // 5字段
-		"0 0 4 * * *",    // 6字段
-		"0 4 * * Sun",    // 5字段
-		"0 0 4 * * 0",    // 6字段
+	// 测试5字段和6字段格式（使用不同的任务名称）
+	validExprs := []struct {
+		name string
+		expr string
+	}{
+		{"5字段每日", "0 4 * * *"},
+		{"6字段每日", "0 0 4 * * *"},
+		{"5字段每周", "0 4 * * Sun"},
+		{"6字段每周", "0 0 4 * * 0"},
 	}
 	
-	for _, expr := range validExprs {
-		t.Run("Valid_"+expr, func(t *testing.T) {
-			_, err := jobManager.AddJob("测试任务", "core_maintain", expr)
+	for _, testCase := range validExprs {
+		t.Run("Valid_"+testCase.name, func(t *testing.T) {
+			_, err := jobManager.AddJob("验证测试_"+testCase.name, "core_maintain", testCase.expr)
 			if err != nil {
-				t.Errorf("有效表达式应该成功: %s, 错误: %v", expr, err)
+				t.Errorf("有效表达式应该成功: %s, 错误: %v", testCase.expr, err)
 			}
 		})
 	}
@@ -110,7 +113,7 @@ func TestValidateCron(t *testing.T) {
 	
 	for _, expr := range invalidExprs {
 		t.Run("Invalid_"+expr, func(t *testing.T) {
-			_, err := jobManager.AddJob("测试任务", "core_maintain", expr)
+			_, err := jobManager.AddJob("验证测试_无效", "core_maintain", expr)
 			if err == nil {
 				t.Errorf("无效表达式应该失败: %s", expr)
 			}

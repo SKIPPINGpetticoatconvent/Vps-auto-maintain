@@ -1,0 +1,30 @@
+{
+  "验证测试_5字段每周": {
+    "enabled": true,
+    "id": 3,
+    "name": "验证测试_5字段每周",
+    "spec": "0 0 4 * * Sun",
+    "type": "core_maintain"
+  },
+  "验证测试_5字段每日": {
+    "enabled": true,
+    "id": 1,
+    "name": "验证测试_5字段每日",
+    "spec": "0 0 4 * * *",
+    "type": "core_maintain"
+  },
+  "验证测试_6字段每周": {
+    "enabled": true,
+    "id": 4,
+    "name": "验证测试_6字段每周",
+    "spec": "0 0 4 * * 0",
+    "type": "core_maintain"
+  },
+  "验证测试_6字段每日": {
+    "enabled": true,
+    "id": 2,
+    "name": "验证测试_6字段每日",
+    "spec": "0 0 4 * * *",
+    "type": "core_maintain"
+  }
+}
