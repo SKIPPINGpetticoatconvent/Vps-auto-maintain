@@ -713,10 +713,42 @@ async fn handle_callback_query(
                 
                 let tasks_summary = scheduler::get_tasks_summary().await.unwrap_or_else(|_| "❌ 无法获取任务列表".to_string());
                 
-                let keyboard = build_task_type_menu_keyboard();
-                bot.edit_message_text(chat_id, message_id, tasks_summary)
-                    .reply_markup(keyboard)
-                    .await?;
+                // 如果有任务，为每个任务添加删除按钮
+                if !tasks_summary.contains("暂无定时任务") {
+                    // 解析任务列表，为每个任务添加删除按钮
+                    let mut keyboard = Vec::new();
+                    
+                    // 分析任务列表，提取任务数量
+                    let task_count = tasks_summary.matches("✅").count() + tasks_summary.matches("⏸️").count();
+                    
+                    // 为每个任务添加删除按钮
+                    for i in 0..task_count {
+                        let task_row = vec![
+                            InlineKeyboardButton::callback(
+                                format!("🗑️ 删除任务 {}", i + 1), 
+                                format!("del_task_{}", i)
+                            )
+                        ];
+                        keyboard.push(task_row);
+                    }
+                    
+                    // 添加通用按钮
+                    keyboard.push(vec![
+                        InlineKeyboardButton::callback("➕ 添加新任务", "add_new_task"),
+                        InlineKeyboardButton::callback("🔙 返回", "back_to_task_types"),
+                    ]);
+                    
+                    let keyboard = InlineKeyboardMarkup::new(keyboard);
+                    bot.edit_message_text(chat_id, message_id, tasks_summary)
+                        .reply_markup(keyboard)
+                        .await?;
+                } else {
+                    // 没有任务时显示默认键盘
+                    let keyboard = build_task_type_menu_keyboard();
+                    bot.edit_message_text(chat_id, message_id, tasks_summary)
+                        .reply_markup(keyboard)
+                        .await?;
+                }
                 
                 log::info!("✅ view_tasks 处理完成");
             }
@@ -1209,6 +1241,112 @@ async fn handle_callback_query(
                 });
                 
                 log::info!("✅ maintenance_history 处理完成");
+                return Ok(());
+            }
+            // 删除任务处理
+            cmd if cmd.starts_with("del_task_") => {
+                let task_index_str = cmd.strip_prefix("del_task_").unwrap_or("0");
+                let task_index = task_index_str.parse::<usize>().unwrap_or(0);
+                
+                log::info!("🎯 处理删除任务: 索引 {}", task_index);
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = format!("🗑️ 正在删除任务 {}...", task_index + 1);
+                
+                // 暂时显示加载消息
+                bot.edit_message_text(chat_id, message_id, message).await?;
+                
+                // 异步执行删除操作
+                let bot_clone = bot.clone();
+                let chat_id_clone = chat_id;
+                let message_id_clone = message_id;
+                let config = Config::load().unwrap_or_else(|_| Config { bot_token: "".to_string(), chat_id: 0, check_interval: 300 });
+                
+                tokio::spawn(async move {
+                    let mut retry_count = 0;
+                    let max_retries = 10;
+                    
+                    while retry_count < max_retries {
+                        let manager_guard = crate::scheduler::SCHEDULER_MANAGER.lock().await;
+                        if let Some(manager) = &*manager_guard {
+                            let result = manager.remove_task_by_index(
+                                config.clone(),
+                                Bot::new(config.bot_token.clone()),
+                                task_index
+                            ).await;
+                            
+                            drop(manager_guard); // 立即释放锁
+                            
+                            match result {
+                                Ok(response_msg) => {
+                                    // 删除成功后重新加载任务列表
+                                    let tasks_summary = crate::scheduler::get_tasks_summary().await.unwrap_or_else(|_| "❌ 无法获取任务列表".to_string());
+                                    
+                                    // 重新构建键盘
+                                    let mut keyboard = Vec::new();
+                                    
+                                    if !tasks_summary.contains("暂无定时任务") {
+                                        // 分析任务列表，提取任务数量
+                                        let new_task_count = tasks_summary.matches("✅").count() + tasks_summary.matches("⏸️").count();
+                                        
+                                        // 为每个任务添加删除按钮
+                                        for i in 0..new_task_count {
+                                            let task_row = vec![
+                                                InlineKeyboardButton::callback(
+                                                    format!("🗑️ 删除任务 {}", i + 1), 
+                                                    format!("del_task_{}", i)
+                                                )
+                                            ];
+                                            keyboard.push(task_row);
+                                        }
+                                    }
+                                    
+                                    // 添加通用按钮
+                                    keyboard.push(vec![
+                                        InlineKeyboardButton::callback("➕ 添加新任务", "add_new_task"),
+                                        InlineKeyboardButton::callback("🔙 返回", "back_to_task_types"),
+                                    ]);
+                                    
+                                    let keyboard = InlineKeyboardMarkup::new(keyboard);
+                                    
+                                    let final_message = format!("✅ {}\n\n{}", response_msg, tasks_summary);
+                                    let _ = bot_clone.edit_message_text(
+                                        chat_id_clone,
+                                        message_id_clone,
+                                        final_message
+                                    ).reply_markup(keyboard)
+                                    .await;
+                                    return;
+                                }
+                                Err(e) => {
+                                    let _ = bot_clone.edit_message_text(
+                                        chat_id_clone,
+                                        message_id_clone,
+                                        format!("❌ 删除任务失败: {}", e)
+                                    ).reply_markup(build_task_type_menu_keyboard())
+                                    .await;
+                                    return;
+                                }
+                            }
+                        } else {
+                            drop(manager_guard);
+                            retry_count += 1;
+                            if retry_count < max_retries {
+                                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                            } else {
+                                let _ = bot_clone.edit_message_text(
+                                    chat_id_clone,
+                                    message_id_clone,
+                                    "❌ 调度器尚未初始化，请稍后重试或重新启动机器人"
+                                ).reply_markup(build_task_type_menu_keyboard())
+                                .await;
+                                return;
+                            }
+                        }
+                    }
+                });
+                
+                log::info!("✅ del_task 处理完成");
                 return Ok(());
             }
             "maintenance_history_summary" => {
