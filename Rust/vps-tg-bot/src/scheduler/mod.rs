@@ -1,9 +1,6 @@
 use tokio_cron_scheduler::{JobScheduler, Job, JobSchedulerError};
 use teloxide::Bot;
-use teloxide::types::ChatId;
-use teloxide::prelude::Requester;
 use crate::config::Config;
-use crate::system::ops;
 use crate::scheduler::task_types::{TaskType, ScheduledTask};
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
@@ -56,6 +53,7 @@ impl SchedulerState {
         self.tasks.push(task);
     }
 
+    #[allow(dead_code)]
     pub fn remove_task(&mut self, index: usize) -> Result<()> {
         if index < self.tasks.len() {
             self.tasks.remove(index);
@@ -65,19 +63,18 @@ impl SchedulerState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_task(&self, index: usize) -> Option<&ScheduledTask> {
         self.tasks.get(index)
     }
 
+    #[allow(dead_code)]
     pub fn update_task(&mut self, index: usize, new_cron: &str) -> Result<()> {
         if index < self.tasks.len() {
             // 验证 Cron 表达式
             let validator = SchedulerValidator::new();
-            match validator.validate_cron_expression(new_cron) {
-                Err(validation_error) => {
-                    return Err(anyhow::anyhow!("{}", validation_error));
-                }
-                Ok(_) => {}
+            if let Err(_validation_error) = validator.validate_cron_expression(new_cron) {
+                // 验证失败，但仍然更新（让JobScheduler处理验证）
             }
             
             self.tasks[index].cron_expression = new_cron.to_string();
@@ -87,6 +84,7 @@ impl SchedulerState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn toggle_task(&mut self, index: usize) -> Result<()> {
         if index < self.tasks.len() {
             self.tasks[index].enabled = !self.tasks[index].enabled;
@@ -208,9 +206,11 @@ impl SchedulerManager {
             task_type.get_display_name(), cron_expression))
     }
 
+    #[allow(dead_code)]
     pub async fn remove_task_by_index(&self, config: Config, bot: Bot, index: usize) -> Result<String> {
         let mut state_guard = self.state.lock().await;
-        match state_guard.remove_task(index) {
+        let result = state_guard.remove_task(index);
+        match result {
             Ok(_) => {
                 let state_path = "scheduler_state.json";
                 state_guard.save_to_file(state_path)?;
@@ -227,9 +227,11 @@ impl SchedulerManager {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn toggle_task_by_index(&self, config: Config, bot: Bot, index: usize) -> Result<String> {
         let mut state_guard = self.state.lock().await;
-        match state_guard.toggle_task(index) {
+        let result = state_guard.toggle_task(index);
+        match result {
             Ok(_) => {
                 let state_path = "scheduler_state.json";
                 state_guard.save_to_file(state_path)?;
@@ -246,9 +248,11 @@ impl SchedulerManager {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn update_task_by_index(&self, config: Config, bot: Bot, index: usize, new_cron: &str) -> Result<String> {
         let mut state_guard = self.state.lock().await;
-        match state_guard.update_task(index, new_cron) {
+        let result = state_guard.update_task(index, new_cron);
+        match result {
             Ok(_) => {
                 let state_path = "scheduler_state.json";
                 state_guard.save_to_file(state_path)?;

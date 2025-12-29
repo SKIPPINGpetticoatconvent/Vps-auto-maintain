@@ -22,8 +22,8 @@ impl EnvironmentLoader {
     /// 检查环境变量是否设置且有效
     fn check_env_vars() -> bool {
         // 检查必需的变量
-        let has_token = env::var("BOT_TOKEN").map_or(false, |s| !s.is_empty());
-        let has_chat_id = env::var("CHAT_ID").map_or(false, |s| !s.is_empty());
+        let has_token = env::var("BOT_TOKEN").is_ok_and(|s| !s.is_empty());
+        let has_chat_id = env::var("CHAT_ID").is_ok_and(|s| !s.is_empty());
         
         has_token && has_chat_id
     }

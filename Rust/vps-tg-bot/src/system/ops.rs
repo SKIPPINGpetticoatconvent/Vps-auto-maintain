@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use tokio::process::Command;
 use crate::system::errors::SystemError;
 use crate::scheduler::maintenance_history::{self, MaintenanceResult};
@@ -56,6 +56,7 @@ pub async fn perform_maintenance() -> Result<String, SystemError> {
     Ok(log)
 }
 
+#[allow(dead_code)]
 pub async fn check_security_updates() -> Result<bool, SystemError> {
     let output = run_command_with_error_context("apt-get", &["upgrade", "-s"], "检查安全更新")
         .await
@@ -76,6 +77,7 @@ pub async fn reboot_system() -> Result<(), SystemError> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub async fn restart_service(service_name: &str) -> Result<(), SystemError> {
     let status = Command::new("systemctl")
         .args(["restart", service_name])
@@ -229,7 +231,7 @@ pub async fn get_system_logs(lines: usize) -> Result<String, SystemError> {
 async fn run_command_with_error_context(
     command: &str, 
     args: &[&str], 
-    context: &str
+    _context: &str
 ) -> Result<String, SystemError> {
     let output = Command::new(command)
         .args(args)

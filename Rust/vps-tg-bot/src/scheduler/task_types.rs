@@ -2,9 +2,7 @@ use serde::{Serialize, Deserialize};
 use teloxide::Bot;
 use teloxide::types::ChatId;
 use teloxide::prelude::Requester;
-use crate::config::Config;
 use crate::system::ops;
-use crate::system::errors::SystemError;
 use anyhow::{Result, anyhow};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -23,6 +21,7 @@ impl ScheduledTask {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_display_name(&self) -> String {
         format!("{} ({})", self.task_type.get_display_name(), self.cron_expression)
     }
@@ -48,6 +47,7 @@ impl TaskType {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_cron_suggestions(&self) -> Vec<(&'static str, &'static str)> {
         match self {
             TaskType::SystemMaintenance => vec![

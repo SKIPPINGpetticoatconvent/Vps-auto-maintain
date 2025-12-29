@@ -98,6 +98,7 @@ pub fn load_config() -> ConfigResult<Config> {
 }
 
 /// 获取所有可用的配置源
+#[allow(dead_code)]
 pub fn get_available_sources() -> Vec<ConfigSource> {
     let mut sources = Vec::new();
     
@@ -123,6 +124,7 @@ pub fn get_available_sources() -> Vec<ConfigSource> {
 }
 
 /// 检查指定路径的配置文件是否存在
+#[allow(dead_code)]
 fn check_config_exists(path: &str) -> bool {
     Path::new(path).exists()
 }

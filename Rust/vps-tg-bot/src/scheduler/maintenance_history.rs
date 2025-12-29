@@ -90,6 +90,7 @@ impl MaintenanceHistory {
     }
 
     /// 获取特定任务类型的记录
+    #[allow(dead_code)]
     pub fn get_records_by_task_type(&self, task_type: &str) -> Vec<&MaintenanceRecord> {
         self.records
             .iter()
@@ -116,6 +117,7 @@ impl MaintenanceHistory {
     }
 
     /// 清除所有记录
+    #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.records.clear();
         let _ = self.save_to_file();
@@ -281,7 +283,7 @@ pub async fn get_maintenance_history_details(page: usize, page_size: usize) -> (
     
     let page_records = &all_records[start_idx..end_idx];
     
-    let mut text = format!("📜 维护历史记录 (第{}页/共{}页)\n\n", page + 1, (total_records + page_size - 1) / page_size);
+    let mut text = format!("📜 维护历史记录 (第{}页/共{}页)\n\n", page + 1, total_records.div_ceil(page_size));
     
     for (i, record) in page_records.iter().enumerate() {
         text.push_str(&format!("{}. {}\n\n", start_idx + i + 1, history_guard.format_record(record)));

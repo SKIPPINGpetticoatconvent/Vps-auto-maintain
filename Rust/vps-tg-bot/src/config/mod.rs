@@ -1,8 +1,6 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::fs;
-use std::path::Path;
 use log::warn;
 
 // 新增的模块导入
@@ -53,7 +51,7 @@ impl Config {
         }
     }
     
-    /// 获取所有可用的配置源
+    #[allow(dead_code)]
     pub fn get_available_sources() -> Vec<String> {
         get_available_sources()
             .into_iter()
@@ -68,9 +66,7 @@ impl Config {
             .collect()
     }
     
-    /// 保存配置到加密文件
-    /// 
-    /// 注意：此方法会优先保存到加密文件，如果失败则保存到明文文件
+    #[allow(dead_code)]
     pub fn save_encrypted(&self) -> Result<()> {
         use crate::config::loader::encrypted::EncryptedFileLoader;
         
@@ -98,7 +94,7 @@ impl Config {
         }
     }
 
-    /// 保留原有的保存方法（保存为明文 TOML）
+    #[allow(dead_code)]
     pub fn save(&self, path: &str) -> Result<()> {
         let content = toml::to_string(self)
             .with_context(|| "Failed to serialize config")?;
@@ -107,7 +103,7 @@ impl Config {
         Ok(())
     }
     
-    /// 验证配置有效性
+    #[allow(dead_code)]
     pub fn validate(&self) -> ConfigResult<()> {
         let new_config = NewConfig {
             bot_token: self.bot_token.clone(),

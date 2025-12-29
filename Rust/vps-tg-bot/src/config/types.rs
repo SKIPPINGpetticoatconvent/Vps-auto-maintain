@@ -20,6 +20,7 @@ fn default_check_interval() -> u64 {
 
 /// 配置来源枚举
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum ConfigSource {
     /// 环境变量配置（最高优先级）
     Environment,

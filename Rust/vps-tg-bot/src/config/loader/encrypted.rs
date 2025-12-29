@@ -11,7 +11,7 @@ use crate::config::types::{Config, ConfigError, ConfigResult, ConfigSource};
 use crate::config::crypto::{ConfigCrypto, SecureStorage};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
-use log::{debug, info, warn};
+use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -34,7 +34,7 @@ struct EncryptedConfig {
 }
 
 impl EncryptedConfig {
-    /// 创建新的加密配置
+    #[allow(dead_code)]
     pub fn new(encrypted_data: Vec<u8>, version: String) -> Self {
         use chrono::Utc;
         
@@ -60,6 +60,7 @@ pub struct EncryptedFileLoader {
 
 impl EncryptedFileLoader {
     /// 创建新的加密文件加载器
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             config_path: Self::find_encrypted_config_path(),
@@ -78,12 +79,12 @@ impl EncryptedFileLoader {
         None
     }
     
-    /// 获取配置路径
+    #[allow(dead_code)]
     pub fn get_config_path(&self) -> Option<&Path> {
         self.config_path.as_deref()
     }
     
-    /// 保存配置到加密文件
+    #[allow(dead_code)]
     pub fn save(&self, config: &Config) -> ConfigResult<()> {
         let config_path = self.config_path
             .as_ref()

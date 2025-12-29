@@ -96,7 +96,7 @@ fn get_primary_network_mac() -> Result<String> {
     
     // 如果主要接口都不存在，尝试系统第一个网络接口
     if let Ok(output) = Command::new("ip")
-        .args(&["link", "show"])
+        .args(["link", "show"])
         .output()
     {
         let output_str = String::from_utf8_lossy(&output.stdout);
@@ -137,7 +137,7 @@ fn read_interface_mac(interface: &str) -> Result<String> {
 fn get_root_partition_uuid() -> Result<String> {
     // 方法 1: 通过 blkid 获取
     if let Ok(output) = Command::new("blkid")
-        .args(&["-l", "-t", "TYPE=vfat", "-o", "DEVICE"])
+        .args(["-l", "-t", "TYPE=vfat", "-o", "DEVICE"])
         .output()
     {
         let output_str = String::from_utf8_lossy(&output.stdout);
@@ -146,7 +146,7 @@ fn get_root_partition_uuid() -> Result<String> {
             if !trimmed.is_empty() { Some(trimmed.to_string()) } else { None }
         }) {
             if let Ok(uuid_output) = Command::new("blkid")
-                .args(&["-s", "UUID", "-o", "value", &device])
+                .args(["-s", "UUID", "-o", "value", &device])
                 .output()
             {
                 let uuid_binding = String::from_utf8_lossy(&uuid_output.stdout);
@@ -181,7 +181,7 @@ fn get_root_partition_uuid() -> Result<String> {
 
     // 方法 3: 通过 lsblk 获取
     if let Ok(output) = Command::new("lsblk")
-        .args(&["-f", "--output=UUID,FSTYPE,MOUNTPOINT"])
+        .args(["-f", "--output=UUID,FSTYPE,MOUNTPOINT"])
         .output()
     {
         let output_str = String::from_utf8_lossy(&output.stdout);
@@ -218,9 +218,9 @@ fn hostname_mut() -> Result<String> {
     Ok(std::env::current_dir()
         .and_then(|path| {
             path.to_str()
-                .and_then(|s| s.split('/').last())
+                .and_then(|s| s.split('/').next_back())
                 .map(|s| s.to_string())
-                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "无法从路径提取主机名"))
+                .ok_or_else(|| std::io::Error::other("无法从路径提取主机名"))
         })
         .unwrap_or_else(|_| "fallback_hostname".to_string()))
 }

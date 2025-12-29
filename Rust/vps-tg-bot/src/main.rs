@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use log::{debug, error, info, warn};
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 
 mod bot;
 mod config;
@@ -9,7 +9,6 @@ mod scheduler;
 mod system;
 
 use config::migration;
-use config::Config;
 
 /// VPS Telegram Bot - Rust 版本
 #[derive(Parser, Debug)]
@@ -99,7 +98,7 @@ async fn main() -> Result<()> {
             output,
             delete_legacy,
         } => {
-            migrate_config(&input, output.as_ref(), delete_legacy)?;
+            migrate_config(&input, output, delete_legacy)?;
         }
         Commands::VerifyConfig { path } => {
             verify_config(path.as_ref())?;
@@ -154,8 +153,8 @@ async fn run_bot() -> Result<()> {
     info!("✅ 维护历史管理器初始化成功");
 
     // 启动后台任务保持调度器运行
-    let scheduler_config = config.clone();
-    let scheduler_bot = bot_instance.clone();
+    let _scheduler_config = config.clone();
+    let _scheduler_bot = bot_instance.clone();
     tokio::spawn(async move {
         info!("🔄 启动调度器后台任务...");
         loop {
@@ -200,10 +199,10 @@ fn init_config(token: &str, chat_id: i64, output: &PathBuf) -> Result<()> {
 }
 
 /// 迁移明文配置到加密格式
-fn migrate_config(input: &PathBuf, output: Option<&PathBuf>, delete_legacy: bool) -> Result<()> {
+fn migrate_config(input: &Path, output: Option<PathBuf>, delete_legacy: bool) -> Result<()> {
     info!("🔄 开始迁移明文配置到加密格式...");
 
-    let output_path = output.cloned().unwrap_or_else(|| PathBuf::from("/etc/vps-tg-bot-rust/config.enc"));
+    let output_path = output.unwrap_or_else(|| PathBuf::from("/etc/vps-tg-bot-rust/config.enc"));
 
     let result = migration::migrate_legacy_config(input, &output_path, delete_legacy);
 

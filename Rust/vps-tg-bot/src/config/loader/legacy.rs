@@ -74,7 +74,7 @@ impl LegacyFileLoader {
         None
     }
     
-    /// 获取配置路径
+    #[allow(dead_code)]
     pub fn get_config_path(&self) -> Option<&Path> {
         self.config_path.as_deref()
     }

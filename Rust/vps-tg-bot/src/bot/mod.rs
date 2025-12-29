@@ -1,6 +1,6 @@
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
-use teloxide::types::{InlineKeyboardMarkup, InlineKeyboardButton, ChatId};
+use teloxide::types::{InlineKeyboardMarkup, InlineKeyboardButton};
 use crate::config::Config;
 use crate::system;
 use crate::scheduler;
@@ -115,12 +115,12 @@ fn build_schedule_presets_keyboard(task_type: &str) -> InlineKeyboardMarkup {
     
     let keyboard = vec![
         vec![
-            InlineKeyboardButton::callback("每天设置", &format!("set_preset_{}_daily", task_type)),
-            InlineKeyboardButton::callback("每周设置", &format!("set_preset_{}_weekly", task_type)),
+            InlineKeyboardButton::callback("每天设置", format!("set_preset_{}_daily", task_type)),
+            InlineKeyboardButton::callback("每周设置", format!("set_preset_{}_weekly", task_type)),
         ],
         vec![
-            InlineKeyboardButton::callback("每月设置", &format!("set_preset_{}_monthly", task_type)),
-            InlineKeyboardButton::callback("自定义", &format!("set_custom_{}", task_type)),
+            InlineKeyboardButton::callback("每月设置", format!("set_preset_{}_monthly", task_type)),
+            InlineKeyboardButton::callback("自定义", format!("set_custom_{}", task_type)),
         ],
         vec![
             InlineKeyboardButton::callback("🔙 返回任务类型", "back_to_task_types"),
@@ -156,10 +156,10 @@ fn build_maintenance_history_keyboard(page: usize) -> InlineKeyboardMarkup {
     // 分页按钮
     let mut page_buttons = Vec::new();
     if page > 0 {
-        page_buttons.push(InlineKeyboardButton::callback("⬅️ 上一页", &format!("maintenance_history_{}", page - 1)));
+        page_buttons.push(InlineKeyboardButton::callback("⬅️ 上一页", format!("maintenance_history_{}", page - 1)));
     }
     page_buttons.push(InlineKeyboardButton::callback("📜 历史摘要", "maintenance_history_summary"));
-    page_buttons.push(InlineKeyboardButton::callback("下一页 ➡️", &format!("maintenance_history_{}", page + 1)));
+    page_buttons.push(InlineKeyboardButton::callback("下一页 ➡️", format!("maintenance_history_{}", page + 1)));
     
     keyboard.push(page_buttons);
     keyboard.push(vec![
@@ -267,7 +267,7 @@ fn build_time_selection_keyboard(task_type: &str, frequency: &str) -> InlineKeyb
     // 每行显示 3 个按钮
     for chunk in time_buttons.chunks(3) {
         let row = chunk.iter().map(|(label, value)| {
-            InlineKeyboardButton::callback(label.to_string(), &format!("set_time_{}_{}_{}", task_type, frequency, value))
+            InlineKeyboardButton::callback(label.to_string(), format!("set_time_{}_{}_{}", task_type, frequency, value))
         }).collect();
         keyboard.push(row);
     }
@@ -843,7 +843,7 @@ async fn handle_callback_query(
                         if time_value.is_empty() {
                             let _ = bot.send_message(
                                 chat_id,
-                                format!("❌ 无效的时间值: 时间值不能为空")
+                                "❌ 无效的时间值: 时间值不能为空".to_string()
                             ).await;
                             return Ok(());
                         }
@@ -851,9 +851,9 @@ async fn handle_callback_query(
                         // 特殊处理：如果时间值等于频率，说明用户没有选择具体时间
                         if time_value == frequency {
                             let _ = bot.send_message(
-                                chat_id,
-                                format!("❌ 请选择具体的执行时间，而不是 '{}'", time_value)
-                            ).await;
+                    chat_id,
+                    format!("❌ 请选择具体的执行时间，而不是 '{}'", time_value)
+                ).await;
                             return Ok(());
                         }
                         
@@ -863,14 +863,14 @@ async fn handle_callback_query(
                         let invalid_time_values = ["daily", "weekly", "monthly"];
                         if time_value.parse::<i32>().is_err() && !invalid_time_values.contains(&time_value.as_str()) {
                             let _ = bot.send_message(
-                                chat_id,
-                                format!("❌ 无效的时间值: {}", time_value)
-                            ).await;
+                    chat_id,
+                    format!("❌ 无效的时间值: {}", time_value)
+                ).await;
                             return Ok(());
                         }
                         
                         // 构建 Cron 表达式
-                        let cron_expr = match frequency.as_ref() {
+                        let cron_expr = match frequency {
                             "daily" => format!("0 {} * * *", time_value),
                             "weekly" => format!("{} * * 0", time_value),
                             "monthly" => {
@@ -952,9 +952,9 @@ async fn handle_callback_query(
                                     match result {
                                         Ok(response_msg) => {
                                             let _ = bot_clone_for_message.send_message(
-                                                chat_id_for_message,
-                                                format!("✅ {}\n\n任务已成功设置！", response_msg)
-                                            ).await;
+                                chat_id_for_message,
+                                format!("✅ {}\n\n任务已成功设置！", response_msg)
+                            ).await;
                                             return;
                                         }
                                         Err(e) => {
@@ -973,7 +973,7 @@ async fn handle_callback_query(
                                     } else {
                                         let _ = bot_clone_for_message.send_message(
                                             chat_id_for_message,
-                                            "❌ 调度器尚未初始化，请稍后重试或重新启动机器人"
+                                            "❌ 调度器尚未初始化，请稍后重试或重新启动机器人".to_string()
                                         ).await;
                                         return;
                                     }
@@ -987,7 +987,7 @@ async fn handle_callback_query(
                         log::warn!("❌ 无法解析时间设置命令，缺少有效的频率关键字: {:?}", parts);
                         let _ = bot.send_message(
                             chat_id,
-                            format!("❌ 无效的时间设置命令: 缺少有效的频率关键字 (daily/weekly/monthly)")
+                            "❌ 无效的时间设置命令: 缺少有效的频率关键字 (daily/weekly/monthly)".to_string()
                         ).await;
                         bot.answer_callback_query(&callback_query.id).await?;
                     }
@@ -1193,22 +1193,19 @@ async fn handle_callback_query(
                 let message_id_clone = message_id;
                 
                 tokio::spawn(async move {
-                    match crate::scheduler::maintenance_history::get_maintenance_history_details(page, 5).await {
-                        (history_text, total_records) => {
-                            let keyboard = build_maintenance_history_keyboard(page);
-                            let final_text = if total_records == 0 {
-                                history_text
-                            } else {
-                                format!("{}\n\n📊 共 {} 条记录", history_text, total_records)
-                            };
-                            let _ = bot_clone.edit_message_text(
-                                chat_id_clone,
-                                message_id_clone,
-                                final_text
-                            ).reply_markup(keyboard)
-                            .await;
-                        }
-                    }
+                    let (history_text, total_records) = crate::scheduler::maintenance_history::get_maintenance_history_details(page, 5).await;
+                    let keyboard = build_maintenance_history_keyboard(page);
+                    let final_text = if total_records == 0 {
+                        history_text
+                    } else {
+                        format!("{}\n\n📊 共 {} 条记录", history_text, total_records)
+                    };
+                    let _ = bot_clone.edit_message_text(
+                        chat_id_clone,
+                        message_id_clone,
+                        final_text
+                    ).reply_markup(keyboard)
+                    .await;
                 });
                 
                 log::info!("✅ maintenance_history 处理完成");
@@ -1316,7 +1313,7 @@ async fn handle_maintain_core_command(
             bot.edit_message_text(
                 callback_query.message.as_ref().unwrap().chat.id,
                 callback_query.message.as_ref().unwrap().id,
-                &format!("✅ 核心维护完成:\n{}\n\n🔄 系统将在 3 秒后自动重启，请保存您的工作！\n\n请选择下一步操作:", log),
+                format!("✅ 核心维护完成:\n{}\n\n🔄 系统将在 3 秒后自动重启，请保存您的工作！\n\n请选择下一步操作:", log),
             )
             .reply_markup(build_maintain_menu_keyboard())
             .await?;
@@ -1325,7 +1322,7 @@ async fn handle_maintain_core_command(
             bot.edit_message_text(
                 callback_query.message.as_ref().unwrap().chat.id,
                 callback_query.message.as_ref().unwrap().id,
-                &format!("❌ 核心维护失败: {}\n\n请选择下一步操作:", e),
+                format!("❌ 核心维护失败: {}\n\n请选择下一步操作:", e),
             )
             .reply_markup(build_maintain_menu_keyboard())
             .await?;
@@ -1352,7 +1349,7 @@ async fn handle_maintain_rules_command(
             bot.edit_message_text(
                 callback_query.message.as_ref().unwrap().chat.id,
                 callback_query.message.as_ref().unwrap().id,
-                &format!("✅ 规则维护完成:\n{}\n\n请选择下一步操作:", log),
+                format!("✅ 规则维护完成:\n{}\n\n请选择下一步操作:", log),
             )
             .reply_markup(build_maintain_menu_keyboard())
             .await?;
@@ -1361,7 +1358,7 @@ async fn handle_maintain_rules_command(
             bot.edit_message_text(
                 callback_query.message.as_ref().unwrap().chat.id,
                 callback_query.message.as_ref().unwrap().id,
-                &format!("❌ 规则维护失败: {}\n\n请选择下一步操作:", e),
+                format!("❌ 规则维护失败: {}\n\n请选择下一步操作:", e),
             )
             .reply_markup(build_maintain_menu_keyboard())
             .await?;
@@ -1388,7 +1385,7 @@ async fn handle_update_xray_command(
             bot.edit_message_text(
                 callback_query.message.as_ref().unwrap().chat.id,
                 callback_query.message.as_ref().unwrap().id,
-                &format!("✅ Xray 更新完成:\n{}\n\n请选择下一步操作:", log),
+                format!("✅ Xray 更新完成:\n{}\n\n请选择下一步操作:", log),
             )
             .reply_markup(build_maintain_menu_keyboard())
             .await?;
@@ -1397,7 +1394,7 @@ async fn handle_update_xray_command(
             bot.edit_message_text(
                 callback_query.message.as_ref().unwrap().chat.id,
                 callback_query.message.as_ref().unwrap().id,
-                &format!("❌ Xray 更新失败: {}\n\n请选择下一步操作:", e),
+                format!("❌ Xray 更新失败: {}\n\n请选择下一步操作:", e),
             )
             .reply_markup(build_maintain_menu_keyboard())
             .await?;
@@ -1424,7 +1421,7 @@ async fn handle_update_sb_command(
             bot.edit_message_text(
                 callback_query.message.as_ref().unwrap().chat.id,
                 callback_query.message.as_ref().unwrap().id,
-                &format!("✅ Sing-box 更新完成:\n{}\n\n请选择下一步操作:", log),
+                format!("✅ Sing-box 更新完成:\n{}\n\n请选择下一步操作:", log),
             )
             .reply_markup(build_maintain_menu_keyboard())
             .await?;
@@ -1433,7 +1430,7 @@ async fn handle_update_sb_command(
             bot.edit_message_text(
                 callback_query.message.as_ref().unwrap().chat.id,
                 callback_query.message.as_ref().unwrap().id,
-                &format!("❌ Sing-box 更新失败: {}\n\n请选择下一步操作:", e),
+                format!("❌ Sing-box 更新失败: {}\n\n请选择下一步操作:", e),
             )
             .reply_markup(build_maintain_menu_keyboard())
             .await?;

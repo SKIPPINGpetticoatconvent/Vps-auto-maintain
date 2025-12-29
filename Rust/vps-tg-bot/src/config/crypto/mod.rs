@@ -18,6 +18,7 @@ pub trait SecureStorage {
     fn decrypt_config(&self, encrypted_data: &[u8]) -> Result<Vec<u8>>;
     
     /// 获取或生成加密密钥
+    #[allow(dead_code)]
     fn get_or_generate_key(&self, config_path: &Path) -> Result<Vec<u8>>;
 }
 

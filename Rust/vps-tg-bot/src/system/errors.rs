@@ -31,6 +31,7 @@ pub enum SystemError {
     CommandExecutionError(String),
     
     #[error("未知系统错误: {0}")]
+    #[allow(dead_code)]
     UnknownError(String),
 }
 
