@@ -70,12 +70,38 @@ impl EncryptedFileLoader {
     
     /// 查找加密配置文件路径
     fn find_encrypted_config_path() -> Option<PathBuf> {
+        // 首先尝试绝对路径
         for path in ENCRYPTED_CONFIG_PATHS {
-            if Path::new(path).exists() {
-                debug!("发现加密配置文件: {}", path);
+            let path_obj = Path::new(path);
+            debug!("检查配置文件路径: {:?}", path_obj);
+            
+            if path_obj.exists() {
+                debug!("✅ 发现加密配置文件: {}", path);
                 return Some(PathBuf::from(path));
+            } else {
+                debug!("❌ 配置文件不存在: {}", path);
             }
         }
+        
+        // 如果绝对路径都不存在，尝试相对路径（相对于当前工作目录）
+        debug!("尝试相对路径搜索...");
+        for path_str in &["config.enc"] {
+            let relative_path = Path::new(path_str);
+            debug!("检查相对路径: {:?}", relative_path);
+            
+            if relative_path.exists() {
+                let absolute_path = std::env::current_dir()
+                    .map(|current_dir| current_dir.join(relative_path))
+                    .unwrap_or_else(|_| relative_path.to_path_buf());
+                    
+                debug!("✅ 发现加密配置文件（相对路径）: {:?}", absolute_path);
+                return Some(absolute_path);
+            } else {
+                debug!("❌ 相对路径不存在: {:?}", relative_path);
+            }
+        }
+        
+        debug!("❌ 未找到任何加密配置文件");
         None
     }
     

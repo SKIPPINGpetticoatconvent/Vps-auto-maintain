@@ -17,58 +17,99 @@ pub fn collect_machine_fingerprint() -> Result<String> {
     let mut fingerprint_parts = Vec::new();
 
     // 1. CPU ID - 从 DMI 信息读取
-    if let Ok(cpu_id) = read_dmi_field("product_uuid") {
-        debug!("采集到 CPU ID: {}", cpu_id);
-        fingerprint_parts.push(cpu_id);
-    } else {
-        warn!("无法采集 CPU ID");
-        fingerprint_parts.push("unknown_cpu_id".to_string());
+    match read_dmi_field("product_uuid") {
+        Ok(cpu_id) => {
+            debug!("✅ 采集到 CPU ID: {}", cpu_id);
+            fingerprint_parts.push(cpu_id);
+        }
+        Err(e) => {
+            warn!("⚠️ 无法采集 CPU ID: {}", e);
+            // 尝试备用 DMI 字段
+            if let Ok(backup_cpu_id) = read_dmi_field("sys_vendor").or_else(|_| read_dmi_field("board_name")) {
+                debug!("✅ 使用备用 CPU 标识: {}", backup_cpu_id);
+                fingerprint_parts.push(format!("backup_{}", backup_cpu_id));
+            } else {
+                debug!("❌ 使用默认 CPU 标识");
+                fingerprint_parts.push("unknown_cpu_id".to_string());
+            }
+        }
     }
 
     // 2. 主网卡 MAC 地址
-    if let Ok(mac_addr) = get_primary_network_mac() {
-        debug!("采集到主网卡 MAC: {}", mac_addr);
-        fingerprint_parts.push(mac_addr);
-    } else {
-        warn!("无法采集主网卡 MAC 地址");
-        fingerprint_parts.push("unknown_mac".to_string());
+    match get_primary_network_mac() {
+        Ok(mac_addr) => {
+            debug!("✅ 采集到主网卡 MAC: {}", mac_addr);
+            fingerprint_parts.push(mac_addr);
+        }
+        Err(e) => {
+            warn!("⚠️ 无法采集主网卡 MAC 地址: {}", e);
+            // 尝试备用方法
+            if let Ok(backup_mac) = get_secondary_network_mac() {
+                debug!("✅ 使用备用 MAC 地址: {}", backup_mac);
+                fingerprint_parts.push(backup_mac);
+            } else {
+                debug!("❌ 使用默认 MAC 标识");
+                fingerprint_parts.push("unknown_mac".to_string());
+            }
+        }
     }
 
     // 3. 根分区 UUID
-    if let Ok(root_uuid) = get_root_partition_uuid() {
-        debug!("采集到根分区 UUID: {}", root_uuid);
-        fingerprint_parts.push(root_uuid);
-    } else {
-        warn!("无法采集根分区 UUID");
-        fingerprint_parts.push("unknown_root_uuid".to_string());
+    match get_root_partition_uuid() {
+        Ok(root_uuid) => {
+            debug!("✅ 采集到根分区 UUID: {}", root_uuid);
+            fingerprint_parts.push(root_uuid);
+        }
+        Err(e) => {
+            warn!("⚠️ 无法采集根分区 UUID: {}", e);
+            // 尝试备用方法
+            if let Ok(backup_uuid) = get_system_uuid() {
+                debug!("✅ 使用备用系统 UUID: {}", backup_uuid);
+                fingerprint_parts.push(backup_uuid);
+            } else {
+                debug!("❌ 使用默认 UUID 标识");
+                fingerprint_parts.push("unknown_root_uuid".to_string());
+            }
+        }
     }
 
     // 4. 主机名
-    if let Ok(hostname) = get_hostname() {
-        debug!("采集到主机名: {}", hostname);
-        fingerprint_parts.push(hostname);
-    } else {
-        warn!("无法采集主机名");
-        hostname_mut()
-            .map(|h| {
-                fingerprint_parts.push(h.clone());
-                debug!("使用备用主机名: {}", h);
-            })
-            .unwrap_or_else(|_| {
-                fingerprint_parts.push("unknown_hostname".to_string());
-            });
+    match get_hostname() {
+        Ok(hostname) => {
+            debug!("✅ 采集到主机名: {}", hostname);
+            fingerprint_parts.push(hostname);
+        }
+        Err(e) => {
+            warn!("⚠️ 无法采集主机名: {}", e);
+            // 使用备用方法
+            match hostname_mut() {
+                Ok(backup_hostname) => {
+                    debug!("✅ 使用备用主机名: {}", backup_hostname);
+                    fingerprint_parts.push(backup_hostname);
+                }
+                Err(_) => {
+                    debug!("❌ 使用默认主机名");
+                    fingerprint_parts.push("unknown_hostname".to_string());
+                }
+            }
+        }
     }
 
     // 组合指纹
     let fingerprint = fingerprint_parts.join(FINGERPRINT_SEPARATOR);
     
-    debug!("机器指纹采集完成，长度: {} 字符", fingerprint.len());
-    debug!("指纹内容: {} (前32字符)", 
-           if fingerprint.len() > 32 { 
-               format!("{}...", &fingerprint[..32]) 
+    debug!("✅ 机器指纹采集完成，长度: {} 字符", fingerprint.len());
+    debug!("指纹内容: {} (前64字符)", 
+           if fingerprint.len() > 64 { 
+               format!("{}...", &fingerprint[..64]) 
            } else { 
                fingerprint.clone() 
            });
+
+    // 确保指纹不为空
+    if fingerprint.trim().is_empty() {
+        return Err(anyhow::anyhow!("所有指纹采集方法都失败，无法生成机器指纹"));
+    }
 
     Ok(fingerprint)
 }
@@ -213,16 +254,136 @@ fn get_hostname() -> Result<String> {
     }
 }
 
+/// 获取备用网络接口 MAC 地址
+fn get_secondary_network_mac() -> Result<String> {
+    // 尝试所有可能的网络接口
+    let all_interfaces = [
+        "lo", "docker0", "br-*", "veth*", "tap*", "tun*", "ppp*", 
+        "eth*", "en*", "wlp*", "wlan*", "ra*", "wlan*"
+    ];
+    
+    for pattern in &all_interfaces {
+        if let Ok(mac) = find_interface_by_pattern(pattern) {
+            return Ok(mac);
+        }
+    }
+    
+    // 最后尝试从 /proc/net/dev 读取
+    if let Ok(mac) = read_proc_net_dev() {
+        return Ok(mac);
+    }
+    
+    Err(anyhow::anyhow!("无法找到任何网络接口 MAC 地址"))
+}
+
+/// 通过模式匹配查找网络接口
+fn find_interface_by_pattern(pattern: &str) -> Result<String> {
+    // 读取 /sys/class/net/ 目录中的所有接口
+    let net_dir = "/sys/class/net";
+    if !std::path::Path::new(net_dir).exists() {
+        return Err(anyhow::anyhow!("/sys/class/net 目录不存在"));
+    }
+    
+    let entries = fs::read_dir(net_dir)
+        .with_context(|| format!("无法读取网络接口目录: {}", net_dir))?;
+    
+    for entry in entries {
+        let entry = entry.with_context(|| "读取目录项失败")?;
+        let file_name = entry.file_name();
+        let interface_name = file_name
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("接口名称不是有效的 UTF-8"))?;
+            
+        // 跳过回环接口
+        if interface_name == "lo" {
+            continue;
+        }
+        
+        // 检查是否匹配模式（简单的字符串包含检查）
+        if pattern.contains('*') {
+            let pattern_prefix = pattern.trim_end_matches('*');
+            if !interface_name.starts_with(pattern_prefix) {
+                continue;
+            }
+        } else if interface_name != pattern {
+            continue;
+        }
+        
+        // 尝试读取 MAC 地址
+        if let Ok(mac) = read_interface_mac(interface_name) {
+            debug!("找到匹配接口 {} 的 MAC: {}", interface_name, mac);
+            return Ok(mac);
+        }
+    }
+    
+    Err(anyhow::anyhow!("模式 {} 没有找到匹配的接口", pattern))
+}
+
+/// 从 /proc/net/dev 读取网络接口信息
+fn read_proc_net_dev() -> Result<String> {
+    let content = fs::read_to_string("/proc/net/dev")
+        .context("无法读取 /proc/net/dev")?;
+    
+    for line in content.lines().skip(2) { // 跳过前两行标题
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 2 {
+            let interface = parts[0].trim_end_matches(':');
+            if interface != "lo" && parts.len() >= 17 {
+                let mac = parts[15]; // MAC 地址通常在第16列
+                if mac.len() == 17 && mac.chars().filter(|&c| c == ':').count() == 5 {
+                    return Ok(mac.to_string());
+                }
+            }
+        }
+    }
+    
+    Err(anyhow::anyhow!("无法从 /proc/net/dev 提取有效 MAC 地址"))
+}
+
+/// 获取系统 UUID 作为备用标识
+fn get_system_uuid() -> Result<String> {
+    // 尝试读取系统 UUID
+    if let Ok(uuid) = read_dmi_field("board_serial") {
+        return Ok(uuid);
+    }
+    
+    // 尝试 /etc/machine-id
+    if let Ok(machine_id) = fs::read_to_string("/etc/machine-id") {
+        let machine_id = machine_id.trim();
+        if !machine_id.is_empty() {
+            return Ok(format!("machine_id_{}", machine_id));
+        }
+    }
+    
+    Err(anyhow::anyhow!("无法获取系统 UUID"))
+}
+
 /// 备用方法获取主机名
 fn hostname_mut() -> Result<String> {
-    Ok(std::env::current_dir()
+    // 首先尝试环境变量
+    if let Ok(hostname) = std::env::var("HOSTNAME") {
+        if !hostname.is_empty() {
+            return Ok(hostname);
+        }
+    }
+    
+    // 尝试从 /etc/hostname 读取
+    if let Ok(hostname_content) = fs::read_to_string("/etc/hostname") {
+        let hostname = hostname_content.trim();
+        if !hostname.is_empty() {
+            return Ok(hostname.to_string());
+        }
+    }
+    
+    // 尝试从当前目录提取
+    std::env::current_dir()
         .and_then(|path| {
             path.to_str()
                 .and_then(|s| s.split('/').next_back())
                 .map(|s| s.to_string())
                 .ok_or_else(|| std::io::Error::other("无法从路径提取主机名"))
         })
-        .unwrap_or_else(|_| "fallback_hostname".to_string()))
+        .map_err(|_| anyhow::anyhow!("所有备用主机名方法都失败"))
 }
 
 #[cfg(test)]

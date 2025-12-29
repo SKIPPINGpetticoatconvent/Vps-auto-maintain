@@ -417,14 +417,10 @@ if [ "$UPDATE_MODE" = "true" ] && [ "$EXISTING_CONFIG" != "none" ]; then
 else
     # 新安装或更新但无有效配置，需要输入配置
     print_header "配置设置"
-    print_info "请选择配置存储方式："
-    echo "  1) 环境变量 (推荐 - 适用于 systemd/容器部署)"
-    echo "  2) 加密文件 (更安全 - 使用 AES-256-GCM 加密)"
-    read -p "请输入选项 [1/2]: " -n 1 -r
-    echo
-
-    CONFIG_METHOD="${REPLY:-1}"
-
+    
+    # 默认使用加密文件配置
+    print_info "使用加密文件存储配置（AES-256-GCM）"
+    
     # 收集敏感配置
     collect_credentials() {
         if [ -z "$BOT_TOKEN" ]; then
@@ -433,48 +429,6 @@ else
         if [ -z "$CHAT_ID" ]; then
             read -p "请输入 CHAT_ID: " CHAT_ID
         fi
-    }
-
-    # 创建环境变量配置
-    setup_env_config() {
-        print_info "正在配置环境变量..."
-
-        # 收集凭据
-        collect_credentials
-
-        # 交互式输入 token，不在脚本中保留
-        local ENV_TOKEN="$BOT_TOKEN"
-        local ENV_CHAT_ID="$CHAT_ID"
-
-        # 清除脚本变量中的敏感信息
-        unset BOT_TOKEN
-        unset CHAT_ID
-
-        # Systemd 服务配置（使用环境变量）
-        cat > "$BOT_SERVICE" <<EOF
-[Unit]
-Description=VPS Telegram Bot (Rust)
-After=network.target
-
-[Service]
-User=root
-WorkingDirectory=/etc/vps-tg-bot-rust
-ExecStart=$BOT_BINARY run
-Restart=always
-Environment="BOT_TOKEN=$ENV_TOKEN"
-Environment="CHAT_ID=$ENV_CHAT_ID"
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-        # 清除环境变量
-        unset ENV_TOKEN
-        unset ENV_CHAT_ID
-
-        print_success "环境变量配置完成"
-        print_info "  配置位置: $BOT_SERVICE"
-        print_info "  敏感信息将通过 systemd Environment= 注入"
     }
 
     # 创建加密文件配置
@@ -487,8 +441,8 @@ EOF
         # 使用 init-config 命令创建加密配置
         print_info "正在生成加密配置文件..."
         if ! "$BOT_BINARY" init-config --token "$BOT_TOKEN" --chat-id "$CHAT_ID" --output "$ENCRYPTED_CONFIG" 2>/dev/null; then
-            print_warning "加密配置生成失败，尝试明文配置..."
-            # 回退到明文配置
+            print_warning "加密配置生成失败，尝试使用明文配置作为后备..."
+            # 回退到明文配置（仅作为最后的手段）
             cat > "$LEGACY_CONFIG" <<EOF
 [bot]
 token = "$BOT_TOKEN"
@@ -511,7 +465,7 @@ EOF
         unset BOT_TOKEN
         unset CHAT_ID
 
-        # Systemd 服务配置（无环境变量）
+        # Systemd 服务配置（无环境变量，直接读取配置文件）
         cat > "$BOT_SERVICE" <<EOF
 [Unit]
 Description=VPS Telegram Bot (Rust)
@@ -528,19 +482,8 @@ WantedBy=multi-user.target
 EOF
     }
 
-    # 根据选择执行配置
-    case "$CONFIG_METHOD" in
-        1)
-            setup_env_config
-            ;;
-        2)
-            setup_encrypted_config
-            ;;
-        *)
-            print_warning "无效选项，使用默认配置（环境变量）"
-            setup_env_config
-            ;;
-    esac
+    # 执行配置
+    setup_encrypted_config
 fi
 
 # 启动服务

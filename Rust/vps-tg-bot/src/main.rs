@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use log::{debug, error, info, warn};
 use std::path::{PathBuf, Path};
+use std::io::{self, Write, IsTerminal};
 
 mod bot;
 mod config;
@@ -121,9 +122,68 @@ async fn run_bot() -> Result<()> {
     let config = match config::Config::load() {
         Ok(cfg) => cfg,
         Err(e) => {
-            error!("❌ 配置加载失败: {}", e);
-            error!("💡 提示: 使用 'init-config' 命令初始化配置，或 'migrate-config' 迁移现有配置");
-            return Err(anyhow::anyhow!("配置加载失败: {}", e));
+            warn!("⚠️  配置加载失败: {}", e);
+            
+            // 检测是否为交互式终端
+            if std::io::stdin().is_terminal() {
+                println!("\nℹ️  检测到首次运行或配置丢失。");
+                println!("🛠️  进入交互式配置模式...\n");
+                
+                let token = loop {
+                    match prompt_input("请输入 BOT_TOKEN: ") {
+                        Ok(t) if !t.is_empty() => break t,
+                        _ => println!("❌ Token 不能为空，请重新输入"),
+                    }
+                };
+                
+                let chat_id = loop {
+                    match prompt_input("请输入 CHAT_ID: ") {
+                        Ok(s) => match s.parse::<i64>() {
+                            Ok(id) => break id,
+                            Err(_) => println!("❌ 无效的 Chat ID (应为数字)，请重新输入"),
+                        },
+                        Err(_) => println!("❌ 输入错误，请重新输入"),
+                    }
+                };
+
+                // 确定配置文件路径
+                let default_path = PathBuf::from("/etc/vps-tg-bot-rust/config.enc");
+                let local_path = PathBuf::from("config.enc");
+                
+                // 尝试使用默认路径，如果目录不可写则使用当前目录
+                let output_path = if let Some(parent) = default_path.parent() {
+                    if parent.exists() {
+                         match std::fs::metadata(parent) {
+                            Ok(meta) if !meta.permissions().readonly() => default_path,
+                            _ => local_path,
+                         }
+                    } else {
+                        // 尝试创建目录
+                        match std::fs::create_dir_all(parent) {
+                            Ok(_) => default_path,
+                            Err(_) => local_path,
+                        }
+                    }
+                } else {
+                    local_path
+                };
+
+                // 初始化配置
+                match init_config(&token, chat_id, &output_path) {
+                    Ok(_) => {
+                        info!("✅ 配置初始化完成，重新加载配置...");
+                        config::Config::load()?
+                    },
+                    Err(err) => {
+                        error!("❌ 配置初始化失败: {}", err);
+                        return Err(err);
+                    }
+                }
+            } else {
+                error!("❌ 非交互式环境且未找到有效配置，程序退出。");
+                error!("💡 请使用 'init-config' 命令初始化配置，或设置环境变量 BOT_TOKEN 和 CHAT_ID");
+                return Err(anyhow::anyhow!("配置加载失败: {}", e));
+            }
         }
     };
 
@@ -174,6 +234,15 @@ async fn run_bot() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// 提示用户输入
+fn prompt_input(prompt: &str) -> Result<String> {
+    print!("{}", prompt);
+    io::stdout().flush()?;
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    Ok(input.trim().to_string())
 }
 
 /// 初始化加密配置
