@@ -81,7 +81,7 @@ impl Config {
                 Ok(()) => Ok(()),
                 Err(e) => {
                     // 如果加密保存失败，返回错误，不回退到明文保存
-                    return Err(anyhow::anyhow!("加密文件保存失败: {}", e));
+                    Err(anyhow::anyhow!("加密文件保存失败: {}", e))
                 }
             }
         } else {

@@ -29,6 +29,7 @@ pub struct MigrationResult {
 
 impl MigrationResult {
     /// 创建成功结果
+    #[allow(dead_code)]
     pub fn success(source: PathBuf, dest: PathBuf, deleted: bool) -> Self {
         Self {
             success: true,
@@ -63,7 +64,7 @@ impl MigrationResult {
 pub fn migrate_legacy_config(
     legacy_path: &Path,
     encrypted_path: &Path,
-    delete_legacy: bool,
+    _delete_legacy: bool,
 ) -> MigrationResult {
     info!("🔄 开始配置迁移...");
     debug!("源文件: {:?}", legacy_path);
@@ -79,7 +80,7 @@ pub fn migrate_legacy_config(
     // 2. 由于不再支持明文配置，直接返回错误
     let msg = format!("不再支持明文配置文件: {:?}，请使用环境变量或加密配置", legacy_path);
     error!("{}", msg);
-    return MigrationResult::failure(legacy_path.to_path_buf(), msg);
+    MigrationResult::failure(legacy_path.to_path_buf(), msg)
 }
 
 /// 保存加密配置
