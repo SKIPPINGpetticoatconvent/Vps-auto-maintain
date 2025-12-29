@@ -36,8 +36,9 @@ impl Config {
 
         // 尝试读取配置文件
         let config_paths = [
-            "/etc/vps-tg-bot/config.toml",
-            "config.toml",
+            "/etc/vps-tg-bot-rust/config.toml",  // 与安装脚本一致
+            "/etc/vps-tg-bot/config.toml",       // 保留兼容性
+            "config.toml",                        // 本地开发目录
         ];
 
         for path in config_paths {
