@@ -182,11 +182,8 @@ impl SchedulerManager {
 
     pub async fn add_new_task(&self, config: Config, bot: Bot, task_type: TaskType, cron_expression: &str) -> Result<String, JobSchedulerError> {
         let validator = SchedulerValidator::new();
-        match validator.validate_cron_expression(cron_expression) {
-            Err(validation_error) => {
-                return Ok(format!("❌ {}", validation_error));
-            }
-            Ok(_) => {}
+        if let Err(validation_error) = validator.validate_cron_expression(cron_expression) {
+            return Ok(format!("❌ {}", validation_error));
         }
 
         let new_task = ScheduledTask::new(task_type.clone(), cron_expression);
@@ -405,7 +402,7 @@ impl SchedulerValidator {
         
         // 处理缩写 (Sun, Mon, Tue, Wed, Thu, Fri, Sat)
         let weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        if weekdays.iter().any(|&w| w == field) {
+        if weekdays.contains(&field) {
             return true;
         }
         
