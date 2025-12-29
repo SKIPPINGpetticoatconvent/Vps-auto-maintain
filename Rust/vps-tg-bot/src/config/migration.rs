@@ -4,7 +4,7 @@
 //! 支持自动检测、加载、加密和清理旧配置文件
 
 use crate::config::crypto::{ConfigCrypto, SecureStorage};
-use crate::config::loader::legacy::LegacyFileLoader;
+
 use crate::config::loader::encrypted::EncryptedFileLoader;
 use crate::config::types::Config;
 use anyhow::{Context, Result};
@@ -76,73 +76,10 @@ pub fn migrate_legacy_config(
         return MigrationResult::failure(legacy_path.to_path_buf(), msg);
     }
 
-    // 2. 加载明文配置
-    let loader = LegacyFileLoader::new();
-    let config: Config = match loader.load_from_path(legacy_path) {
-        Ok(cfg) => {
-            info!("✅ 成功加载明文配置");
-            cfg
-        }
-        Err(e) => {
-            let msg = format!("加载明文配置失败: {}", e);
-            error!("{}", msg);
-            return MigrationResult::failure(legacy_path.to_path_buf(), msg);
-        }
-    };
-
-    // 3. 验证配置
-    if let Err(e) = config.validate() {
-        let msg = format!("配置验证失败: {}", e);
-        error!("{}", msg);
-        return MigrationResult::failure(legacy_path.to_path_buf(), msg);
-    }
-
-    // 4. 确保目标目录存在
-    if let Some(parent) = encrypted_path.parent() {
-        if !parent.exists() {
-            match fs::create_dir_all(parent) {
-                Ok(_) => info!("✅ 创建目标目录: {:?}", parent),
-                Err(e) => {
-                    let msg = format!("创建目标目录失败: {}", e);
-                    error!("{}", msg);
-                    return MigrationResult::failure(legacy_path.to_path_buf(), msg);
-                }
-            }
-        }
-    }
-
-    // 5. 保存为加密配置
-    let crypto = ConfigCrypto::new();
-    match save_encrypted_config(&crypto, &config, encrypted_path) {
-        Ok(_) => {
-            info!("✅ 配置已加密保存到: {:?}", encrypted_path);
-        }
-        Err(e) => {
-            let msg = format!("保存加密配置失败: {}", e);
-            error!("{}", msg);
-            return MigrationResult::failure(legacy_path.to_path_buf(), msg);
-        }
-    }
-
-    // 6. 可选：删除原明文文件
-    let deleted_legacy = if delete_legacy {
-        match fs::remove_file(legacy_path) {
-            Ok(_) => {
-                warn!("⚠️  已删除原明文配置文件: {:?}", legacy_path);
-                info!("✅ 原配置文件已安全删除");
-                true
-            }
-            Err(e) => {
-                warn!("⚠️  删除原配置文件失败: {}", e);
-                false
-            }
-        }
-    } else {
-        info!("ℹ️  保留原明文配置文件（未设置删除标志）");
-        false
-    };
-
-    MigrationResult::success(legacy_path.to_path_buf(), encrypted_path.to_path_buf(), deleted_legacy)
+    // 2. 由于不再支持明文配置，直接返回错误
+    let msg = format!("不再支持明文配置文件: {:?}，请使用环境变量或加密配置", legacy_path);
+    error!("{}", msg);
+    return MigrationResult::failure(legacy_path.to_path_buf(), msg);
 }
 
 /// 保存加密配置
@@ -381,18 +318,8 @@ pub fn verify_config(path: Option<&Path>) -> (bool, String, Option<String>) {
             }
         }
         Some(p) => {
-            // 明文文件
-            let loader = LegacyFileLoader::new();
-            match loader.load_from_path(&p) {
-                Ok(config) => {
-                    if let Err(e) = config.validate() {
-                        return (false, format!("明文文件: {:?}", p), Some(e.to_string()));
-                    }
-                    warn!("⚠️  使用明文配置文件，安全性较低");
-                    (true, format!("明文文件: {:?}", p), None)
-                }
-                Err(e) => (false, format!("明文文件: {:?}", p), Some(e.to_string())),
-            }
+            // 明文文件 - 不再支持
+            (false, format!("明文文件: {:?}", p), Some("不再支持明文配置文件，请使用环境变量或加密配置".to_string()))
         }
         None => (false, "未找到配置".to_string(), Some("没有任何可用配置源".to_string())),
     }
@@ -409,61 +336,7 @@ mod tests {
         std::env::remove_var("CHECK_INTERVAL");
     }
 
-    #[test]
-    fn test_migrate_legacy_config_success() {
-        cleanup_env_vars();
 
-        // 创建临时明文配置
-        let temp_dir = TempDir::new().unwrap();
-        let legacy_path = temp_dir.path().join("config.toml");
-        let encrypted_path = temp_dir.path().join("config.enc");
-
-        let config_content = r#"
-bot_token = "123456789:migration_test_token"
-chat_id = "123456789"
-check_interval = 600
-"#;
-
-        std::fs::write(&legacy_path, config_content).unwrap();
-
-        // 执行迁移
-        let result = migrate_legacy_config(&legacy_path, &encrypted_path, false);
-
-        assert!(result.success);
-        assert!(encrypted_path.exists());
-        assert!(!legacy_path.exists() || !result.deleted_legacy); // 如果未设置删除标志，文件应存在
-
-        // 验证加密配置可加载
-        let loader = EncryptedFileLoader::new();
-        let loaded = loader.load_from_path(&encrypted_path).unwrap();
-        assert_eq!(loaded.bot_token, "123456789:migration_test_token");
-        assert_eq!(loaded.chat_id, 123456789);
-    }
-
-    #[test]
-    fn test_migrate_legacy_config_with_delete() {
-        cleanup_env_vars();
-
-        // 创建临时明文配置
-        let temp_dir = TempDir::new().unwrap();
-        let legacy_path = temp_dir.path().join("config.toml");
-        let encrypted_path = temp_dir.path().join("config.enc");
-
-        let config_content = r#"
-bot_token = "123456789:delete_test_token"
-chat_id = "987654321"
-"#;
-
-        std::fs::write(&legacy_path, config_content).unwrap();
-
-        // 执行迁移并删除原文件
-        let result = migrate_legacy_config(&legacy_path, &encrypted_path, true);
-
-        assert!(result.success);
-        assert!(result.deleted_legacy);
-        assert!(!legacy_path.exists());
-        assert!(encrypted_path.exists());
-    }
 
     #[test]
     fn test_migrate_nonexistent_file() {

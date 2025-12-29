@@ -1,10 +1,42 @@
 [
   {
-    "id": 1766978417,
-    "timestamp": "2025-12-29T03:20:17.027234300Z",
-    "task_type": "SystemMaintenance",
+    "id": 4,
+    "timestamp": "2025-12-29T11:14:14.370209100Z",
+    "task_type": "🚀 核心维护",
+    "result": "Failed",
+    "output": "统计测试记录 4",
+    "error_message": null
+  },
+  {
+    "id": 3,
+    "timestamp": "2025-12-29T11:14:14.370209100Z",
+    "task_type": "🔄 系统维护",
     "result": "Success",
-    "output": "Test Output",
+    "output": "统计测试记录 3",
+    "error_message": null
+  },
+  {
+    "id": 2,
+    "timestamp": "2025-12-29T11:14:14.370209100Z",
+    "task_type": "🔧 更新 Xray",
+    "result": "Failed",
+    "output": "统计测试记录 2",
+    "error_message": null
+  },
+  {
+    "id": 1,
+    "timestamp": "2025-12-29T11:14:14.370209100Z",
+    "task_type": "🚀 核心维护",
+    "result": "Success",
+    "output": "统计测试记录 1",
+    "error_message": null
+  },
+  {
+    "id": 0,
+    "timestamp": "2025-12-29T11:14:14.370209100Z",
+    "task_type": "🔄 系统维护",
+    "result": "Success",
+    "output": "统计测试记录 0",
     "error_message": null
   }
 ]

@@ -33,7 +33,6 @@ impl Config {
     /// 按优先级依次尝试：
     /// 1. 环境变量（最高优先级）
     /// 2. 加密配置文件
-    /// 3. 旧版明文配置文件（仅用于迁移）
     pub fn load() -> Result<Self> {
         match load_config() {
             Ok(new_config) => {
@@ -60,8 +59,7 @@ impl Config {
                     "环境变量".to_string(),
                 crate::config::types::ConfigSource::EncryptedFile(path) => 
                     format!("加密文件: {:?}", path),
-                crate::config::types::ConfigSource::LegacyFile(path) => 
-                    format!("旧版明文文件: {:?}", path),
+
             })
             .collect()
     }
@@ -82,9 +80,8 @@ impl Config {
             match loader.save(&new_config) {
                 Ok(()) => Ok(()),
                 Err(e) => {
-                    // 如果加密保存失败，尝试保存到明文文件
-                    warn!("加密文件保存失败，尝试保存到明文文件: {}", e);
-                    self.save("/etc/vps-tg-bot-rust/config.toml")
+                    // 如果加密保存失败，返回错误，不回退到明文保存
+                    return Err(anyhow::anyhow!("加密文件保存失败: {}", e));
                 }
             }
         } else {
@@ -130,57 +127,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_config_from_file() {
-        cleanup_env_vars();
-        
-        // 创建临时配置文件
-        let config_content = r#"
-bot_token = "file_bot_token_456"
-chat_id = "987654321"
-check_interval = 900
-"#;
 
-        // 创建config.toml文件
-        let config_path = "config.toml";
-        fs::write(config_path, config_content).unwrap();
-
-        let config = Config::load().unwrap();
-        
-        assert_eq!(config.bot_token, "file_bot_token_456");
-        assert_eq!(config.chat_id, 987654321);
-        assert_eq!(config.check_interval, 900);
-
-        // 清理
-        let _ = fs::remove_file(config_path);
-        cleanup_env_vars();
-    }
-
-    #[test]
-    fn test_config_legacy_format() {
-        cleanup_env_vars();
-        
-        // 测试旧格式配置文件
-        let legacy_config_content = r#"
-[bot]
-token = "legacy_bot_token_789"
-chat_id = "111222333"
-"#;
-
-        // 创建config.toml文件
-        let config_path = "config.toml";
-        fs::write(config_path, legacy_config_content).unwrap();
-
-        let config = Config::load().unwrap();
-        
-        assert_eq!(config.bot_token, "legacy_bot_token_789");
-        assert_eq!(config.chat_id, 111222333);
-        assert_eq!(config.check_interval, 300); // 默认值
-
-        // 清理
-        let _ = fs::remove_file(config_path);
-        cleanup_env_vars();
-    }
 
     #[test]
     fn test_config_save_and_load() {

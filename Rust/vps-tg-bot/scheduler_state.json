@@ -1,3 +1,9 @@
 {
-  "tasks": []
+  "tasks": [
+    {
+      "task_type": "SystemMaintenance",
+      "cron_expression": "0 6 * * *",
+      "enabled": true
+    }
+  ]
 }

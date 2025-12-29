@@ -19,15 +19,13 @@ fn default_check_interval() -> u64 {
 }
 
 /// 配置来源枚举
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
 pub enum ConfigSource {
     /// 环境变量配置（最高优先级）
     Environment,
     /// 加密文件配置
     EncryptedFile(PathBuf),
-    /// 旧版明文文件配置（仅用于迁移）
-    LegacyFile(PathBuf),
 }
 
 /// 配置加载错误
@@ -38,9 +36,6 @@ pub enum ConfigError {
     
     #[error("加密文件加载失败: {0}")]
     EncryptedFileError(String),
-    
-    #[error("旧版文件加载失败: {0}")]
-    LegacyFileError(String),
     
     #[error("配置验证失败: {0}")]
     ValidationError(String),

@@ -4,7 +4,6 @@
 
 pub mod env;
 pub mod encrypted;
-pub mod legacy;
 
 use crate::config::types::{Config, ConfigError, ConfigResult, ConfigSource};
 use log::{debug, info, warn};
@@ -27,7 +26,6 @@ pub trait ConfigLoader {
 /// 按照优先级依次尝试不同的配置源：
 /// 1. 环境变量（最高优先级）
 /// 2. 加密文件
-/// 3. 旧版明文文件（仅用于迁移）
 pub fn load_config() -> ConfigResult<Config> {
     debug!("开始加载配置...");
     
@@ -73,26 +71,7 @@ pub fn load_config() -> ConfigResult<Config> {
         }
     }
     
-    // 3. 尝试从旧版明文文件加载（仅用于迁移）
-    debug!("尝试从旧版明文文件加载配置（仅用于迁移）...");
-    let legacy_loader = legacy::LegacyFileLoader::default();
-    if legacy_loader.is_available() {
-        match legacy_loader.load() {
-            Ok(config) => {
-                warn!("⚠️  从明文文件加载配置（建议迁移到加密格式）");
-                debug!("配置来源: {:?}", legacy_loader.source());
-                
-                // 验证配置
-                config.validate()
-                    .map_err(|e| ConfigError::ValidationError(e.to_string()))?;
-                    
-                return Ok(config);
-            }
-            Err(e) => {
-                warn!("⚠️  旧版文件加载失败: {}", e);
-            }
-        }
-    }
+
     
     Err(ConfigError::NoValidSource)
 }
@@ -114,11 +93,7 @@ pub fn get_available_sources() -> Vec<ConfigSource> {
         sources.push(encrypted_loader.source());
     }
     
-    // 检查旧版文件
-    let legacy_loader = legacy::LegacyFileLoader::default();
-    if legacy_loader.is_available() {
-        sources.push(legacy_loader.source());
-    }
+
     
     sources
 }
