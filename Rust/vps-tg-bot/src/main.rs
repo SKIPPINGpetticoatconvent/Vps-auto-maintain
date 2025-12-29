@@ -51,6 +51,7 @@ async fn main() -> Result<()> {
 }
 
 /// 等待并重新加载配置（用于 systemd 环境）
+#[allow(dead_code)]
 async fn wait_and_reload_config() -> Result<config::Config> {
     info!("⏳ 等待配置初始化（最多等待 60 秒）...");
     
