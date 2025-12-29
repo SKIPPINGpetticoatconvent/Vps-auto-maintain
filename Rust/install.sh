@@ -344,6 +344,7 @@ After=network.target
 
 [Service]
 User=root
+WorkingDirectory=/etc/vps-tg-bot-rust
 ExecStart=$BOT_BINARY run
 Restart=always
 Environment="BOT_TOKEN=$ENV_TOKEN"
@@ -404,6 +405,7 @@ After=network.target
 
 [Service]
 User=root
+WorkingDirectory=/etc/vps-tg-bot-rust
 ExecStart=$BOT_BINARY run
 Restart=always
 
@@ -435,6 +437,7 @@ After=network.target
 
 [Service]
 User=root
+WorkingDirectory=/etc/vps-tg-bot-rust
 ExecStart=$BOT_BINARY run
 Restart=always
 
