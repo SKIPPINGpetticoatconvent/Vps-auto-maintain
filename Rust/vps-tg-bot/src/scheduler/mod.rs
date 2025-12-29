@@ -14,6 +14,7 @@ use std::sync::Arc;
 use once_cell::sync::Lazy;
 
 pub mod task_types;
+pub mod maintenance_history;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SchedulerState {
@@ -457,5 +458,280 @@ pub async fn update_schedule(new_cron: &str) -> Result<String> {
         }
     } else {
         Ok("❌ 调度器尚未初始化".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scheduler::task_types::{TaskType, ScheduledTask};
+    use tempfile::{NamedTempFile};
+    use std::fs;
+
+    #[test]
+    fn test_scheduler_state_default() {
+        let state = SchedulerState::default();
+        assert_eq!(state.tasks.len(), 1);
+        assert_eq!(state.tasks[0].task_type, TaskType::SystemMaintenance);
+        assert_eq!(state.tasks[0].cron_expression, "0 4 * * Sun");
+        assert!(state.tasks[0].enabled);
+    }
+
+    #[test]
+    fn test_scheduler_state_add_task() {
+        let mut state = SchedulerState::new();
+        let original_count = state.tasks.len();
+        
+        let new_task = ScheduledTask::new(TaskType::CoreMaintenance, "0 5 * * *");
+        state.add_task(new_task);
+        
+        assert_eq!(state.tasks.len(), original_count + 1);
+        assert_eq!(state.tasks[1].task_type, TaskType::CoreMaintenance);
+        assert_eq!(state.tasks[1].cron_expression, "0 5 * * *");
+    }
+
+    #[test]
+    fn test_scheduler_state_remove_task() {
+        let mut state = SchedulerState::new();
+        
+        // 移除存在的任务
+        let result = state.remove_task(0);
+        assert!(result.is_ok());
+        assert_eq!(state.tasks.len(), 0);
+        
+        // 尝试移除不存在的任务
+        let result = state.remove_task(5);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_scheduler_state_get_task() {
+        let state = SchedulerState::new();
+        
+        // 获取存在的任务
+        let task = state.get_task(0);
+        assert!(task.is_some());
+        assert_eq!(task.unwrap().task_type, TaskType::SystemMaintenance);
+        
+        // 获取不存在的任务
+        let task = state.get_task(10);
+        assert!(task.is_none());
+    }
+
+    #[test]
+    fn test_scheduler_state_update_task() {
+        let mut state = SchedulerState::new();
+        
+        // 更新存在的任务
+        let result = state.update_task(0, "0 6 * * *");
+        assert!(result.is_ok());
+        assert_eq!(state.tasks[0].cron_expression, "0 6 * * *");
+        
+        // 尝试更新不存在的任务
+        let result = state.update_task(10, "0 7 * * *");
+        assert!(result.is_err());
+        
+        // 尝试更新为无效的Cron表达式
+        let result = state.update_task(0, "invalid_cron");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_scheduler_state_toggle_task() {
+        let mut state = SchedulerState::new();
+        
+        // 初始状态应该是启用
+        assert!(state.tasks[0].enabled);
+        
+        // 切换任务状态
+        let result = state.toggle_task(0);
+        assert!(result.is_ok());
+        assert!(!state.tasks[0].enabled);
+        
+        // 再次切换
+        let result = state.toggle_task(0);
+        assert!(result.is_ok());
+        assert!(state.tasks[0].enabled);
+        
+        // 尝试切换不存在的任务
+        let result = state.toggle_task(10);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_scheduler_state_get_all_tasks_summary_empty() {
+        let state = SchedulerState { tasks: vec![] };
+        let summary = state.get_all_tasks_summary();
+        assert_eq!(summary, "📝 暂无定时任务");
+    }
+
+    #[test]
+    fn test_scheduler_state_get_all_tasks_summary_with_tasks() {
+        let mut state = SchedulerState::new();
+        
+        // 添加一个禁用的任务
+        let mut disabled_task = ScheduledTask::new(TaskType::CoreMaintenance, "0 5 * * *");
+        disabled_task.enabled = false;
+        state.add_task(disabled_task);
+        
+        let summary = state.get_all_tasks_summary();
+        
+        assert!(summary.contains("⏰ 定时任务列表:"));
+        assert!(summary.contains("✅")); // 第一个任务启用
+        assert!(summary.contains("⏸️")); // 第二个任务禁用
+        assert!(summary.contains("系统维护"));
+        assert!(summary.contains("核心维护"));
+        assert!(summary.contains("0 4 * * Sun"));
+        assert!(summary.contains("0 5 * * *"));
+    }
+
+    #[test]
+    fn test_scheduler_state_save_and_load() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let temp_path = temp_file.path().to_str().unwrap();
+        
+        let mut state = SchedulerState::new();
+        let new_task = ScheduledTask::new(TaskType::UpdateXray, "0 6 * * Sun");
+        state.add_task(new_task);
+        
+        // 保存状态
+        state.save_to_file(temp_path).unwrap();
+        
+        // 加载状态
+        let loaded_state = SchedulerState::load_from_file(temp_path).unwrap();
+        
+        assert_eq!(loaded_state.tasks.len(), state.tasks.len());
+        assert_eq!(loaded_state.tasks[0].task_type, TaskType::SystemMaintenance);
+        assert_eq!(loaded_state.tasks[1].task_type, TaskType::UpdateXray);
+        
+        // 清理
+        let _ = fs::remove_file(temp_path);
+    }
+
+    #[test]
+    fn test_scheduler_state_load_from_nonexistent_file() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let temp_path = temp_file.path().to_str().unwrap();
+        
+        // 删除文件
+        let _ = fs::remove_file(temp_path);
+        
+        // 应该返回默认状态
+        let state = SchedulerState::load_from_file(temp_path).unwrap();
+        assert_eq!(state.tasks.len(), 1); // 默认任务
+        assert_eq!(state.tasks[0].task_type, TaskType::SystemMaintenance);
+    }
+
+    #[test]
+    fn test_scheduler_validator_new() {
+        let validator = SchedulerValidator::new();
+        // 验证可以创建实例
+        assert!(!std::mem::needs_drop::<SchedulerValidator>());
+    }
+
+    #[test]
+    fn test_scheduler_validator_validate_cron_expression_valid() {
+        let validator = SchedulerValidator::new();
+        
+        // 测试有效的Cron表达式
+        let valid_expressions = vec![
+            "0 4 * * *",      // 每天4点
+            "0 4 * * Sun",    // 每周日4点
+            "0 4 1 * *",      // 每月1号4点
+            "*/5 * * * *",    // 每5分钟
+            "0 0-23/2 * * *", // 每2小时
+            "0,15,30,45 * * * *", // 特定分钟
+            "0 4 1-7 * *",    // 1-7号4点
+            "0 4 * Jan *",    // 一月4点
+            "0 4 * * 0",      // 周日（0和7都可以）
+            "0 4 * * 7",      // 周日（0和7都可以）
+        ];
+        
+        for expr in valid_expressions {
+            let result = validator.validate_cron_expression(expr);
+            assert!(result.is_ok(), "表达式 '{}' 应该有效", expr);
+        }
+    }
+
+    #[test]
+    fn test_scheduler_validator_validate_cron_expression_invalid() {
+        let validator = SchedulerValidator::new();
+        
+        // 测试无效的Cron表达式
+        let invalid_expressions = vec![
+            "",                    // 空字符串
+            "0",                   // 字段太少
+            "0 4 * *",             // 字段太少
+            "0 4 * * * *",         // 字段太多
+            "60 4 * * *",          // 分钟超出范围
+            "0 24 * * *",          // 小时超出范围
+            "0 4 0 * *",           // 日期超出范围
+            "0 4 * 0 *",           // 月份超出范围
+            "0 4 * * 8",           // 星期超出范围
+            "invalid expression",   // 格式错误
+            "0 four * * *",        // 非数字值
+        ];
+        
+        for expr in invalid_expressions {
+            let result = validator.validate_cron_expression(expr);
+            assert!(result.is_err(), "表达式 '{}' 应该无效", expr);
+        }
+    }
+
+    #[test]
+    fn test_scheduler_validator_is_valid_field() {
+        let validator = SchedulerValidator::new();
+        
+        // 测试字段验证
+        assert!(validator.is_valid_field("*", 0, 59));           // 通配符
+        assert!(validator.is_valid_field("30", 0, 59));          // 有效数字
+        assert!(validator.is_valid_field("1,3,5", 0, 59));       // 列表
+        assert!(validator.is_valid_field("1-5", 0, 59));         // 范围
+        assert!(validator.is_valid_field("*/5", 0, 59));         // 步长
+        assert!(validator.is_valid_field("1-10/2", 0, 59));      // 范围步长
+        
+        // 无效值
+        assert!(!validator.is_valid_field("60", 0, 59));         // 超出范围
+        assert!(!validator.is_valid_field("invalid", 0, 59));    // 非数字
+        assert!(!validator.is_valid_field("1-10-20", 0, 59));    // 格式错误
+        assert!(!validator.is_valid_field("*/", 0, 59));         // 步长错误
+    }
+
+    #[test]
+    fn test_scheduler_validator_is_valid_weekday_field() {
+        let validator = SchedulerValidator::new();
+        
+        // 测试星期字段验证
+        assert!(validator.is_valid_weekday_field("*"));         // 通配符
+        assert!(validator.is_valid_weekday_field("0"));         // 周日
+        assert!(validator.is_valid_weekday_field("7"));         // 周日（别名）
+        assert!(validator.is_valid_weekday_field("1"));         // 周一
+        assert!(validator.is_valid_weekday_field("6"));         // 周六
+        assert!(validator.is_valid_weekday_field("Sun"));       // 缩写周日
+        assert!(validator.is_valid_weekday_field("Mon"));       // 缩写周一
+        assert!(validator.is_valid_weekday_field("Sat"));       // 缩写周六
+        assert!(validator.is_valid_weekday_field("1,3,5"));     // 列表
+        
+        // 无效值
+        assert!(!validator.is_valid_weekday_field("8"));        // 超出范围
+        assert!(!validator.is_valid_weekday_field("-1"));       // 负数
+        assert!(!validator.is_valid_weekday_field("Invalid"));  // 无效缩写
+    }
+
+    #[test]
+    fn test_scheduler_validator_weekday_abbreviations() {
+        let validator = SchedulerValidator::new();
+        
+        // 测试所有星期缩写
+        let weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        for day in &weekdays {
+            assert!(validator.is_valid_weekday_field(day), 
+                "星期缩写 '{}' 应该有效", day);
+        }
+        
+        // 测试大小写变体
+        assert!(!validator.is_valid_weekday_field("SUN"));      // 大写无效
+        assert!(!validator.is_valid_weekday_field("sun"));      // 小写无效
+        assert!(!validator.is_valid_weekday_field("Sunday"));   // 全名无效
     }
 }

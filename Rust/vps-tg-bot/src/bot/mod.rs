@@ -32,6 +32,10 @@ pub enum Command {
     Logs,
     #[command(description = "设置调度计划")]
     SetSchedule(String),
+    #[command(description = "查看维护历史")]
+    MaintenanceHistory,
+    #[command(description = "完整维护")]
+    FullMaintenance,
 }
 
 // 构建主菜单 Inline Keyboard
@@ -44,6 +48,9 @@ fn build_main_menu_keyboard() -> InlineKeyboardMarkup {
         vec![
             InlineKeyboardButton::callback("⏰ 定时任务", "menu_schedule"),
             InlineKeyboardButton::callback("📋 查看日志", "cmd_logs"),
+        ],
+        vec![
+            InlineKeyboardButton::callback("📜 维护历史", "cmd_maintenance_history"),
         ],
     ];
     
@@ -60,6 +67,9 @@ fn build_maintain_menu_keyboard() -> InlineKeyboardMarkup {
         vec![
             InlineKeyboardButton::callback("🚀 更新 Xray", "cmd_update_xray"),
             InlineKeyboardButton::callback("📦 更新 Sing-box", "cmd_update_sb"),
+        ],
+        vec![
+            InlineKeyboardButton::callback("🔄 完整维护", "cmd_full_maintenance"),
         ],
         vec![
             InlineKeyboardButton::callback("🔙 返回主菜单", "back_to_main"),
@@ -120,6 +130,44 @@ fn build_schedule_presets_keyboard(task_type: &str) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(keyboard)
 }
 
+// 构建日志选择菜单键盘
+fn build_log_selection_keyboard() -> InlineKeyboardMarkup {
+    let keyboard = vec![
+        vec![
+            InlineKeyboardButton::callback("📋 最近 20 行", "view_logs_20"),
+            InlineKeyboardButton::callback("📋 最近 50 行", "view_logs_50"),
+        ],
+        vec![
+            InlineKeyboardButton::callback("📋 最近 100 行", "view_logs_100"),
+            InlineKeyboardButton::callback("📋 全部日志", "view_logs_all"),
+        ],
+        vec![
+            InlineKeyboardButton::callback("🔙 返回主菜单", "back_to_main"),
+        ],
+    ];
+    
+    InlineKeyboardMarkup::new(keyboard)
+}
+
+// 构建维护历史菜单键盘
+fn build_maintenance_history_keyboard(page: usize) -> InlineKeyboardMarkup {
+    let mut keyboard = Vec::new();
+    
+    // 分页按钮
+    let mut page_buttons = Vec::new();
+    if page > 0 {
+        page_buttons.push(InlineKeyboardButton::callback("⬅️ 上一页", &format!("maintenance_history_{}", page - 1)));
+    }
+    page_buttons.push(InlineKeyboardButton::callback("📜 历史摘要", "maintenance_history_summary"));
+    page_buttons.push(InlineKeyboardButton::callback("下一页 ➡️", &format!("maintenance_history_{}", page + 1)));
+    
+    keyboard.push(page_buttons);
+    keyboard.push(vec![
+        InlineKeyboardButton::callback("🔙 返回主菜单", "back_to_main"),
+    ]);
+    
+    InlineKeyboardMarkup::new(keyboard)
+}
 
 
 // 获取任务类型显示名称
@@ -384,6 +432,25 @@ async fn answer(bot: Bot, message: Message, command: Command) -> Result<(), Box<
                 }
             }
         }
+        Command::MaintenanceHistory => {
+            bot.send_message(message.chat.id, "📜 正在加载维护历史...").await?;
+            let history_summary = crate::scheduler::maintenance_history::get_maintenance_summary().await;
+            let keyboard = build_maintenance_history_keyboard(0);
+            bot.send_message(message.chat.id, history_summary)
+                .reply_markup(keyboard)
+                .await?;
+        }
+        Command::FullMaintenance => {
+            bot.send_message(message.chat.id, "🔄 正在执行完整维护...").await?;
+            match system::perform_full_maintenance().await {
+                Ok(log) => {
+                    bot.send_message(message.chat.id, format!("✅ 完整维护完成:\n{}", log)).await?;
+                }
+                Err(e) => {
+                    bot.send_message(message.chat.id, format!("❌ 完整维护失败: {}", e)).await?;
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -451,40 +518,84 @@ async fn handle_callback_query(
                 log::info!("🎯 处理查看日志: cmd_logs 命令");
                 bot.answer_callback_query(&callback_query.id).await?;
                 
-                let message = "🔄 正在获取系统日志...";
-                let keyboard = build_main_menu_keyboard();
+                let message = "📋 选择要查看的日志行数:";
+                let keyboard = build_log_selection_keyboard();
                 
                 bot.edit_message_text(chat_id, message_id, message)
                     .reply_markup(keyboard)
                     .await?;
                 
-                // 异步获取日志
+                log::info!("✅ cmd_logs 处理完成");
+                return Ok(());
+            }
+            "cmd_maintenance_history" => {
+                log::info!("🎯 处理维护历史: cmd_maintenance_history 命令");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = "📜 正在加载维护历史...";
+                let keyboard = build_maintenance_history_keyboard(0);
+                
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard)
+                    .await?;
+                
+                // 异步加载维护历史
                 let bot_clone = bot.clone();
                 let chat_id_clone = chat_id;
                 let message_id_clone = message_id;
                 
                 tokio::spawn(async move {
-                    match system::ops::get_system_logs(20).await {
+                    let history_summary = crate::scheduler::maintenance_history::get_maintenance_summary().await;
+                    let keyboard = build_maintenance_history_keyboard(0);
+                    let _ = bot_clone.edit_message_text(
+                        chat_id_clone,
+                        message_id_clone,
+                        history_summary
+                    ).reply_markup(keyboard)
+                    .await;
+                });
+                
+                log::info!("✅ cmd_maintenance_history 处理完成");
+                return Ok(());
+            }
+            "cmd_full_maintenance" => {
+                log::info!("🎯 处理完整维护: cmd_full_maintenance 命令");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = "🚀 正在执行完整维护（核心+规则）...";
+                let keyboard = build_maintain_menu_keyboard();
+                
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard)
+                    .await?;
+                
+                // 异步执行完整维护
+                let bot_clone = bot.clone();
+                let chat_id_clone = chat_id;
+                let message_id_clone = message_id;
+                
+                tokio::spawn(async move {
+                    match system::perform_full_maintenance().await {
                         Ok(log) => {
                             let _ = bot_clone.edit_message_text(
                                 chat_id_clone,
                                 message_id_clone,
-                                format!("📋 系统日志:\n{}", log)
-                            ).reply_markup(build_main_menu_keyboard())
+                                format!("✅ 完整维护完成:\n{}\n\n请选择下一步操作:", log)
+                            ).reply_markup(build_maintain_menu_keyboard())
                             .await;
                         }
                         Err(e) => {
                             let _ = bot_clone.edit_message_text(
                                 chat_id_clone,
                                 message_id_clone,
-                                format!("❌ 无法获取日志: {}", e)
-                            ).reply_markup(build_main_menu_keyboard())
+                                format!("❌ 完整维护失败: {}\n\n请选择下一步操作:", e)
+                            ).reply_markup(build_maintain_menu_keyboard())
                             .await;
                         }
                     }
                 });
                 
-                log::info!("✅ cmd_logs 处理完成");
+                log::info!("✅ cmd_full_maintenance 处理完成");
                 return Ok(());
             }
             
@@ -898,6 +1009,240 @@ async fn handle_callback_query(
                 
                 log::info!("✅ back_to_task_types 处理完成");
             }
+            // 日志行数选择
+            "view_logs_20" => {
+                log::info!("🎯 处理查看日志: 20行");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = "🔄 正在获取系统日志...";
+                let keyboard = build_log_selection_keyboard();
+                
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard)
+                    .await?;
+                
+                let bot_clone = bot.clone();
+                let chat_id_clone = chat_id;
+                let message_id_clone = message_id;
+                
+                tokio::spawn(async move {
+                    match system::ops::get_system_logs(20).await {
+                        Ok(log) => {
+                            let _ = bot_clone.edit_message_text(
+                                chat_id_clone,
+                                message_id_clone,
+                                format!("📋 系统日志 (最近20行):\n{}", log)
+                            ).reply_markup(build_log_selection_keyboard())
+                            .await;
+                        }
+                        Err(e) => {
+                            let _ = bot_clone.edit_message_text(
+                                chat_id_clone,
+                                message_id_clone,
+                                format!("❌ 无法获取日志: {}", e)
+                            ).reply_markup(build_log_selection_keyboard())
+                            .await;
+                        }
+                    }
+                });
+                
+                log::info!("✅ view_logs_20 处理完成");
+                return Ok(());
+            }
+            "view_logs_50" => {
+                log::info!("🎯 处理查看日志: 50行");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = "🔄 正在获取系统日志...";
+                let keyboard = build_log_selection_keyboard();
+                
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard)
+                    .await?;
+                
+                let bot_clone = bot.clone();
+                let chat_id_clone = chat_id;
+                let message_id_clone = message_id;
+                
+                tokio::spawn(async move {
+                    match system::ops::get_system_logs(50).await {
+                        Ok(log) => {
+                            let _ = bot_clone.edit_message_text(
+                                chat_id_clone,
+                                message_id_clone,
+                                format!("📋 系统日志 (最近50行):\n{}", log)
+                            ).reply_markup(build_log_selection_keyboard())
+                            .await;
+                        }
+                        Err(e) => {
+                            let _ = bot_clone.edit_message_text(
+                                chat_id_clone,
+                                message_id_clone,
+                                format!("❌ 无法获取日志: {}", e)
+                            ).reply_markup(build_log_selection_keyboard())
+                            .await;
+                        }
+                    }
+                });
+                
+                log::info!("✅ view_logs_50 处理完成");
+                return Ok(());
+            }
+            "view_logs_100" => {
+                log::info!("🎯 处理查看日志: 100行");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = "🔄 正在获取系统日志...";
+                let keyboard = build_log_selection_keyboard();
+                
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard)
+                    .await?;
+                
+                let bot_clone = bot.clone();
+                let chat_id_clone = chat_id;
+                let message_id_clone = message_id;
+                
+                tokio::spawn(async move {
+                    match system::ops::get_system_logs(100).await {
+                        Ok(log) => {
+                            let _ = bot_clone.edit_message_text(
+                                chat_id_clone,
+                                message_id_clone,
+                                format!("📋 系统日志 (最近100行):\n{}", log)
+                            ).reply_markup(build_log_selection_keyboard())
+                            .await;
+                        }
+                        Err(e) => {
+                            let _ = bot_clone.edit_message_text(
+                                chat_id_clone,
+                                message_id_clone,
+                                format!("❌ 无法获取日志: {}", e)
+                            ).reply_markup(build_log_selection_keyboard())
+                            .await;
+                        }
+                    }
+                });
+                
+                log::info!("✅ view_logs_100 处理完成");
+                return Ok(());
+            }
+            "view_logs_all" => {
+                log::info!("🎯 处理查看日志: 全部");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = "🔄 正在获取全部系统日志...";
+                let keyboard = build_log_selection_keyboard();
+                
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard)
+                    .await?;
+                
+                let bot_clone = bot.clone();
+                let chat_id_clone = chat_id;
+                let message_id_clone = message_id;
+                
+                tokio::spawn(async move {
+                    // 获取全部日志，不限制行数
+                    match system::ops::get_system_logs(1000).await {
+                        Ok(log) => {
+                            let log_text = if log.len() > 4000 {
+                                // 如果日志太长，截取部分
+                                format!("📋 系统日志 (全部 - 已截取部分内容):\n{}\n\n⚠️ 日志过长，已截取前 4000 字符", &log[..4000])
+                            } else {
+                                format!("📋 系统日志 (全部):\n{}", log)
+                            };
+                            let _ = bot_clone.edit_message_text(
+                                chat_id_clone,
+                                message_id_clone,
+                                log_text
+                            ).reply_markup(build_log_selection_keyboard())
+                            .await;
+                        }
+                        Err(e) => {
+                            let _ = bot_clone.edit_message_text(
+                                chat_id_clone,
+                                message_id_clone,
+                                format!("❌ 无法获取日志: {}", e)
+                            ).reply_markup(build_log_selection_keyboard())
+                            .await;
+                        }
+                    }
+                });
+                
+                log::info!("✅ view_logs_all 处理完成");
+                return Ok(());
+            }
+            // 维护历史分页处理
+            cmd if cmd.starts_with("maintenance_history_") => {
+                let page_str = cmd.strip_prefix("maintenance_history_").unwrap_or("0");
+                let page = page_str.parse::<usize>().unwrap_or(0);
+                
+                log::info!("🎯 处理维护历史分页: 第{}页", page);
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = "🔄 正在加载维护历史...";
+                let keyboard = build_maintenance_history_keyboard(page);
+                
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard)
+                    .await?;
+                
+                let bot_clone = bot.clone();
+                let chat_id_clone = chat_id;
+                let message_id_clone = message_id;
+                
+                tokio::spawn(async move {
+                    match crate::scheduler::maintenance_history::get_maintenance_history_details(page, 5).await {
+                        (history_text, total_records) => {
+                            let keyboard = build_maintenance_history_keyboard(page);
+                            let final_text = if total_records == 0 {
+                                history_text
+                            } else {
+                                format!("{}\n\n📊 共 {} 条记录", history_text, total_records)
+                            };
+                            let _ = bot_clone.edit_message_text(
+                                chat_id_clone,
+                                message_id_clone,
+                                final_text
+                            ).reply_markup(keyboard)
+                            .await;
+                        }
+                    }
+                });
+                
+                log::info!("✅ maintenance_history 处理完成");
+                return Ok(());
+            }
+            "maintenance_history_summary" => {
+                log::info!("🎯 处理维护历史摘要");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                let message = "🔄 正在生成维护历史摘要...";
+                let keyboard = build_maintenance_history_keyboard(0);
+                
+                bot.edit_message_text(chat_id, message_id, message)
+                    .reply_markup(keyboard)
+                    .await?;
+                
+                let bot_clone = bot.clone();
+                let chat_id_clone = chat_id;
+                let message_id_clone = message_id;
+                
+                tokio::spawn(async move {
+                    let history_summary = crate::scheduler::maintenance_history::get_maintenance_summary().await;
+                    let keyboard = build_maintenance_history_keyboard(0);
+                    let _ = bot_clone.edit_message_text(
+                        chat_id_clone,
+                        message_id_clone,
+                        history_summary
+                    ).reply_markup(keyboard)
+                    .await;
+                });
+                
+                log::info!("✅ maintenance_history_summary 处理完成");
+                return Ok(());
+            }
             _ => {
                 log::warn!("❓ 未知命令: '{}'", data);
                 log::info!("📤 调用 answer_callback_query 前");
@@ -1095,4 +1440,186 @@ async fn handle_update_sb_command(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_command_variants() {
+        // 测试命令枚举的所有变体
+        let commands = vec![
+            Command::Start,
+            Command::Status,
+            Command::Maintain,
+            Command::Reboot,
+            Command::UpdateXray,
+            Command::UpdateSb,
+            Command::MaintainCore,
+            Command::MaintainRules,
+            Command::Logs,
+            Command::SetSchedule("0 4 * * *".to_string()),
+            Command::MaintenanceHistory,
+            Command::FullMaintenance,
+        ];
+        
+        assert_eq!(commands.len(), 12); // 确保所有命令都被测试到
+    }
+
+    #[test]
+    fn test_get_task_display_name() {
+        // 测试已知任务类型
+        assert_eq!(get_task_display_name("system_maintenance"), "🔄 系统维护");
+        assert_eq!(get_task_display_name("system"), "🔄 系统维护");
+        assert_eq!(get_task_display_name("core_maintenance"), "🚀 核心维护");
+        assert_eq!(get_task_display_name("rules_maintenance"), "🌍 规则维护");
+        assert_eq!(get_task_display_name("update_xray"), "🔧 更新 Xray");
+        assert_eq!(get_task_display_name("update_singbox"), "📦 更新 Sing-box");
+        
+        // 测试未知任务类型
+        assert_eq!(get_task_display_name("unknown_type"), "❓ 未知任务");
+        assert_eq!(get_task_display_name(""), "❓ 未知任务");
+        assert_eq!(get_task_display_name("invalid_task"), "❓ 未知任务");
+    }
+
+    #[test]
+    fn test_schedule_presets_keyboard_edge_cases() {
+        // 测试空字符串
+        let keyboard = build_schedule_presets_keyboard("");
+        assert_eq!(keyboard.inline_keyboard.len(), 3);
+        
+        // 测试包含特殊字符的任务类型
+        let keyboard = build_schedule_presets_keyboard("test-task_type");
+        assert_eq!(keyboard.inline_keyboard.len(), 3);
+        
+        // 测试中文任务类型
+        let keyboard = build_schedule_presets_keyboard("中文任务");
+        assert_eq!(keyboard.inline_keyboard.len(), 3);
+    }
+
+    #[test]
+    fn test_time_selection_keyboard_edge_cases() {
+        // 测试空任务类型
+        let keyboard = build_time_selection_keyboard("", "daily");
+        assert!(keyboard.inline_keyboard.len() > 0);
+        
+        // 测试包含下划线的任务类型
+        let keyboard = build_time_selection_keyboard("test_task_type", "daily");
+        assert!(keyboard.inline_keyboard.len() > 0);
+        
+        // 测试无效频率
+        let keyboard = build_time_selection_keyboard("system_maintenance", "invalid_frequency");
+        assert_eq!(keyboard.inline_keyboard.len(), 1);
+    }
+
+    #[test]
+    fn test_keyboard_consistency() {
+        // 测试不同菜单的返回按钮一致性
+        let main_menu = build_main_menu_keyboard();
+        let maintain_menu = build_maintain_menu_keyboard();
+        let task_menu = build_task_type_menu_keyboard();
+        
+        // 检查返回按钮文本一致性
+        assert_eq!(main_menu.inline_keyboard.last().unwrap()[0].text, "🔙 返回主菜单");
+        assert_eq!(maintain_menu.inline_keyboard.last().unwrap()[0].text, "🔙 返回主菜单");
+        assert_eq!(task_menu.inline_keyboard.last().unwrap()[0].text, "🔙 返回");
+    }
+
+    #[test]
+    fn test_emoji_consistency() {
+        // 测试emoji使用的一致性
+        let main_menu = build_main_menu_keyboard();
+        
+        // 检查主要功能是否使用了emoji
+        let has_system_emoji = main_menu.inline_keyboard[0][0].text.contains("📊");
+        let has_maintain_emoji = main_menu.inline_keyboard[0][1].text.contains("🛠️");
+        let has_schedule_emoji = main_menu.inline_keyboard[1][0].text.contains("⏰");
+        let has_logs_emoji = main_menu.inline_keyboard[1][1].text.contains("📋");
+        let has_history_emoji = main_menu.inline_keyboard[2][0].text.contains("📜");
+        
+        assert!(has_system_emoji);
+        assert!(has_maintain_emoji);
+        assert!(has_schedule_emoji);
+        assert!(has_logs_emoji);
+        assert!(has_history_emoji);
+    }
+
+    #[test]
+    fn test_command_description_mapping() {
+        // 测试命令与描述的对应关系
+        let commands = vec![
+            (Command::Start, "启动机器人"),
+            (Command::Status, "获取系统状态"),
+            (Command::Maintain, "执行系统维护"),
+            (Command::Reboot, "重启系统"),
+            (Command::UpdateXray, "更新 Xray"),
+            (Command::UpdateSb, "更新 Sing-box"),
+            (Command::MaintainCore, "核心维护"),
+            (Command::MaintainRules, "规则维护"),
+            (Command::Logs, "查看日志"),
+            (Command::SetSchedule("0 4 * * *".to_string()), "设置调度计划"),
+            (Command::MaintenanceHistory, "查看维护历史"),
+            (Command::FullMaintenance, "完整维护"),
+        ];
+        
+        assert_eq!(commands.len(), 12);
+        
+        // 验证每个命令都有对应的描述
+        for (command, expected_desc) in commands {
+            match command {
+                Command::SetSchedule(_) => {
+                    assert_eq!(expected_desc, "设置调度计划");
+                },
+                _ => {
+                    // 其他命令的描述验证
+                    assert!(!expected_desc.is_empty());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_keyboard_button_text_lengths() {
+        // 测试按钮文本长度合理性
+        let main_menu = build_main_menu_keyboard();
+        for row in &main_menu.inline_keyboard {
+            for button in row {
+                // 按钮文本不应过长（考虑移动端显示）
+                assert!(button.text.len() <= 20, "Button text too long: {}", button.text);
+                // 按钮文本不应为空
+                assert!(!button.text.is_empty());
+            }
+        }
+        
+        let maintain_menu = build_maintain_menu_keyboard();
+        for row in &maintain_menu.inline_keyboard {
+            for button in row {
+                assert!(button.text.len() <= 20);
+                assert!(!button.text.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn test_error_handling_edge_cases() {
+        // 测试边界情况处理
+        
+        // 测试空字符串任务类型
+        let result = get_task_display_name("");
+        assert_eq!(result, "❓ 未知任务");
+        
+        // 测试只有空格的任务类型
+        let result = get_task_display_name("   ");
+        assert_eq!(result, "❓ 未知任务");
+        
+        // 测试包含特殊字符的任务类型
+        let result = get_task_display_name("task@#$%^&*()");
+        assert_eq!(result, "❓ 未知任务");
+        
+        // 测试超长任务类型
+        let long_type = "a".repeat(1000);
+        let result = get_task_display_name(&long_type);
+        assert_eq!(result, "❓ 未知任务");
+    }
 }

@@ -51,6 +51,15 @@ async fn main() {
             }
             log::info!("✅ 调度器初始化成功");
             
+            // 初始化维护历史管理器
+            log::info!("📜 初始化维护历史管理器...");
+            let history_result = scheduler::maintenance_history::init_maintenance_history().await;
+            if let Err(e) = history_result {
+                log::error!("❌ 维护历史管理器初始化失败: {:?}", e);
+                return;
+            }
+            log::info!("✅ 维护历史管理器初始化成功");
+            
             // 启动后台任务保持调度器运行
             let scheduler_config = config.clone();
             let scheduler_bot = bot_instance.clone();
