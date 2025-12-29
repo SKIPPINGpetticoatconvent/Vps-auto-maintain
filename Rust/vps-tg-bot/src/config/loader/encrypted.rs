@@ -85,7 +85,8 @@ impl EncryptedFileLoader {
         
         // 如果绝对路径都不存在，尝试相对路径（相对于当前工作目录）
         debug!("尝试相对路径搜索...");
-        for path_str in &["config.enc"] {
+        {
+            let path_str = "config.enc";
             let relative_path = Path::new(path_str);
             debug!("检查相对路径: {:?}", relative_path);
             
