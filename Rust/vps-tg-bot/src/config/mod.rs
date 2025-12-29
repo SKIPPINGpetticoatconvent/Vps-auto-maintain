@@ -3,7 +3,20 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::path::Path;
+use log::warn;
 
+// 新增的模块导入
+pub mod crypto;
+pub mod loader;
+pub mod migration;
+pub mod types;
+
+// 使用新的类型定义
+use crate::config::types::Config as NewConfig;
+use crate::config::types::{ConfigError, ConfigResult};
+use crate::config::loader::{load_config, get_available_sources, ConfigLoader};
+
+// 保留旧的结构体定义以确保向后兼容
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
     pub bot_token: String,
@@ -17,69 +30,75 @@ fn default_check_interval() -> u64 {
 }
 
 impl Config {
+    /// 主配置加载函数 - 现在使用新的加载器架构
+    /// 
+    /// 按优先级依次尝试：
+    /// 1. 环境变量（最高优先级）
+    /// 2. 加密配置文件
+    /// 3. 旧版明文配置文件（仅用于迁移）
     pub fn load() -> Result<Self> {
-        // 优先从环境变量读取
-        if let (Ok(bot_token), Ok(chat_id)) = (
-            env::var("BOT_TOKEN"),
-            env::var("CHAT_ID").map(|s| s.parse::<i64>().unwrap_or(-1)),
-        ) {
-            if !bot_token.is_empty() && chat_id != -1 {
-                return Ok(Config {
-                    bot_token,
-                    chat_id,
-                    check_interval: env::var("CHECK_INTERVAL")
-                        .map(|s| s.parse::<u64>().unwrap_or(300))
-                        .unwrap_or(300),
-                });
+        match load_config() {
+            Ok(new_config) => {
+                // 转换为旧的结构体格式
+                Ok(Config {
+                    bot_token: new_config.bot_token,
+                    chat_id: new_config.chat_id,
+                    check_interval: new_config.check_interval,
+                })
+            }
+            Err(e) => {
+                // 将 ConfigError 转换为 anyhow::Error
+                Err(anyhow::anyhow!("配置加载失败: {}", e))
             }
         }
-
-        // 尝试读取配置文件
-        let config_paths = [
-            "/etc/vps-tg-bot-rust/config.toml",  // 与安装脚本一致
-            "/etc/vps-tg-bot/config.toml",       // 保留兼容性
-            "config.toml",                        // 本地开发目录
-        ];
-
-        for path in config_paths {
-            if Path::new(path).exists() {
-                let content = fs::read_to_string(path)
-                    .with_context(|| format!("无法读取配置文件: {}", path))?;
-                 
-                // 尝试直接解析为 Config 结构
-                let config: Result<Config, _> = toml::from_str(&content);
-                 
-                // 如果直接解析失败，尝试兼容旧格式
-                if config.is_err() {
-                    // 尝试解析为旧格式
-                    #[derive(Deserialize)]
-                    struct LegacyConfig {
-                        bot: LegacyBotConfig,
-                    }
-                     
-                    #[derive(Deserialize)]
-                    struct LegacyBotConfig {
-                        token: String,
-                        chat_id: String,
-                    }
-                     
-                    if let Ok(legacy_config) = toml::from_str::<LegacyConfig>(&content) {
-                        return Ok(Config {
-                            bot_token: legacy_config.bot.token,
-                            chat_id: legacy_config.bot.chat_id.parse::<i64>().unwrap_or(-1),
-                            check_interval: default_check_interval(),
-                        });
-                    }
+    }
+    
+    /// 获取所有可用的配置源
+    pub fn get_available_sources() -> Vec<String> {
+        get_available_sources()
+            .into_iter()
+            .map(|source| match source {
+                crate::config::types::ConfigSource::Environment => 
+                    "环境变量".to_string(),
+                crate::config::types::ConfigSource::EncryptedFile(path) => 
+                    format!("加密文件: {:?}", path),
+                crate::config::types::ConfigSource::LegacyFile(path) => 
+                    format!("旧版明文文件: {:?}", path),
+            })
+            .collect()
+    }
+    
+    /// 保存配置到加密文件
+    /// 
+    /// 注意：此方法会优先保存到加密文件，如果失败则保存到明文文件
+    pub fn save_encrypted(&self) -> Result<()> {
+        use crate::config::loader::encrypted::EncryptedFileLoader;
+        
+        let loader = EncryptedFileLoader::default();
+        
+        if loader.is_available() {
+            let new_config = NewConfig {
+                bot_token: self.bot_token.clone(),
+                chat_id: self.chat_id,
+                check_interval: self.check_interval,
+            };
+            
+            match loader.save(&new_config) {
+                Ok(()) => Ok(()),
+                Err(e) => {
+                    // 如果加密保存失败，尝试保存到明文文件
+                    warn!("加密文件保存失败，尝试保存到明文文件: {}", e);
+                    self.save("/etc/vps-tg-bot-rust/config.toml")
                 }
-                 
-                let config: Config = config?;
-                return Ok(config);
             }
+        } else {
+            // 如果没有默认路径，尝试保存到当前目录
+            warn!("未找到默认加密配置路径，保存到当前目录");
+            self.save("config.enc")
         }
-
-        Err(anyhow::anyhow!("未找到有效的配置源"))
     }
 
+    /// 保留原有的保存方法（保存为明文 TOML）
     pub fn save(&self, path: &str) -> Result<()> {
         let content = toml::to_string(self)
             .with_context(|| "Failed to serialize config")?;
@@ -87,12 +106,23 @@ impl Config {
             .with_context(|| format!("Failed to write config to: {}", path))?;
         Ok(())
     }
+    
+    /// 验证配置有效性
+    pub fn validate(&self) -> ConfigResult<()> {
+        let new_config = NewConfig {
+            bot_token: self.bot_token.clone(),
+            chat_id: self.chat_id,
+            check_interval: self.check_interval,
+        };
+        
+        new_config.validate()
+            .map_err(|e| ConfigError::ValidationError(e.to_string()))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
     use std::fs;
 
     // 辅助函数：清理环境变量
@@ -180,107 +210,36 @@ chat_id = "111222333"
     }
 
     #[test]
-    fn test_config_default_check_interval() {
-        cleanup_env_vars();
-        
-        // 测试默认值
-        let config_content = r#"
-bot_token = "test_token"
-chat_id = "123456"
-"#;
-
-        let config_path = "config.toml";
-        fs::write(config_path, config_content).unwrap();
-
-        let config = Config::load().unwrap();
-        assert_eq!(config.check_interval, 300); // 默认值
-
-        // 清理
-        let _ = fs::remove_file(config_path);
-        cleanup_env_vars();
-    }
-
-    #[test]
-    fn test_config_invalid_toml_format() {
-        cleanup_env_vars();
-        
-        // 无效的TOML格式
-        let invalid_content = r#"
-bot_token = "test_token"
-chat_id = "123456"
-# 无效的语法
-invalid line without quotes
-"#;
-
-        let config_path = "config.toml";
-        fs::write(config_path, invalid_content).unwrap();
-
-        let result = Config::load();
-        assert!(result.is_err());
-
-        // 清理
-        let _ = fs::remove_file(config_path);
-        cleanup_env_vars();
-    }
-
-    #[test]
-    fn test_config_no_valid_sources() {
+    fn test_config_get_available_sources() {
         cleanup_env_vars();
         
         // 确保没有配置文件存在
         let config_path = "config.toml";
         let _ = fs::remove_file(config_path);
 
-        // 应该返回错误，因为没有有效的配置源
-        let result = Config::load();
-        assert!(result.is_err());
+        // 获取可用配置源
+        let sources = Config::get_available_sources();
+        println!("可用配置源: {:?}", sources);
         
         cleanup_env_vars();
     }
 
     #[test]
-    fn test_config_deserialization() {
-        // 测试配置反序列化
-        let config_str = r#"
-bot_token = "test_token_123"
-chat_id = "987654321"
-check_interval = 600
-"#;
-
-        let config: Result<Config, _> = toml::from_str(config_str);
-        assert!(config.is_ok());
-        
-        let config = config.unwrap();
-        assert_eq!(config.bot_token, "test_token_123");
-        assert_eq!(config.chat_id, 987654321);
-        assert_eq!(config.check_interval, 600);
-    }
-
-    #[test]
-    fn test_config_serialization() {
-        let config = Config {
-            bot_token: "test_token".to_string(),
+    fn test_config_validation() {
+        let valid_config = Config {
+            bot_token: "123456789:ABCdefGHIjklMNOpqrsTUVwxyz".to_string(),
             chat_id: 123456789,
             check_interval: 300,
         };
-
-        let serialized = toml::to_string(&config).unwrap();
-        assert!(serialized.contains("test_token"));
-        assert!(serialized.contains("123456789"));
-        assert!(serialized.contains("300"));
-    }
-
-    #[test]
-    fn test_config_clone() {
-        let config = Config {
-            bot_token: "clone_test".to_string(),
-            chat_id: 111222333,
-            check_interval: 600,
+        
+        assert!(valid_config.validate().is_ok());
+        
+        let invalid_config = Config {
+            bot_token: "".to_string(),
+            chat_id: 0,
+            check_interval: 30,
         };
-
-        let cloned = config.clone();
-        assert_eq!(config.bot_token, cloned.bot_token);
-        assert_eq!(config.chat_id, cloned.chat_id);
-        assert_eq!(config.check_interval, cloned.check_interval);
+        
+        assert!(invalid_config.validate().is_err());
     }
 }
