@@ -499,36 +499,33 @@ else
         unset BOT_TOKEN
         unset CHAT_ID
 
-        # 增强的 Systemd 服务配置
+        # 创建必要的日志目录
+        print_info "创建日志目录..."
+        mkdir -p /var/log
+        touch /var/log/$BOT_NAME.log
+        chown root:root /var/log/$BOT_NAME.log
+        chmod 644 /var/log/$BOT_NAME.log
+        
+        # 简化的 Systemd 服务配置，避免 NAMESPACE 错误
         print_info "创建 Systemd 服务配置..."
         cat > "$BOT_SERVICE" <<EOF
 [Unit]
 Description=VPS Telegram Bot (Rust)
 After=network.target
-Wants=network-online.target
 
 [Service]
+Type=simple
 User=root
 Group=root
 WorkingDirectory=$BOT_CONFIG_DIR
 ExecStart=$BOT_BINARY run
-Restart=always
+Restart=on-failure
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=$BOT_NAME
 
 # 环境变量
 Environment=BOT_CONFIG_PATH=$ENCRYPTED_CONFIG
-Environment=RUST_LOG=info
-
-# 安全设置
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=$BOT_CONFIG_DIR
-ReadWritePaths=/var/log/$BOT_NAME.log
 
 [Install]
 WantedBy=multi-user.target
