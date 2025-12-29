@@ -2,13 +2,13 @@ name: Rust CI
 
 on:
   push:
-    branches: [ "main", "develop" ]
+    branches: ["main", "develop"]
     paths:
-      - 'Rust/**'
+      - "Rust/**"
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
     paths:
-      - 'Rust/**'
+      - "Rust/**"
   workflow_dispatch:
 
 env:
@@ -19,50 +19,45 @@ jobs:
   build-and-test:
     name: Build and Test
     runs-on: ubuntu-latest
-    
+
     defaults:
       run:
         working-directory: ${{ env.WORKING_DIRECTORY }}
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Setup Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        toolchain: stable
-        components: clippy, rustfmt
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
 
-    - name: Cache dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          ${{ env.WORKING_DIRECTORY }}/target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ env.WORKING_DIRECTORY }}/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
-    - name: Check formatting
-      run: cargo fmt -- --check
+      - name: Lint with Clippy
+        run: cargo clippy -- -D warnings
 
-    - name: Lint with Clippy
-      run: cargo clippy -- -D warnings
+      - name: Build
+        run: cargo build --verbose
 
-    - name: Build
-      run: cargo build --verbose
+      - name: Rename binary
+        run: |
+          mkdir -p dist
+          cp target/debug/vps-tg-bot dist/vps-tg-bot-rust-linux-amd64
 
-    - name: Rename binary
-      run: |
-        mkdir -p dist
-        cp target/debug/vps-tg-bot dist/vps-tg-bot-rust-linux-amd64
-
-
-
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: vps-tg-bot-rust-linux-amd64
-        path: ${{ env.WORKING_DIRECTORY }}/dist/vps-tg-bot-rust-linux-amd64
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vps-tg-bot-rust-linux-amd64
+          path: ${{ env.WORKING_DIRECTORY }}/dist/vps-tg-bot-rust-linux-amd64
