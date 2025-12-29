@@ -3,7 +3,6 @@
 //! 定义配置相关的类型和结构体
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 /// 配置结构体
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -22,10 +21,10 @@ fn default_check_interval() -> u64 {
 #[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
 pub enum ConfigSource {
-    /// 环境变量配置（最高优先级）
+    /// 环境变量配置
     Environment,
-    /// 加密文件配置
-    EncryptedFile(PathBuf),
+    /// systemd 凭证文件配置
+    CredentialFile,
 }
 
 /// 配置加载错误
@@ -33,9 +32,6 @@ pub enum ConfigSource {
 pub enum ConfigError {
     #[error("环境变量加载失败: {0}")]
     EnvironmentError(String),
-    
-    #[error("加密文件加载失败: {0}")]
-    EncryptedFileError(String),
     
     #[error("配置验证失败: {0}")]
     ValidationError(String),

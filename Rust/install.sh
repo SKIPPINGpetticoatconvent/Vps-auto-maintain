@@ -56,9 +56,11 @@ BOT_CONFIG_DIR="/etc/$BOT_NAME"
 BOT_SERVICE="/etc/systemd/system/$BOT_NAME.service"
 BOT_LOG="/var/log/$BOT_NAME.log"
 BOT_BACKUP_DIR="/etc/$BOT_NAME.bak"
-LEGACY_CONFIG="$BOT_CONFIG_DIR/config.toml"
-ENCRYPTED_CONFIG="$BOT_CONFIG_DIR/config.enc"
+ENV_FILE="$BOT_CONFIG_DIR/env"
 SCHEDULER_STATE="/etc/$BOT_NAME/scheduler_state.json"
+CREDSTORE_DIR="/etc/credstore"
+BOT_TOKEN_CRED="$CREDSTORE_DIR/$BOT_NAME.bot-token"
+CHAT_ID_CRED="$CREDSTORE_DIR/$BOT_NAME.chat-id"
 
 # 定义操作类型
 ACTION="install"
@@ -117,14 +119,31 @@ detect_existing_installation() {
     fi
 }
 
-# 检测现有配置类型
-detect_existing_config() {
-    if [ -f "$ENCRYPTED_CONFIG" ]; then
-        echo "encrypted"
-    elif [ -f "$LEGACY_CONFIG" ]; then
-        echo "legacy"
+# 检测现有环境文件
+detect_existing_env_file() {
+    if [ -f "$ENV_FILE" ]; then
+        echo "true"
     else
-        echo "none"
+        echo "false"
+    fi
+}
+
+# 检测现有凭证文件
+detect_existing_credentials() {
+    if [ -f "$BOT_TOKEN_CRED" ] && [ -f "$CHAT_ID_CRED" ]; then
+        echo "true"
+    else
+        echo "false"
+    fi
+}
+
+# 从现有凭证文件读取配置
+read_existing_credentials() {
+    if [ -f "$BOT_TOKEN_CRED" ]; then
+        BOT_TOKEN=$(cat "$BOT_TOKEN_CRED" 2>/dev/null | tr -d '\n')
+    fi
+    if [ -f "$CHAT_ID_CRED" ]; then
+        CHAT_ID=$(cat "$CHAT_ID_CRED" 2>/dev/null | tr -d '\n')
     fi
 }
 
@@ -258,6 +277,22 @@ uninstall_vps_bot() {
         print_info "  ℹ️  调度器状态文件不存在"
     fi
 
+    # 8. 删除凭证文件
+    print_info "[8/8] 删除凭证文件..."
+    if [ -f "$BOT_TOKEN_CRED" ]; then
+        rm -f "$BOT_TOKEN_CRED"
+        print_success "BOT_TOKEN 凭证文件已删除"
+    else
+        print_info "  ℹ️  BOT_TOKEN 凭证文件不存在"
+    fi
+    
+    if [ -f "$CHAT_ID_CRED" ]; then
+        rm -f "$CHAT_ID_CRED"
+        print_success "CHAT_ID 凭证文件已删除"
+    else
+        print_info "  ℹ️  CHAT_ID 凭证文件不存在"
+    fi
+
     echo
     print_header "卸载完成！"
     print_success "$BOT_NAME 已成功从系统中移除。"
@@ -314,16 +349,18 @@ fi
 print_success "最新版本：$VERSION"
 echo
 
-# 检测现有配置
-EXISTING_CONFIG=$(detect_existing_config)
-
 # 检测现有安装
 EXISTING_INSTALLATION=$(detect_existing_installation)
+
+# 检测现有环境文件
+EXISTING_ENV_FILE=$(detect_existing_env_file)
+
+# 检测现有凭证文件
+EXISTING_CREDENTIALS=$(detect_existing_credentials)
 
 # 显示当前安装状态
 if [ "$EXISTING_INSTALLATION" = "true" ]; then
     print_info "检测到已安装的 $BOT_NAME"
-    print_info "配置类型: $EXISTING_CONFIG"
     echo
     
     # 进入更新模式
@@ -341,32 +378,18 @@ if [ "$EXISTING_INSTALLATION" = "true" ]; then
         fi
     fi
 
-    # 检查现有配置是否可用
-    if [ "$EXISTING_CONFIG" = "encrypted" ] || [ "$EXISTING_CONFIG" = "legacy" ]; then
-        print_success "检测到现有配置，将保留现有设置"
-        print_info "配置文件: $BOT_CONFIG_DIR/$([ "$EXISTING_CONFIG" = "encrypted" ] && echo "config.enc" || echo "config.toml")"
-        
-        # 尝试验证配置
-        if [ "$EXISTING_CONFIG" = "encrypted" ]; then
-            print_info "正在验证加密配置..."
-            if ! "$BOT_BINARY" verify-config --config "$ENCRYPTED_CONFIG"; then
-                print_error "加密配置验证失败！"
-                print_error "检测到损坏的加密配置文件: $ENCRYPTED_CONFIG"
-                
-                # 提供诊断信息
-                if [ -f "$ENCRYPTED_CONFIG" ]; then
-                    file_size=$(stat -c%s "$ENCRYPTED_CONFIG" 2>/dev/null || stat -f%z "$ENCRYPTED_CONFIG" 2>/dev/null || echo "0")
-                    print_info "文件大小: $file_size 字节"
-                    print_info "文件权限: $(ls -la "$ENCRYPTED_CONFIG" 2>/dev/null || echo '无法读取')"
-                fi
-                
-                print_error "配置文件损坏，无法继续安装！"
-                print_info "请手动删除损坏的配置文件或重新安装"
-                print_info "删除命令: rm -f $ENCRYPTED_CONFIG"
-                exit 1
-            else
-                print_success "加密配置验证成功"
-            fi
+    # 检查现有配置
+    if [ "$EXISTING_CREDENTIALS" = "true" ]; then
+        print_success "检测到现有凭证文件，将保留现有配置"
+        print_info "凭证文件: $BOT_TOKEN_CRED, $CHAT_ID_CRED"
+        read_existing_credentials
+    elif [ "$EXISTING_ENV_FILE" = "true" ]; then
+        print_info "检测到现有环境文件，迁移到凭证文件..."
+        print_info "环境文件: $ENV_FILE"
+        # 读取旧的环境文件
+        if [ -f "$ENV_FILE" ]; then
+            source "$ENV_FILE"
+            print_success "已从环境文件读取配置"
         fi
     else
         print_warning "未检测到有效配置，将在更新后要求重新配置"
@@ -423,15 +446,15 @@ fi
 mkdir -p "$BOT_CONFIG_DIR" || { print_error "无法创建配置目录"; exit 1; }
 
 # 处理配置
-if [ "$UPDATE_MODE" = "true" ] && [ "$EXISTING_CONFIG" != "none" ]; then
-    print_success "保留现有配置，跳过配置输入"
+if [ "$UPDATE_MODE" = "true" ] && [ "$EXISTING_CREDENTIALS" = "true" ]; then
+    print_success "保留现有凭证配置，跳过配置输入"
     print_info "将在更新后验证配置完整性"
 else
     # 新安装或更新但无有效配置，需要输入配置
     print_header "配置设置"
     
-    # 默认使用加密文件配置
-    print_info "使用加密文件存储配置（AES-256-GCM）"
+    # 使用凭证文件配置
+    print_info "使用 systemd LoadCredential 凭证文件存储配置"
     
     # 收集敏感配置
     collect_credentials() {
@@ -443,12 +466,22 @@ else
         fi
     }
 
-    # 创建加密文件配置
-    setup_encrypted_config() {
-        print_info "正在配置加密文件..."
+    # 创建凭证文件配置
+    setup_credential_config() {
+        print_info "正在配置 systemd LoadCredential 凭证文件..."
 
-        # 确保配置目录存在且有正确权限
-        print_info "确保配置目录存在: $BOT_CONFIG_DIR"
+        # 确保凭证目录存在且有正确权限
+        print_info "确保凭证目录存在: $CREDSTORE_DIR"
+        mkdir -p "$CREDSTORE_DIR" || {
+            print_error "无法创建凭证目录: $CREDSTORE_DIR"
+            exit 1
+        }
+
+        # 设置凭证目录权限
+        chmod 755 "$CREDSTORE_DIR"
+        chown root:root "$CREDSTORE_DIR"
+        
+        # 确保配置目录存在
         mkdir -p "$BOT_CONFIG_DIR" || {
             print_error "无法创建配置目录: $BOT_CONFIG_DIR"
             exit 1
@@ -461,84 +494,43 @@ else
         # 收集凭据
         collect_credentials
 
-        # 使用绝对路径的 init-config 命令创建加密配置
-        print_info "正在生成加密配置文件: $ENCRYPTED_CONFIG"
-        
-        # 增加详细的错误输出以便诊断
-        print_info "正在执行: $BOT_BINARY init-config --token [已隐藏] --chat-id $CHAT_ID --output $ENCRYPTED_CONFIG"
-        
-        if ! "$BOT_BINARY" init-config --token "$BOT_TOKEN" --chat-id "$CHAT_ID" --output "$ENCRYPTED_CONFIG"; then
-            print_error "加密配置生成失败"
-            print_info "尝试诊断问题..."
-            
-            # 检查二进制文件是否存在且可执行
-            if [ ! -x "$BOT_BINARY" ]; then
-                print_error "二进制文件不可执行: $BOT_BINARY"
-                print_info "请检查二进制文件是否正确下载"
-            fi
-            
-            # 检查配置目录权限
-            if [ ! -w "$BOT_CONFIG_DIR" ]; then
-                print_error "配置目录不可写: $BOT_CONFIG_DIR"
-                print_info "请检查目录权限或手动创建配置文件"
-            fi
-            
-            # 尝试查看二进制文件是否支持 init-config 命令
-            print_info "检查二进制文件支持的命令..."
-            if "$BOT_BINARY" --help 2>&1 | grep -q "init-config"; then
-                print_info "✅ 二进制文件支持 init-config 命令"
-            else
-                print_error "❌ 二进制文件不支持 init-config 命令"
-                print_info "请检查下载的二进制文件版本是否正确"
-            fi
-            
-            print_error "请手动创建配置文件或重新运行安装脚本"
+        # 验证输入
+        if [ -z "$BOT_TOKEN" ]; then
+            print_error "BOT_TOKEN 不能为空"
             exit 1
-        else
-            # 验证配置文件是否正确创建
-            if [ ! -f "$ENCRYPTED_CONFIG" ]; then
-                print_error "配置文件创建失败: $ENCRYPTED_CONFIG"
-                print_info "init-config 命令执行成功但文件未创建"
-                exit 1
-            fi
-            
-            # 检查文件大小
-            file_size=$(stat -c%s "$ENCRYPTED_CONFIG" 2>/dev/null || stat -f%z "$ENCRYPTED_CONFIG" 2>/dev/null || echo "0")
-            if [ "$file_size" -eq 0 ]; then
-                print_error "配置文件大小为 0，可能是空文件"
-                exit 1
-            fi
-            
-            # 设置正确的文件权限
-            chmod 600 "$ENCRYPTED_CONFIG"
-            chown root:root "$ENCRYPTED_CONFIG"
-            print_success "加密配置文件已创建并设置权限"
-            print_info "文件大小: $file_size 字节"
-
-            # 验证配置文件完整性
-            print_info "正在验证配置文件完整性..."
-            if "$BOT_BINARY" verify-config --config "$ENCRYPTED_CONFIG"; then
-                print_success "配置文件验证成功"
-            else
-                print_error "配置文件验证失败"
-                print_info "配置文件可能已损坏，请检查"
-                
-                # 提供详细的诊断信息
-                print_info "诊断信息:"
-                print_info "  文件路径: $ENCRYPTED_CONFIG"
-                print_info "  文件大小: $file_size 字节"
-                print_info "  文件权限: $(ls -la "$ENCRYPTED_CONFIG" 2>/dev/null || echo '无法读取')"
-                
-                print_error "配置验证失败，安装中止"
-                exit 1
-            fi
-
-            # 删除明文配置（如果存在）
-            if [ -f "$LEGACY_CONFIG" ]; then
-                rm -f "$LEGACY_CONFIG"
-                print_success "已删除旧版明文配置文件"
-            fi
         fi
+
+        if [ -z "$CHAT_ID" ]; then
+            print_error "CHAT_ID 不能为空"
+            exit 1
+        fi
+
+        # 验证 CHAT_ID 是否为数字
+        if ! [[ "$CHAT_ID" =~ ^[0-9]+$ ]]; then
+            print_error "CHAT_ID 必须为数字"
+            exit 1
+        fi
+
+        # 创建凭证文件
+        print_info "正在创建凭证文件..."
+        
+        # 创建 BOT_TOKEN 凭证文件
+        print_info "创建 BOT_TOKEN 凭证文件: $BOT_TOKEN_CRED"
+        echo -n "$BOT_TOKEN" > "$BOT_TOKEN_CRED"
+        
+        # 创建 CHAT_ID 凭证文件
+        print_info "创建 CHAT_ID 凭证文件: $CHAT_ID_CRED"
+        echo -n "$CHAT_ID" > "$CHAT_ID_CRED"
+
+        # 设置凭证文件权限为 400（仅 root 可读）
+        chmod 400 "$BOT_TOKEN_CRED"
+        chmod 400 "$CHAT_ID_CRED"
+        chown root:root "$BOT_TOKEN_CRED"
+        chown root:root "$CHAT_ID_CRED"
+        print_success "凭证文件已创建并设置权限"
+        print_info "BOT_TOKEN 文件: $BOT_TOKEN_CRED"
+        print_info "CHAT_ID 文件: $CHAT_ID_CRED"
+        print_info "文件权限: 400 (仅 root 可读)"
 
         # 清除脚本变量中的敏感信息
         unset BOT_TOKEN
@@ -551,7 +543,7 @@ else
         chown root:root /var/log/$BOT_NAME.log
         chmod 644 /var/log/$BOT_NAME.log
         
-        # 简化的 Systemd 服务配置，避免 NAMESPACE 错误
+        # 创建 Systemd 服务配置
         print_info "创建 Systemd 服务配置..."
         cat > "$BOT_SERVICE" <<EOF
 [Unit]
@@ -569,8 +561,9 @@ RestartSec=10
 StandardOutput=journal
 StandardError=journal
 
-# 环境变量
-Environment=BOT_CONFIG_PATH=$ENCRYPTED_CONFIG
+# 使用 LoadCredential 加载敏感凭证
+LoadCredential=bot-token:$BOT_TOKEN_CRED
+LoadCredential=chat-id:$CHAT_ID_CRED
 
 [Install]
 WantedBy=multi-user.target
@@ -579,7 +572,7 @@ EOF
     }
 
     # 执行配置
-    setup_encrypted_config
+    setup_credential_config
 fi
 
 # 启动服务
@@ -613,8 +606,8 @@ print_info "卸载命令: $0 --uninstall"
 print_info "强制卸载: $0 --uninstall --force-uninstall"
 echo
 
-print_info "可用命令："
-echo "  init-config   - 初始化加密配置"
-echo "  migrate-config - 迁移明文配置到加密"
-echo "  verify-config  - 验证配置完整性"
-echo "  check-config   - 检查配置状态"
+print_info "配置信息："
+echo "  凭证文件: $BOT_TOKEN_CRED, $CHAT_ID_CRED"
+echo "  凭证目录: $CREDSTORE_DIR"
+echo "  检查配置: $BOT_BINARY check-config"
+echo

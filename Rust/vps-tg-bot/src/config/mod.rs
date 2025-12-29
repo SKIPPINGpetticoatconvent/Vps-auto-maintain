@@ -1,18 +1,15 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use log::warn;
 
-// 新增的模块导入
-pub mod crypto;
+// 移除加密相关模块导入
 pub mod loader;
-pub mod migration;
 pub mod types;
 
 // 使用新的类型定义
 use crate::config::types::Config as NewConfig;
 use crate::config::types::{ConfigError, ConfigResult};
-use crate::config::loader::{load_config, get_available_sources, ConfigLoader};
+use crate::config::loader::{load_config, get_available_sources};
 
 // 保留旧的结构体定义以确保向后兼容
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -28,11 +25,7 @@ fn default_check_interval() -> u64 {
 }
 
 impl Config {
-    /// 主配置加载函数 - 现在使用新的加载器架构
-    /// 
-    /// 按优先级依次尝试：
-    /// 1. 环境变量（最高优先级）
-    /// 2. 加密配置文件
+    /// 主配置加载函数 - 现在只使用环境变量
     pub fn load() -> Result<Self> {
         match load_config() {
             Ok(new_config) => {
@@ -57,46 +50,18 @@ impl Config {
             .map(|source| match source {
                 crate::config::types::ConfigSource::Environment => 
                     "环境变量".to_string(),
-                crate::config::types::ConfigSource::EncryptedFile(path) => 
-                    format!("加密文件: {:?}", path),
-
+                crate::config::types::ConfigSource::CredentialFile => 
+                    "systemd 凭证文件".to_string(),
             })
             .collect()
     }
     
     #[allow(dead_code)]
-    pub fn save_encrypted(&self) -> Result<()> {
-        use crate::config::loader::encrypted::EncryptedFileLoader;
-        
-        let loader = EncryptedFileLoader::default();
-        
-        if loader.is_available() {
-            let new_config = NewConfig {
-                bot_token: self.bot_token.clone(),
-                chat_id: self.chat_id,
-                check_interval: self.check_interval,
-            };
-            
-            match loader.save(&new_config) {
-                Ok(()) => Ok(()),
-                Err(e) => {
-                    // 如果加密保存失败，返回错误，不回退到明文保存
-                    Err(anyhow::anyhow!("加密文件保存失败: {}", e))
-                }
-            }
-        } else {
-            // 如果没有默认路径，尝试保存到当前目录
-            warn!("未找到默认加密配置路径，保存到当前目录");
-            self.save("config.enc")
-        }
-    }
-
-    #[allow(dead_code)]
     pub fn save(&self, path: &str) -> Result<()> {
         let content = toml::to_string(self)
-            .with_context(|| "Failed to serialize config")?;
+            .context("Failed to serialize config")?;
         fs::write(path, content)
-            .with_context(|| format!("Failed to write config to: {}", path))?;
+            .context(format!("Failed to write config to: {}", path))?;
         Ok(())
     }
     
@@ -127,8 +92,6 @@ mod tests {
         }
     }
 
-
-
     #[test]
     fn test_config_save_and_load() {
         let config = Config {
@@ -156,10 +119,6 @@ mod tests {
     fn test_config_get_available_sources() {
         cleanup_env_vars();
         
-        // 确保没有配置文件存在
-        let config_path = "config.toml";
-        let _ = fs::remove_file(config_path);
-
         // 获取可用配置源
         let sources = Config::get_available_sources();
         println!("可用配置源: {:?}", sources);

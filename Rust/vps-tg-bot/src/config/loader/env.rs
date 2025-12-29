@@ -1,22 +1,63 @@
 //! 环境变量配置加载器
 //! 
 //! 从环境变量 BOT_TOKEN、CHAT_ID、CHECK_INTERVAL 加载配置
-//! 环境变量具有最高优先级
+//! 支持从 systemd 凭证文件读取敏感信息
+//! 优先级：环境变量 > systemd 凭证文件
 
 use crate::config::loader::{ConfigLoader};
 use crate::config::types::{Config, ConfigError, ConfigResult, ConfigSource};
-use log::{debug};
+use log::{debug, warn};
 use std::env;
+use std::cell::RefCell;
 
 /// 环境变量配置加载器
 pub struct EnvironmentLoader {
-    _private: (),
+    config_source: RefCell<Option<ConfigSource>>,
 }
 
 impl EnvironmentLoader {
     /// 创建新的环境变量加载器
     pub fn new() -> Self {
-        Self { _private: () }
+        Self { config_source: RefCell::new(None) }
+    }
+    
+    /// 从 systemd 凭证文件加载配置
+    fn load_from_credentials(&self) -> Option<(String, i64)> {
+        let cred_dir = "/run/credentials/vps-tg-bot-rust.service";
+        
+        // 尝试读取 BOT_TOKEN
+        let bot_token = match std::fs::read_to_string(format!("{}/bot-token", cred_dir)) {
+            Ok(token) => token.trim().to_string(),
+            Err(_) => {
+                debug!("无法读取 BOT_TOKEN 凭证文件");
+                return None;
+            }
+        };
+        
+        // 尝试读取 CHAT_ID
+        let chat_id = match std::fs::read_to_string(format!("{}/chat-id", cred_dir)) {
+            Ok(id) => {
+                match id.trim().parse::<i64>() {
+                    Ok(parsed_id) => parsed_id,
+                    Err(_) => {
+                        debug!("CHAT_ID 凭证格式无效");
+                        return None;
+                    }
+                }
+            },
+            Err(_) => {
+                debug!("无法读取 CHAT_ID 凭证文件");
+                return None;
+            }
+        };
+        
+        if bot_token.is_empty() || chat_id <= 0 {
+            debug!("凭证文件内容无效");
+            return None;
+        }
+        
+        debug!("✅ 从 systemd 凭证文件成功加载配置");
+        Some((bot_token, chat_id))
     }
     
     /// 检查环境变量是否设置且有效
@@ -86,52 +127,83 @@ impl Default for EnvironmentLoader {
 
 impl ConfigLoader for EnvironmentLoader {
     fn load(&self) -> ConfigResult<Config> {
-        debug!("正在从环境变量加载配置...");
+        debug!("正在从环境变量和 systemd 凭证文件加载配置...");
         
-        // 检查环境变量是否存在
-        if !self.is_available() {
-            return Err(ConfigError::EnvironmentError(
-                "环境变量未设置或无效".to_string()
-            ));
+        // 优先从环境变量加载（开发/测试模式）
+        if EnvironmentLoader::check_env_vars() {
+            debug!("尝试从环境变量加载配置...");
+            
+            // 验证环境变量格式
+            if let Err(e) = Self::validate_env_vars() {
+                warn!("⚠️  环境变量验证失败: {}，尝试从凭证文件加载", e);
+            } else {
+                // 加载配置
+                let bot_token = env::var("BOT_TOKEN")
+                    .map_err(|e| ConfigError::EnvironmentError(format!("读取 BOT_TOKEN 失败: {}", e)))?;
+                    
+                let chat_id: i64 = env::var("CHAT_ID")
+                    .map_err(|e| ConfigError::EnvironmentError(format!("读取 CHAT_ID 失败: {}", e)))?
+                    .parse()
+                    .map_err(|e| ConfigError::EnvironmentError(format!("解析 CHAT_ID 失败: {}", e)))?;
+                    
+                let check_interval = env::var("CHECK_INTERVAL")
+                    .map(|s| s.parse::<u64>().unwrap_or(300))
+                    .unwrap_or(300);
+                
+                let config = Config {
+                    bot_token,
+                    chat_id,
+                    check_interval,
+                };
+                
+                debug!("✅ 从环境变量成功加载配置");
+                debug!("配置: bot_token={}, chat_id={}, check_interval={}", 
+                      config.bot_token.chars().take(10).collect::<String>() + "...", 
+                      config.chat_id, 
+                      config.check_interval);
+                
+                // 保存配置来源信息
+                *self.config_source.borrow_mut() = Some(ConfigSource::Environment);
+                return Ok(config);
+            }
         }
         
-        // 验证环境变量格式
-        Self::validate_env_vars()?;
-        
-        // 加载配置
-        let bot_token = env::var("BOT_TOKEN")
-            .map_err(|e| ConfigError::EnvironmentError(format!("读取 BOT_TOKEN 失败: {}", e)))?;
+        // 尝试从 systemd 凭证文件加载（生产环境）
+        debug!("尝试从 systemd 凭证文件加载配置...");
+        if let Some((bot_token, chat_id)) = self.load_from_credentials() {
+            let check_interval = env::var("CHECK_INTERVAL")
+                .map(|s| s.parse::<u64>().unwrap_or(300))
+                .unwrap_or(300);
             
-        let chat_id: i64 = env::var("CHAT_ID")
-            .map_err(|e| ConfigError::EnvironmentError(format!("读取 CHAT_ID 失败: {}", e)))?
-            .parse()
-            .map_err(|e| ConfigError::EnvironmentError(format!("解析 CHAT_ID 失败: {}", e)))?;
+            let config = Config {
+                bot_token,
+                chat_id,
+                check_interval,
+            };
             
-        let check_interval = env::var("CHECK_INTERVAL")
-            .map(|s| s.parse::<u64>().unwrap_or(300))
-            .unwrap_or(300);
+            debug!("✅ 从 systemd 凭证文件成功加载配置");
+            debug!("配置: bot_token={}, chat_id={}, check_interval={}", 
+                  config.bot_token.chars().take(10).collect::<String>() + "...", 
+                  config.chat_id, 
+                  config.check_interval);
+            
+            // 保存配置来源信息
+            *self.config_source.borrow_mut() = Some(ConfigSource::CredentialFile);
+            return Ok(config);
+        }
         
-        let config = Config {
-            bot_token,
-            chat_id,
-            check_interval,
-        };
-        
-        debug!("✅ 从环境变量成功加载配置");
-        debug!("配置: bot_token={}, chat_id={}, check_interval={}", 
-              config.bot_token.chars().take(10).collect::<String>() + "...", 
-              config.chat_id, 
-              config.check_interval);
-        
-        Ok(config)
+        Err(ConfigError::EnvironmentError(
+            "无法从环境变量或 systemd 凭证文件加载配置".to_string()
+        ))
     }
     
     fn source(&self) -> ConfigSource {
-        ConfigSource::Environment
+        self.config_source.borrow().clone().unwrap_or(ConfigSource::Environment)
     }
     
     fn is_available(&self) -> bool {
-        Self::check_env_vars()
+        // 检查环境变量或凭证文件是否可用
+        EnvironmentLoader::check_env_vars() || self.load_from_credentials().is_some()
     }
 }
 
