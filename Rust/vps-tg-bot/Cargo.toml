@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 teloxide = { version = "0.12", features = ["macros"] }
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "macros", "net", "io-util", "time", "sync", "process"] }
 sysinfo = "0.29"
 clap = { version = "4.0", features = ["derive"] }
 config = "0.13"
@@ -30,3 +30,16 @@ aes-gcm = "0.10"
 argon2 = "0.5"
 rand = "0.8"
 base64 = "0.21"
+
+# 性能优化配置
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "z"  # 最小化二进制体积
+strip = true      # 移除调试符号
+panic = "abort"  # 减小异常处理代码体积
+
+# 对于性能优先而非体积优先的场景，可使用：
+# [profile.release-with-debug]
+# inherits = "release"
+# debug = true  # 保留调试信息用于性能分析
