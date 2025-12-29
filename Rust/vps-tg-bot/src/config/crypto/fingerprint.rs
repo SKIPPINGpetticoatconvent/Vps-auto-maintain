@@ -16,84 +16,48 @@ pub fn collect_machine_fingerprint() -> Result<String> {
 
     let mut fingerprint_parts = Vec::new();
 
-    // 1. CPU ID - 从 DMI 信息读取
-    match read_dmi_field("product_uuid") {
-        Ok(cpu_id) => {
-            debug!("✅ 采集到 CPU ID: {}", cpu_id);
-            fingerprint_parts.push(cpu_id);
-        }
-        Err(e) => {
-            warn!("⚠️ 无法采集 CPU ID: {}", e);
-            // 尝试备用 DMI 字段
-            if let Ok(backup_cpu_id) = read_dmi_field("sys_vendor").or_else(|_| read_dmi_field("board_name")) {
-                debug!("✅ 使用备用 CPU 标识: {}", backup_cpu_id);
-                fingerprint_parts.push(format!("backup_{}", backup_cpu_id));
-            } else {
-                debug!("❌ 使用默认 CPU 标识");
-                fingerprint_parts.push("unknown_cpu_id".to_string());
-            }
-        }
+    // 1. CPU ID - 从多个 DMI 信息读取，增加容错性
+    if let Ok(cpu_id) = collect_cpu_info() {
+        debug!("✅ 采集到 CPU 信息: {}", cpu_id);
+        fingerprint_parts.push(cpu_id);
+    } else {
+        debug!("❌ 使用默认 CPU 标识");
+        fingerprint_parts.push("unknown_cpu_id".to_string());
     }
 
-    // 2. 主网卡 MAC 地址
-    match get_primary_network_mac() {
-        Ok(mac_addr) => {
-            debug!("✅ 采集到主网卡 MAC: {}", mac_addr);
-            fingerprint_parts.push(mac_addr);
-        }
-        Err(e) => {
-            warn!("⚠️ 无法采集主网卡 MAC 地址: {}", e);
-            // 尝试备用方法
-            if let Ok(backup_mac) = get_secondary_network_mac() {
-                debug!("✅ 使用备用 MAC 地址: {}", backup_mac);
-                fingerprint_parts.push(backup_mac);
-            } else {
-                debug!("❌ 使用默认 MAC 标识");
-                fingerprint_parts.push("unknown_mac".to_string());
-            }
-        }
+    // 2. 网络信息 - 增强容错性，尝试多种方法
+    if let Ok(network_info) = collect_network_info() {
+        debug!("✅ 采集到网络信息: {}", network_info);
+        fingerprint_parts.push(network_info);
+    } else {
+        debug!("❌ 使用默认网络标识");
+        fingerprint_parts.push("unknown_network".to_string());
     }
 
-    // 3. 根分区 UUID
-    match get_root_partition_uuid() {
-        Ok(root_uuid) => {
-            debug!("✅ 采集到根分区 UUID: {}", root_uuid);
-            fingerprint_parts.push(root_uuid);
-        }
-        Err(e) => {
-            warn!("⚠️ 无法采集根分区 UUID: {}", e);
-            // 尝试备用方法
-            if let Ok(backup_uuid) = get_system_uuid() {
-                debug!("✅ 使用备用系统 UUID: {}", backup_uuid);
-                fingerprint_parts.push(backup_uuid);
-            } else {
-                debug!("❌ 使用默认 UUID 标识");
-                fingerprint_parts.push("unknown_root_uuid".to_string());
-            }
-        }
+    // 3. 存储信息 - 增强容错性
+    if let Ok(storage_info) = collect_storage_info() {
+        debug!("✅ 采集到存储信息: {}", storage_info);
+        fingerprint_parts.push(storage_info);
+    } else {
+        debug!("❌ 使用默认存储标识");
+        fingerprint_parts.push("unknown_storage".to_string());
     }
 
-    // 4. 主机名
-    match get_hostname() {
-        Ok(hostname) => {
-            debug!("✅ 采集到主机名: {}", hostname);
-            fingerprint_parts.push(hostname);
-        }
-        Err(e) => {
-            warn!("⚠️ 无法采集主机名: {}", e);
-            // 使用备用方法
-            match hostname_mut() {
-                Ok(backup_hostname) => {
-                    debug!("✅ 使用备用主机名: {}", backup_hostname);
-                    fingerprint_parts.push(backup_hostname);
-                }
-                Err(_) => {
-                    debug!("❌ 使用默认主机名");
-                    fingerprint_parts.push("unknown_hostname".to_string());
-                }
-            }
-        }
+    // 4. 主机名和系统信息 - 增强容错性
+    if let Ok(system_info) = collect_system_info() {
+        debug!("✅ 采集到系统信息: {}", system_info);
+        fingerprint_parts.push(system_info);
+    } else {
+        debug!("❌ 使用默认系统标识");
+        fingerprint_parts.push("unknown_system".to_string());
     }
+
+    // 5. 添加时间戳作为最后保障（在特殊环境中可能有用）
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    fingerprint_parts.push(format!("ts_{}", timestamp));
 
     // 组合指纹
     let fingerprint = fingerprint_parts.join(FINGERPRINT_SEPARATOR);
@@ -106,12 +70,239 @@ pub fn collect_machine_fingerprint() -> Result<String> {
                fingerprint.clone() 
            });
 
-    // 确保指纹不为空
-    if fingerprint.trim().is_empty() {
-        return Err(anyhow::anyhow!("所有指纹采集方法都失败，无法生成机器指纹"));
+    // 确保指纹不为空且有足够的复杂性
+    if fingerprint.trim().is_empty() || fingerprint.len() < 20 {
+        warn!("⚠️ 指纹过于简单，使用增强策略");
+        let enhanced_fingerprint = format!("enhanced_{}_{}", fingerprint, timestamp);
+        debug!("增强指纹: {}...", &enhanced_fingerprint[..64.min(enhanced_fingerprint.len())]);
+        return Ok(enhanced_fingerprint);
     }
 
     Ok(fingerprint)
+}
+
+/// 增强的CPU信息采集
+fn collect_cpu_info() -> Result<String> {
+    let mut cpu_parts = Vec::new();
+    
+    // 尝试多个 DMI 字段
+    let dmi_fields = ["product_uuid", "sys_vendor", "board_name", "board_serial", "product_name"];
+    
+    for field in &dmi_fields {
+        if let Ok(value) = read_dmi_field(field) {
+            if !value.is_empty() && value.len() > 3 {
+                cpu_parts.push(format!("{}:{}", field, value));
+            }
+        }
+    }
+    
+    // 如果 DMI 失败，尝试 /proc/cpuinfo
+    if cpu_parts.is_empty() {
+        if let Ok(cpuinfo) = fs::read_to_string("/proc/cpuinfo") {
+            for line in cpuinfo.lines() {
+                if line.starts_with("model name") || line.starts_with("cpu model") {
+                    if let Some(some_colon) = line.find(':') {
+                        let model = line[some_colon + 2..].trim();
+                        if !model.is_empty() {
+                            cpu_parts.push(format!("cpu_model:{}", model));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // 如果都失败，使用默认标识
+    if cpu_parts.is_empty() {
+        return Err(anyhow::anyhow!("无法获取 CPU 信息"));
+    }
+    
+    Ok(cpu_parts.join("_"))
+}
+
+/// 增强的网络信息采集
+fn collect_network_info() -> Result<String> {
+    let mut network_parts = Vec::new();
+    
+    // 尝试多个网络接口
+    let primary_interfaces = ["eth0", "ens33", "enp0s3", "enp0s25", "wlp2s0", "wlan0"];
+    let mut found_valid_mac = false;
+    
+    for interface in &primary_interfaces {
+        if let Ok(mac) = read_interface_mac(interface) {
+            if is_valid_mac(&mac) {
+                network_parts.push(format!("{}:{}", interface, mac));
+                found_valid_mac = true;
+                break;
+            }
+        }
+    }
+    
+    // 如果主要接口都失败，尝试任何可用接口
+    if !found_valid_mac {
+        if let Ok(any_mac) = get_any_network_mac() {
+            network_parts.push(format!("any:{}", any_mac));
+        }
+    }
+    
+    // 添加网络接口数量信息
+    if let Ok(interfaces) = count_network_interfaces() {
+        network_parts.push(format!("count:{}", interfaces));
+    }
+    
+    if network_parts.is_empty() {
+        return Err(anyhow::anyhow!("无法获取网络信息"));
+    }
+    
+    Ok(network_parts.join("_"))
+}
+
+/// 增强的存储信息采集
+fn collect_storage_info() -> Result<String> {
+    let mut storage_parts = Vec::new();
+    
+    // 尝试多种方法获取存储标识
+    if let Ok(root_uuid) = get_root_partition_uuid() {
+        storage_parts.push(format!("root_uuid:{}", root_uuid));
+    }
+    
+    if let Ok(system_uuid) = get_system_uuid() {
+        storage_parts.push(format!("sys_uuid:{}", system_uuid));
+    }
+    
+    // 尝试从 /proc/mounts 获取根分区信息
+    if let Ok(mounts) = fs::read_to_string("/proc/mounts") {
+        for line in mounts.lines() {
+            if line.starts_with("/dev/") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 && parts[1] == "/" {
+                    let device = parts[0];
+                    if device.starts_with("/dev/") {
+                        let device_name = device.strip_prefix("/dev/").unwrap_or(device);
+                        storage_parts.push(format!("root_device:{}", device_name));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
+    if storage_parts.is_empty() {
+        return Err(anyhow::anyhow!("无法获取存储信息"));
+    }
+    
+    Ok(storage_parts.join("_"))
+}
+
+/// 增强的系统信息采集
+fn collect_system_info() -> Result<String> {
+    let mut system_parts = Vec::new();
+    
+    // 主机名（多种方法）
+    if let Ok(hostname) = get_hostname() {
+        system_parts.push(format!("hostname:{}", hostname));
+    } else if let Ok(backup_hostname) = hostname_mut() {
+        system_parts.push(format!("hostname_backup:{}", backup_hostname));
+    }
+    
+    // 尝试从环境变量获取
+    if let Ok(env_hostname) = std::env::var("HOSTNAME") {
+        if !env_hostname.is_empty() {
+            system_parts.push(format!("env_hostname:{}", env_hostname));
+        }
+    }
+    
+    // 添加一些系统特征
+    if let Ok(machine_id) = get_machine_id() {
+        system_parts.push(format!("machine_id:{}", machine_id));
+    }
+    
+    if system_parts.is_empty() {
+        return Err(anyhow::anyhow!("无法获取系统信息"));
+    }
+    
+    Ok(system_parts.join("_"))
+}
+
+/// 获取任何可用的网络 MAC 地址
+fn get_any_network_mac() -> Result<String> {
+    let interfaces = ["lo", "docker0", "br-*", "veth*", "tap*", "tun*", "ppp*", "eth*", "en*", "wlp*", "wlan*", "ra*", "wlan*"];
+    
+    for pattern in &interfaces {
+        if let Ok(mac) = find_interface_by_pattern(pattern) {
+            if is_valid_mac(&mac) {
+                return Ok(mac);
+            }
+        }
+    }
+    
+    // 最后尝试从 /proc/net/dev 读取
+    if let Ok(mac) = read_proc_net_dev() {
+        if is_valid_mac(&mac) {
+            return Ok(mac);
+        }
+    }
+    
+    Err(anyhow::anyhow!("无法找到任何网络 MAC 地址"))
+}
+
+/// 验证 MAC 地址格式
+fn is_valid_mac(mac: &str) -> bool {
+    if mac.len() != 17 { return false; }
+    if mac.chars().filter(|&c| c == ':').count() != 5 { return false; }
+    if mac == "00:00:00:00:00:00" { return false; }
+    if mac.starts_with("00:") { return false; }
+    
+    // 检查是否所有字符都是有效的十六进制
+    mac.chars().all(|c| c.is_ascii_hexdigit() || c == ':')
+}
+
+/// 计算网络接口数量
+fn count_network_interfaces() -> Result<usize> {
+    let net_dir = "/sys/class/net";
+    if !std::path::Path::new(net_dir).exists() {
+        return Err(anyhow::anyhow!("/sys/class/net 目录不存在"));
+    }
+    
+    let entries = fs::read_dir(net_dir)
+        .with_context(|| format!("无法读取网络接口目录: {}", net_dir))?;
+    
+    let mut count = 0;
+    for entry in entries {
+        let entry = entry.with_context(|| "读取目录项失败")?;
+        let file_name = entry.file_name();
+        let interface_name = file_name
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("接口名称不是有效的 UTF-8"))?;
+        
+        // 只计算实际的网络接口（排除虚拟接口）
+        if !interface_name.starts_with("lo") && !interface_name.starts_with("docker") && !interface_name.starts_with("br-") && !interface_name.starts_with("veth") {
+            count += 1;
+        }
+    }
+    
+    Ok(count)
+}
+
+/// 获取机器ID
+fn get_machine_id() -> Result<String> {
+    if let Ok(machine_id) = fs::read_to_string("/etc/machine-id") {
+        let machine_id = machine_id.trim();
+        if !machine_id.is_empty() {
+            return Ok(machine_id.to_string());
+        }
+    }
+    
+    // 尝试 /var/lib/dbus/machine-id
+    if let Ok(machine_id) = fs::read_to_string("/var/lib/dbus/machine-id") {
+        let machine_id = machine_id.trim();
+        if !machine_id.is_empty() {
+            return Ok(machine_id.to_string());
+        }
+    }
+    
+    Err(anyhow::anyhow!("无法获取机器ID"))
 }
 
 /// 读取 DMI 字段信息

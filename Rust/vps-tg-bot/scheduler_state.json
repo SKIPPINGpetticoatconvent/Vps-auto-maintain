@@ -3,6 +3,32 @@
     {
       "task_type": "SystemMaintenance",
       "cron_expression": "0 6 * * *",
+      "enabled": false
+    },
+    {
+      "task_type": "CoreMaintenance",
+      "cron_expression": "0 5 * * *",
+      "enabled": true
+    }
+  ]
+}{
+      "task_type": "CoreMaintenance",
+      "cron_expression": "0 6 * * *",
+      "enabled": true
+    },
+    {
+      "task_type": "CoreMaintenance",
+      "cron_expression": "0 7 * * *",
+      "enabled": true
+    },
+    {
+      "task_type": "CoreMaintenance",
+      "cron_expression": "0 8 * * *",
+      "enabled": true
+    },
+    {
+      "task_type": "CoreMaintenance",
+      "cron_expression": "0 9 * * *",
       "enabled": true
     }
   ]

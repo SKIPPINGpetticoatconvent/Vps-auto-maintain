@@ -200,7 +200,7 @@ pub fn init_encrypted_config(
 
     // 创建配置
     let config = Config {
-        bot_token: token,
+        bot_token: token.clone(),
         chat_id,
         check_interval: 300, // 默认值
     };
@@ -209,14 +209,52 @@ pub fn init_encrypted_config(
     config.validate()
         .map_err(|e| anyhow::anyhow!("配置验证失败: {}", e))?;
 
+    debug!("配置验证通过，准备加密保存");
+    debug!("Bot Token: {}...", &token[..20.min(token.len())]);
+    debug!("Chat ID: {}", chat_id);
+    debug!("输出路径: {:?}", output_path);
+
     // 保存加密配置
     let crypto = ConfigCrypto::new();
     save_encrypted_config(&crypto, &config, output_path)
         .with_context(|| format!("保存加密配置失败: {:?}", output_path))?;
 
-    info!("✅ 加密配置已保存到: {:?}", output_path);
+    // 验证文件是否成功创建
+    if !output_path.exists() {
+        return Err(anyhow::anyhow!("加密配置文件创建失败: {:?}", output_path));
+    }
+
+    // 验证加密文件是否可以正确加载
+    match test_encrypted_config_load(output_path) {
+        Ok(true) => {
+            info!("✅ 加密配置已保存并验证通过: {:?}", output_path);
+        }
+        Ok(false) => {
+            warn!("⚠️  加密配置文件创建成功但加载测试失败");
+        }
+        Err(e) => {
+            warn!("⚠️  加密配置文件加载测试出错: {}", e);
+        }
+    }
 
     Ok(config)
+}
+
+/// 测试加密配置文件是否可以正确加载
+fn test_encrypted_config_load(path: &Path) -> Result<bool> {
+    use crate::config::loader::encrypted::EncryptedFileLoader;
+    
+    let loader = EncryptedFileLoader::new();
+    match loader.load_from_path(path) {
+        Ok(_) => {
+            debug!("加密配置文件加载测试成功");
+            Ok(true)
+        }
+        Err(e) => {
+            debug!("加密配置文件加载测试失败: {}", e);
+            Ok(false) // 返回 false 而不是错误，避免影响主要流程
+        }
+    }
 }
 
 /// 导出解密配置（危险操作）

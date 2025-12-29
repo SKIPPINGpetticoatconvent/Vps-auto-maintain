@@ -349,9 +349,21 @@ if [ "$EXISTING_INSTALLATION" = "true" ]; then
         # 尝试验证配置
         if [ "$EXISTING_CONFIG" = "encrypted" ]; then
             print_info "正在验证加密配置..."
-            if ! "$BOT_BINARY" verify-config --config "$ENCRYPTED_CONFIG" &>/dev/null; then
-                print_warning "加密配置验证失败，请重新配置"
-                EXISTING_CONFIG="none"
+            if ! "$BOT_BINARY" verify-config --config "$ENCRYPTED_CONFIG"; then
+                print_error "加密配置验证失败！"
+                print_error "检测到损坏的加密配置文件: $ENCRYPTED_CONFIG"
+                
+                # 提供诊断信息
+                if [ -f "$ENCRYPTED_CONFIG" ]; then
+                    file_size=$(stat -c%s "$ENCRYPTED_CONFIG" 2>/dev/null || stat -f%z "$ENCRYPTED_CONFIG" 2>/dev/null || echo "0")
+                    print_info "文件大小: $file_size 字节"
+                    print_info "文件权限: $(ls -la "$ENCRYPTED_CONFIG" 2>/dev/null || echo '无法读取')"
+                fi
+                
+                print_error "配置文件损坏，无法继续安装！"
+                print_info "请手动删除损坏的配置文件或重新安装"
+                print_info "删除命令: rm -f $ENCRYPTED_CONFIG"
+                exit 1
             else
                 print_success "加密配置验证成功"
             fi
@@ -451,26 +463,49 @@ else
 
         # 使用绝对路径的 init-config 命令创建加密配置
         print_info "正在生成加密配置文件: $ENCRYPTED_CONFIG"
-        if ! "$BOT_BINARY" init-config --token "$BOT_TOKEN" --chat-id "$CHAT_ID" --output "$ENCRYPTED_CONFIG" 2>/dev/null; then
+        
+        # 增加详细的错误输出以便诊断
+        print_info "正在执行: $BOT_BINARY init-config --token [已隐藏] --chat-id $CHAT_ID --output $ENCRYPTED_CONFIG"
+        
+        if ! "$BOT_BINARY" init-config --token "$BOT_TOKEN" --chat-id "$CHAT_ID" --output "$ENCRYPTED_CONFIG"; then
             print_error "加密配置生成失败"
             print_info "尝试诊断问题..."
             
             # 检查二进制文件是否存在且可执行
             if [ ! -x "$BOT_BINARY" ]; then
                 print_error "二进制文件不可执行: $BOT_BINARY"
+                print_info "请检查二进制文件是否正确下载"
             fi
             
             # 检查配置目录权限
             if [ ! -w "$BOT_CONFIG_DIR" ]; then
                 print_error "配置目录不可写: $BOT_CONFIG_DIR"
+                print_info "请检查目录权限或手动创建配置文件"
             fi
             
-            print_error "请手动创建配置文件或检查系统权限"
+            # 尝试查看二进制文件是否支持 init-config 命令
+            print_info "检查二进制文件支持的命令..."
+            if "$BOT_BINARY" --help 2>&1 | grep -q "init-config"; then
+                print_info "✅ 二进制文件支持 init-config 命令"
+            else
+                print_error "❌ 二进制文件不支持 init-config 命令"
+                print_info "请检查下载的二进制文件版本是否正确"
+            fi
+            
+            print_error "请手动创建配置文件或重新运行安装脚本"
             exit 1
         else
             # 验证配置文件是否正确创建
             if [ ! -f "$ENCRYPTED_CONFIG" ]; then
                 print_error "配置文件创建失败: $ENCRYPTED_CONFIG"
+                print_info "init-config 命令执行成功但文件未创建"
+                exit 1
+            fi
+            
+            # 检查文件大小
+            file_size=$(stat -c%s "$ENCRYPTED_CONFIG" 2>/dev/null || stat -f%z "$ENCRYPTED_CONFIG" 2>/dev/null || echo "0")
+            if [ "$file_size" -eq 0 ]; then
+                print_error "配置文件大小为 0，可能是空文件"
                 exit 1
             fi
             
@@ -478,14 +513,24 @@ else
             chmod 600 "$ENCRYPTED_CONFIG"
             chown root:root "$ENCRYPTED_CONFIG"
             print_success "加密配置文件已创建并设置权限"
+            print_info "文件大小: $file_size 字节"
 
             # 验证配置文件完整性
             print_info "正在验证配置文件完整性..."
-            if ! "$BOT_BINARY" verify-config --config "$ENCRYPTED_CONFIG" &>/dev/null; then
-                print_warning "配置文件验证失败，但文件已创建"
-                print_info "请检查配置文件是否损坏"
-            else
+            if "$BOT_BINARY" verify-config --config "$ENCRYPTED_CONFIG"; then
                 print_success "配置文件验证成功"
+            else
+                print_error "配置文件验证失败"
+                print_info "配置文件可能已损坏，请检查"
+                
+                # 提供详细的诊断信息
+                print_info "诊断信息:"
+                print_info "  文件路径: $ENCRYPTED_CONFIG"
+                print_info "  文件大小: $file_size 字节"
+                print_info "  文件权限: $(ls -la "$ENCRYPTED_CONFIG" 2>/dev/null || echo '无法读取')"
+                
+                print_error "配置验证失败，安装中止"
+                exit 1
             fi
 
             # 删除明文配置（如果存在）

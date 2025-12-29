@@ -115,12 +115,155 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// 等待并重新加载配置（用于 systemd 环境）
+async fn wait_and_reload_config() -> Result<config::Config> {
+    info!("⏳ 等待配置初始化（最多等待 60 秒）...");
+    
+    let max_attempts = 12; // 12 * 5 = 60 秒
+    let delay_duration = std::time::Duration::from_secs(5);
+    
+    for attempt in 1..=max_attempts {
+        info!("🔄 尝试加载配置 (第 {} 次，共 {} 次)", attempt, max_attempts);
+        
+        match config::Config::load() {
+            Ok(config) => {
+                info!("✅ 配置加载成功");
+                return Ok(config);
+            }
+            Err(e) => {
+                warn!("⚠️  第 {} 次配置加载失败: {}", attempt, e);
+                
+                if attempt < max_attempts {
+                    info!("⏱️  等待 {} 秒后重试...", delay_duration.as_secs());
+                    tokio::time::sleep(delay_duration).await;
+                } else {
+                    error!("❌ 达到最大重试次数，配置加载失败");
+                    return Err(anyhow::anyhow!("配置加载最终失败: {}", e));
+                }
+            }
+        }
+    }
+    
+    Err(anyhow::anyhow!("配置重试超时"))
+}
+
+/// 处理非交互式环境的配置加载失败
+async fn handle_non_interactive_config_failure(original_error: &anyhow::Error) -> Result<config::Config> {
+    error!("❌ 非交互式环境配置加载失败");
+    
+    // 检测运行环境
+    let is_systemd = std::env::var("SYSTEMD_EXEC_PID").is_ok() || 
+                     std::env::var("INVOCATION_ID").is_ok() ||
+                     std::path::Path::new("/run/systemd/system").exists();
+    
+    let is_container = std::env::var("container").is_ok() ||
+                      std::path::Path::new("/.dockerenv").exists() ||
+                      std::path::Path::new("/run/.containerenv").exists();
+    
+    // 提供详细的诊断信息
+    error!("🔍 诊断信息:");
+    error!("  运行环境: {}", if is_systemd { "systemd" } else if is_container { "container" } else { "unknown" });
+    error!("  错误类型: {}", original_error);
+    
+    // 检查配置文件状态
+    check_config_file_status().await;
+    
+    // 如果是 systemd 环境，尝试等待和重试
+    if is_systemd {
+        warn!("⚠️  检测到 systemd 环境，尝试等待配置初始化...");
+        
+        match wait_and_reload_config().await {
+            Ok(config) => {
+                info!("✅ 在 systemd 环境中成功加载配置");
+                return Ok(config);
+            }
+            Err(e) => {
+                error!("❌ systemd 环境配置重试失败: {}", e);
+            }
+        }
+    }
+    
+    // 提供恢复建议
+    provide_recovery_suggestions(is_systemd, is_container).await;
+    
+    Err(anyhow::anyhow!("非交互式环境配置加载失败: {}", original_error))
+}
+
+/// 检查配置文件状态
+async fn check_config_file_status() {
+    use crate::config::migration;
+    
+    let encrypted_configs = migration::detect_encrypted_configs();
+    let legacy_configs = migration::detect_legacy_configs();
+    
+    if !encrypted_configs.is_empty() {
+        error!("📁 发现加密配置文件:");
+        for path in &encrypted_configs {
+            if let Ok(metadata) = std::fs::metadata(path) {
+                let size = metadata.len();
+                let modified = metadata.modified()
+                    .map(|t| format!("{:?}", t))
+                    .unwrap_or_else(|_| "unknown".to_string());
+                error!("    {:?} (大小: {} 字节, 修改时间: {})", path, size, modified);
+            } else {
+                error!("    {:?} (无法读取元数据)", path);
+            }
+        }
+    }
+    
+    if !legacy_configs.is_empty() {
+        error!("⚠️  发现明文配置文件（建议迁移到加密格式）:");
+        for path in &legacy_configs {
+            error!("    {:?}", path);
+        }
+    }
+    
+    if encrypted_configs.is_empty() && legacy_configs.is_empty() {
+        error!("📁 未找到任何配置文件");
+    }
+}
+
+/// 提供恢复建议
+async fn provide_recovery_suggestions(is_systemd: bool, is_container: bool) {
+    error!("💡 恢复建议:");
+    
+    if is_systemd {
+        error!("  🔧 systemd 环境:");
+        error!("    1. 检查安装脚本是否正确执行");
+        error!("    2. 手动初始化配置: vps-tg-bot-rust init-config --token <TOKEN> --chat-id <ID>");
+        error!("    3. 验证配置: vps-tg-bot-rust verify-config");
+        error!("    4. 重启服务: systemctl restart vps-tg-bot-rust");
+        error!("    5. 检查服务状态: systemctl status vps-tg-bot-rust");
+        error!("    6. 查看详细日志: journalctl -u vps-tg-bot-rust -f");
+    } else if is_container {
+        error!("  🐳 容器环境:");
+        error!("    1. 确保容器有足够的权限访问文件系统");
+        error!("    2. 检查容器是否以 root 权限运行");
+        error!("    3. 挂载必要的卷: -v /etc/vps-tg-bot-rust:/etc/vps-tg-bot-rust");
+        error!("    4. 设置环境变量: BOT_TOKEN, CHAT_ID");
+    } else {
+        error!("  🖥️  普通环境:");
+        error!("    1. 初始化配置: vps-tg-bot-rust init-config --token <TOKEN> --chat-id <ID>");
+        error!("    2. 或设置环境变量: export BOT_TOKEN=<TOKEN> && export CHAT_ID=<ID>");
+        error!("    3. 验证配置: vps-tg-bot-rust verify-config");
+    }
+    
+    error!("  📋 通用建议:");
+    error!("    • 检查 BOT_TOKEN 是否有效");
+    error!("    • 检查 CHAT_ID 是否正确");
+    error!("    • 确保有写入配置目录的权限");
+    error!("    • 查看详细错误日志");
+}
+
 /// 运行 Bot
 async fn run_bot() -> Result<()> {
     info!("🚀 启动 VPS Telegram Bot...");
 
     let config = match config::Config::load() {
-        Ok(cfg) => cfg,
+        Ok(cfg) => {
+            info!("✅ 配置加载成功");
+            cfg
+        },
         Err(e) => {
             warn!("⚠️  配置加载失败: {}", e);
             
@@ -180,9 +323,11 @@ async fn run_bot() -> Result<()> {
                     }
                 }
             } else {
-                error!("❌ 非交互式环境且未找到有效配置，程序退出。");
-                error!("💡 请使用 'init-config' 命令初始化配置，或设置环境变量 BOT_TOKEN 和 CHAT_ID");
-                return Err(anyhow::anyhow!("配置加载失败: {}", e));
+                // 非交互式环境，使用增强的错误处理
+                match handle_non_interactive_config_failure(&e).await {
+                    Ok(config) => config,
+                    Err(_) => return Err(anyhow::anyhow!("配置加载失败: {}", e)),
+                }
             }
         }
     };
