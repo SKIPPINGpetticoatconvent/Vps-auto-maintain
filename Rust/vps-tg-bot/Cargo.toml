@@ -1,7 +1,7 @@
 [package]
 name = "vps-tg-bot"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 # 查看更多键及其定义，请访问 https://doc.rust-lang.org/cargo/reference/manifest.html
 
