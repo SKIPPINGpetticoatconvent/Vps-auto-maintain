@@ -144,11 +144,65 @@ impl EncryptedFileLoader {
             ));
         }
         
-        // 读取加密配置文件
-        let content = fs::read_to_string(path)
+        // 读取加密配置文件（字节数据）
+        let content_bytes = fs::read(path)
             .map_err(|e| ConfigError::EncryptedFileError(
                 format!("读取配置文件失败: {}", e)
             ))?;
+        
+        // 检查文件大小
+        let file_size = content_bytes.len();
+        if file_size == 0 {
+            return Err(ConfigError::EncryptedFileError(
+                "配置文件为空".to_string()
+            ));
+        }
+        
+        // 保存原始字节数据用于错误诊断
+        let original_bytes = content_bytes.clone();
+        
+        // 将字节数据转换为 UTF-8 字符串
+        let content = match String::from_utf8(content_bytes) {
+            Ok(content) => content,
+            Err(from_utf8_error) => {
+                // 提供详细的 UTF-8 解析错误信息
+                let utf8_error = from_utf8_error.utf8_error();
+                let error_start = utf8_error.valid_up_to();
+                let error_length = utf8_error.error_len().map_or(1, |_| 1);
+                let file_size_kb = file_size / 1024;
+                
+                // 获取前100个字节的十六进制表示
+                let first_100_bytes = &original_bytes[..original_bytes.len().min(100)];
+                let hex_dump = first_100_bytes.iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                
+                let error_msg = format!(
+                    "配置文件 UTF-8 解析失败:\n\n\
+                     文件大小: {} bytes ({:.1} KB)\n\
+                     错误位置: 字节偏移 {}，错误长度: {} 字节\n\
+                     前100字节十六进制: {}\n\n\
+                     建议:\n\
+                     1. 检查配置文件是否损坏\n\
+                     2. 重新生成配置文件\n\
+                     3. 确保配置文件为有效的 TOML 格式\n\
+                     4. 验证文件编码是否为 UTF-8",
+                    file_size,
+                    file_size_kb as f64 / 1024.0,
+                    error_start,
+                    error_length,
+                    hex_dump
+                );
+                
+                return Err(ConfigError::EncryptedFileError(error_msg));
+            }
+        };
+        
+        // 简单的文件完整性检查：验证是否为有效的 TOML 格式开始
+        if !content.trim_start().starts_with("encrypted_data") {
+            debug!("警告: 配置文件可能不是有效的加密配置格式");
+        }
         
         // 解析加密配置文件结构
         let encrypted_config: EncryptedConfig = toml::from_str(&content)
