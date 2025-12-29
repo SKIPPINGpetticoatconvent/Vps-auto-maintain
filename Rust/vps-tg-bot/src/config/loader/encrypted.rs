@@ -452,12 +452,13 @@ impl EncryptedFileLoader {
         };
         
         // 11. 解析 TOML 配置
+        let decrypted_len = decrypted_data.len();
         let config_str = match String::from_utf8(decrypted_data) {
             Ok(s) => s,
             Err(e) => {
                 let error_msg = format!(
                     "配置数据解码失败: {}\n\n文件路径: {}\n解密数据大小: {} bytes\n\n建议:\n1. 检查解密后的数据是否正确\n2. 验证配置文件完整性\n3. 重新生成配置文件",
-                    e, path_str, decrypted_data.len()
+                    e, path_str, decrypted_len
                 );
                 return Err(ConfigError::EncryptedFileError(error_msg));
             }
