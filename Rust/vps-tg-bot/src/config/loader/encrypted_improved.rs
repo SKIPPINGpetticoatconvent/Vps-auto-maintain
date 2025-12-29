@@ -61,12 +61,12 @@ impl EncryptedConfig {
 
 /// 改进的加密文件配置加载器
 #[derive(Debug)]
-pub struct EncryptedFileLoader {
+pub struct ImprovedEncryptedFileLoader {
     config_path: Option<PathBuf>,
     crypto: ConfigCrypto,
 }
 
-impl EncryptedFileLoader {
+impl ImprovedEncryptedFileLoader {
     /// 创建新的加密文件加载器
     #[allow(dead_code)]
     pub fn new() -> Self {
@@ -479,13 +479,13 @@ impl EncryptedFileLoader {
     }
 }
 
-impl Default for EncryptedFileLoader {
+impl Default for ImprovedEncryptedFileLoader {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ConfigLoader for EncryptedFileLoader {
+impl ConfigLoader for ImprovedEncryptedFileLoader {
     fn load(&self) -> ConfigResult<Config> {
         let config_path = self.config_path
             .as_ref()
@@ -553,17 +553,17 @@ mod tests {
     }
 
     #[test]
-    fn test_encrypted_file_loader_creation() {
-        let loader = EncryptedFileLoader::new();
+    fn test_improved_encrypted_file_loader_creation() {
+        let loader = ImprovedEncryptedFileLoader::new();
         // 应该能创建，即使没有配置文件
         assert!(loader.is_available() || !loader.is_available());
     }
 
     #[test]
-    fn test_encrypted_file_save_and_load() {
+    fn test_improved_encrypted_file_save_and_load() {
         cleanup_env_vars();
         
-        let loader = EncryptedFileLoader::new();
+        let loader = ImprovedEncryptedFileLoader::new();
         
         // 创建测试配置
         let test_config = Config {
@@ -577,7 +577,7 @@ mod tests {
         let temp_path = temp_file.path().to_path_buf();
         
         // 创建临时加载器
-        let mut temp_loader = EncryptedFileLoader::new();
+        let mut temp_loader = ImprovedEncryptedFileLoader::new();
         temp_loader.config_path = Some(temp_path.clone());
         
         // 保存配置
@@ -597,8 +597,8 @@ mod tests {
     }
 
     #[test]
-    fn test_encrypted_file_source() {
-        let loader = EncryptedFileLoader::new();
+    fn test_improved_encrypted_file_source() {
+        let loader = ImprovedEncryptedFileLoader::new();
         let source = loader.source();
         
         match source {
@@ -616,7 +616,7 @@ mod tests {
         // 设置环境变量
         std::env::set_var(CONFIG_PATH_ENV, "/nonexistent/path/config.enc");
         
-        let loader = EncryptedFileLoader::new();
+        let loader = ImprovedEncryptedFileLoader::new();
         // 即使环境变量指向不存在的文件，加载器也应该能创建
         assert!(loader.is_available() || !loader.is_available());
         
@@ -625,7 +625,7 @@ mod tests {
 
     #[test]
     fn test_diagnostic_info_generation() {
-        let info = EncryptedFileLoader::generate_diagnostic_info();
+        let info = ImprovedEncryptedFileLoader::generate_diagnostic_info();
         
         // 检查诊断信息包含关键内容
         assert!(info.contains("配置搜索诊断报告"));

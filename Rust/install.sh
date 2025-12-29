@@ -435,24 +435,58 @@ else
     setup_encrypted_config() {
         print_info "正在配置加密文件..."
 
+        # 确保配置目录存在且有正确权限
+        print_info "确保配置目录存在: $BOT_CONFIG_DIR"
+        mkdir -p "$BOT_CONFIG_DIR" || {
+            print_error "无法创建配置目录: $BOT_CONFIG_DIR"
+            exit 1
+        }
+
+        # 设置配置目录权限
+        chmod 755 "$BOT_CONFIG_DIR"
+        chown root:root "$BOT_CONFIG_DIR"
+
         # 收集凭据
         collect_credentials
 
-        # 使用 init-config 命令创建加密配置
-        print_info "正在生成加密配置文件..."
+        # 使用绝对路径的 init-config 命令创建加密配置
+        print_info "正在生成加密配置文件: $ENCRYPTED_CONFIG"
         if ! "$BOT_BINARY" init-config --token "$BOT_TOKEN" --chat-id "$CHAT_ID" --output "$ENCRYPTED_CONFIG" 2>/dev/null; then
-            print_warning "加密配置生成失败，尝试使用明文配置作为后备..."
-            # 回退到明文配置（仅作为最后的手段）
-            cat > "$LEGACY_CONFIG" <<EOF
-[bot]
-token = "$BOT_TOKEN"
-chat_id = "$CHAT_ID"
-EOF
-            print_warning "已创建明文配置文件（不推荐用于生产环境）"
+            print_error "加密配置生成失败"
+            print_info "尝试诊断问题..."
+            
+            # 检查二进制文件是否存在且可执行
+            if [ ! -x "$BOT_BINARY" ]; then
+                print_error "二进制文件不可执行: $BOT_BINARY"
+            fi
+            
+            # 检查配置目录权限
+            if [ ! -w "$BOT_CONFIG_DIR" ]; then
+                print_error "配置目录不可写: $BOT_CONFIG_DIR"
+            fi
+            
+            print_error "请手动创建配置文件或检查系统权限"
+            exit 1
         else
-            # 设置文件权限
+            # 验证配置文件是否正确创建
+            if [ ! -f "$ENCRYPTED_CONFIG" ]; then
+                print_error "配置文件创建失败: $ENCRYPTED_CONFIG"
+                exit 1
+            fi
+            
+            # 设置正确的文件权限
             chmod 600 "$ENCRYPTED_CONFIG"
-            print_success "加密配置文件已创建"
+            chown root:root "$ENCRYPTED_CONFIG"
+            print_success "加密配置文件已创建并设置权限"
+
+            # 验证配置文件完整性
+            print_info "正在验证配置文件完整性..."
+            if ! "$BOT_BINARY" verify-config --config "$ENCRYPTED_CONFIG" &>/dev/null; then
+                print_warning "配置文件验证失败，但文件已创建"
+                print_info "请检查配置文件是否损坏"
+            else
+                print_success "配置文件验证成功"
+            fi
 
             # 删除明文配置（如果存在）
             if [ -f "$LEGACY_CONFIG" ]; then
@@ -465,21 +499,41 @@ EOF
         unset BOT_TOKEN
         unset CHAT_ID
 
-        # Systemd 服务配置（无环境变量，直接读取配置文件）
+        # 增强的 Systemd 服务配置
+        print_info "创建 Systemd 服务配置..."
         cat > "$BOT_SERVICE" <<EOF
 [Unit]
 Description=VPS Telegram Bot (Rust)
 After=network.target
+Wants=network-online.target
 
 [Service]
 User=root
-WorkingDirectory=/etc/vps-tg-bot-rust
+Group=root
+WorkingDirectory=$BOT_CONFIG_DIR
 ExecStart=$BOT_BINARY run
 Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=$BOT_NAME
+
+# 环境变量
+Environment=BOT_CONFIG_PATH=$ENCRYPTED_CONFIG
+Environment=RUST_LOG=info
+
+# 安全设置
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=$BOT_CONFIG_DIR
+ReadWritePaths=/var/log/$BOT_NAME.log
 
 [Install]
 WantedBy=multi-user.target
 EOF
+        print_success "Systemd 服务配置已创建"
     }
 
     # 执行配置
