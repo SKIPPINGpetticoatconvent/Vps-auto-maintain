@@ -8,6 +8,10 @@ use std::thread;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::path::Path;
 
+// 导入共享的 Mock 类型
+mod ../common/mocks;
+use mocks::{MockTelegramBot, MockCallbackQuery};
+
 /// 安全测试处理器
 pub struct SecurityTestHandler {
     /// 模拟的 Telegram Bot
@@ -97,7 +101,8 @@ impl SecurityTestHandler {
     pub fn handle_callback_securely(&self, query: &MockCallbackQuery) -> Result<String, String> {
         // 权限验证
         if query.chat_id != self.bot.admin_chat_id {
-            self.bot.answer_callback_query(&query.id, Some("❌ 无权限访问"));
+            let mut bot_clone = self.bot.as_ref().clone();
+            bot_clone.answer_callback_query(&query.id, Some("❌ 无权限访问"));
             return Err("Unauthorized".to_string());
         }
 
@@ -108,7 +113,8 @@ impl SecurityTestHandler {
         }
 
         self.increment_metric("allowed_requests");
-        self.bot.answer_callback_query(&query.id, None);
+        let mut bot_clone = self.bot.as_ref().clone();
+        bot_clone.answer_callback_query(&query.id, None);
 
         // 安全处理业务逻辑
         let result = self.handle_safe_callback(query);
@@ -257,7 +263,8 @@ impl SecurityTestHandler {
             // 主菜单按钮
             "cmd_status" => {
                 let status = self.safe_system_outputs.get("status").unwrap();
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     &format!("📊 系统状态:\n\n{}", self.escape_html(status)),
@@ -265,7 +272,8 @@ impl SecurityTestHandler {
                 Ok("Status displayed".to_string())
             }
             "menu_maintain" => {
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "🛠️ 请选择维护操作:",
@@ -273,7 +281,8 @@ impl SecurityTestHandler {
                 Ok("Maintain menu displayed".to_string())
             }
             "menu_schedule" => {
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "⏰ 定时任务设置\n\n请选择要设置的任务类型:",
@@ -282,7 +291,8 @@ impl SecurityTestHandler {
             }
             "cmd_logs" => {
                 let logs = self.safe_system_outputs.get("logs").unwrap();
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     &format!("📋 系统日志:\n{}", self.escape_html(logs)),
@@ -292,14 +302,16 @@ impl SecurityTestHandler {
             
             // 维护菜单按钮
             "cmd_maintain_core" => {
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "🔄 正在执行核心维护...",
                 );
                 // 模拟安全的维护操作
                 thread::sleep(Duration::from_millis(100));
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "✅ 核心维护完成",
@@ -307,13 +319,15 @@ impl SecurityTestHandler {
                 Ok("Core maintenance completed".to_string())
             }
             "cmd_maintain_rules" => {
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "🔄 正在执行规则维护...",
                 );
                 thread::sleep(Duration::from_millis(100));
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "✅ 规则维护完成",
@@ -323,7 +337,8 @@ impl SecurityTestHandler {
             
             // 其他按钮（简化实现）
             "back_to_main" => {
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "🚀 欢迎使用 VPS 管理机器人!\n\n请选择您要执行的操作:",
@@ -332,7 +347,8 @@ impl SecurityTestHandler {
             }
             
             _ => {
-                self.bot.answer_callback_query(&query.id, Some("未知命令"));
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.answer_callback_query(&query.id, Some("未知命令"));
                 Ok("Unknown command".to_string())
             }
         }

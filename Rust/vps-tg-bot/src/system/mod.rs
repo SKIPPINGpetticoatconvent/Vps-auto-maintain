@@ -1,6 +1,8 @@
 pub mod info;
 pub mod ops;
 pub mod errors;
+#[cfg(test)]
+pub mod error_tests;
 
 pub use info::get_system_status;
 pub use info::SystemStatus;

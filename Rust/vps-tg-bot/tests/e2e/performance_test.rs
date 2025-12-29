@@ -6,6 +6,10 @@ use std::time::{Duration, Instant};
 use std::thread;
 use std::collections::HashMap;
 
+// 导入共享的 Mock 类型
+mod ../common/mocks;
+use mocks::{MockTelegramBot, MockCallbackQuery};
+
 /// 性能指标收集器
 #[derive(Debug, Clone)]
 pub struct PerformanceMetrics {
@@ -157,19 +161,23 @@ impl PerformanceTestHandler {
         
         // 权限验证
         if query.chat_id != self.bot.admin_chat_id {
-            self.bot.answer_callback_query(&query.id, Some("❌ 无权限访问"));
+            // 需要创建临时的可变引用来调用方法
+            let mut bot_clone = self.bot.as_ref().clone();
+            bot_clone.answer_callback_query(&query.id, Some("❌ 无权限访问"));
             self.metrics.add_error();
             return Err("Unauthorized".to_string());
         }
 
         // 回答回调
-        self.bot.answer_callback_query(&query.id, None);
+        let mut bot_clone = self.bot.as_ref().clone();
+        bot_clone.answer_callback_query(&query.id, None);
 
         let result = match query.data.as_str() {
             // 主菜单按钮
             "cmd_status" => {
                 let status = self.system_outputs.get("status").unwrap();
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     &format!("📊 系统状态:\n\n{}", status),
@@ -177,7 +185,8 @@ impl PerformanceTestHandler {
                 Ok("Status displayed".to_string())
             }
             "menu_maintain" => {
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "🛠️ 请选择维护操作:",
@@ -185,7 +194,8 @@ impl PerformanceTestHandler {
                 Ok("Maintain menu displayed".to_string())
             }
             "menu_schedule" => {
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "⏰ 定时任务设置\n\n请选择要设置的任务类型:",
@@ -194,7 +204,8 @@ impl PerformanceTestHandler {
             }
             "cmd_logs" => {
                 let logs = self.system_outputs.get("logs").unwrap();
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     &format!("📋 系统日志:\n{}", logs),
@@ -204,13 +215,15 @@ impl PerformanceTestHandler {
             
             // 维护菜单按钮
             "cmd_maintain_core" => {
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "🔄 正在执行核心维护...",
                 );
                 let result = self.system_outputs.get("maintain_core").unwrap();
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     &format!("✅ 核心维护完成:\n{}", result),
@@ -218,13 +231,15 @@ impl PerformanceTestHandler {
                 Ok("Core maintenance completed".to_string())
             }
             "cmd_maintain_rules" => {
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "🔄 正在执行规则维护...",
                 );
                 let result = self.system_outputs.get("maintain_rules").unwrap();
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     &format!("✅ 规则维护完成:\n{}", result),
@@ -232,13 +247,15 @@ impl PerformanceTestHandler {
                 Ok("Rules maintenance completed".to_string())
             }
             "cmd_update_xray" => {
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "🔄 正在更新 Xray...",
                 );
                 let result = self.system_outputs.get("update_xray").unwrap();
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     &format!("✅ Xray 更新完成:\n{}", result),
@@ -246,13 +263,15 @@ impl PerformanceTestHandler {
                 Ok("Xray updated".to_string())
             }
             "cmd_update_sb" => {
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "🔄 正在更新 Sing-box...",
                 );
                 let result = self.system_outputs.get("update_singbox").unwrap();
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     &format!("✅ Sing-box 更新完成:\n{}", result),
@@ -262,7 +281,8 @@ impl PerformanceTestHandler {
             
             // 任务类型按钮
             "task_system_maintenance" => {
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "🔄 系统维护定时设置\n\n请选择执行时间:",
@@ -270,7 +290,8 @@ impl PerformanceTestHandler {
                 Ok("System maintenance schedule displayed".to_string())
             }
             "task_core_maintenance" => {
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "🚀 核心维护定时设置\n\n请选择执行时间:",
@@ -278,7 +299,8 @@ impl PerformanceTestHandler {
                 Ok("Core maintenance schedule displayed".to_string())
             }
             "task_rules_maintenance" => {
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "🌍 规则维护定时设置\n\n请选择执行时间:",
@@ -286,7 +308,8 @@ impl PerformanceTestHandler {
                 Ok("Rules maintenance schedule displayed".to_string())
             }
             "task_update_xray" => {
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "🔧 更新 Xray 定时设置\n\n请选择执行时间:",
@@ -294,7 +317,8 @@ impl PerformanceTestHandler {
                 Ok("Xray update schedule displayed".to_string())
             }
             "task_update_singbox" => {
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "📦 更新 Sing-box 定时设置\n\n请选择执行时间:",
@@ -302,7 +326,8 @@ impl PerformanceTestHandler {
                 Ok("Singbox update schedule displayed".to_string())
             }
             "view_tasks" => {
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "📋 当前任务列表:\n\n暂无定时任务",
@@ -312,7 +337,8 @@ impl PerformanceTestHandler {
             
             // 返回按钮
             "back_to_main" => {
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "🚀 欢迎使用 VPS 管理机器人!\n\n请选择您要执行的操作:",
@@ -320,7 +346,8 @@ impl PerformanceTestHandler {
                 Ok("Back to main menu".to_string())
             }
             "back_to_task_types" => {
-                self.bot.edit_message(
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.edit_message(
                     query.chat_id,
                     query.message_id,
                     "⏰ 定时任务设置\n\n请选择要设置的任务类型:",
@@ -329,7 +356,8 @@ impl PerformanceTestHandler {
             }
             
             _ => {
-                self.bot.answer_callback_query(&query.id, Some("未知命令"));
+                let mut bot_clone = self.bot.as_ref().clone();
+                bot_clone.answer_callback_query(&query.id, Some("未知命令"));
                 Ok("Ignored".to_string())
             }
         };

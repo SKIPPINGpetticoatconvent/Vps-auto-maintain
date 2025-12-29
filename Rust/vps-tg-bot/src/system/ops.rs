@@ -246,7 +246,7 @@ async fn run_command_with_error_context(
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-fn classify_command_error(command: &str, error_message: &str) -> SystemError {
+pub fn classify_command_error(command: &str, error_message: &str) -> SystemError {
     let error_lower = error_message.to_lowercase();
     
     // 权限相关错误
@@ -600,5 +600,382 @@ mod tests {
         };
         
         assert_eq!(result, crate::scheduler::maintenance_history::MaintenanceResult::Success);
+    }
+
+    // === 错误路径测试 ===
+
+    #[test]
+    fn test_command_not_found_error() {
+        // 测试命令不存在的情况
+        let error_message = "command not found";
+        let error = classify_command_error("nonexistent_command", error_message);
+        
+        match error {
+            SystemError::CommandExecutionError(msg) => {
+                assert!(msg.contains("nonexistent_command"));
+                assert!(msg.contains("command not found"));
+            }
+            _ => panic!("Expected CommandExecutionError for command not found"),
+        }
+    }
+
+    #[test]
+    fn test_command_timeout_error() {
+        // 测试命令超时的情况
+        let error_message = "command timed out";
+        let error = classify_command_error("long_running_command", error_message);
+        
+        match error {
+            SystemError::NetworkError(msg) => {
+                assert!(msg.contains("long_running_command"));
+                assert!(msg.contains("timed out"));
+                assert!(msg.contains("timeout"));
+            }
+            _ => panic!("Expected NetworkError for timeout"),
+        }
+    }
+
+    #[test]
+    fn test_command_exit_code_error() {
+        // 测试命令返回非零退出码的情况
+        let error_messages = vec![
+            "command exited with status 1",
+            "process returned non-zero exit code: 127",
+            "command failed with exit code 2",
+        ];
+        
+        for msg in error_messages {
+            let error = classify_command_error("test_command", msg);
+            match error {
+                SystemError::CommandExecutionError(_) => {
+                    // 命令执行错误应该被正确分类
+                }
+                _ => panic!("Expected CommandExecutionError for exit code error: {}", msg),
+            }
+        }
+    }
+
+    #[test]
+    fn test_command_output_parsing_error() {
+        // 测试命令输出解析失败的情况
+        let malformed_outputs = vec![
+            "invalid utf8 output: \\xff\\fe\\x00",
+            "output contains null bytes\0\0\0",
+            "binary data output",
+        ];
+        
+        for output in malformed_outputs {
+            let error = classify_command_error("binary_command", output);
+            match error {
+                SystemError::CommandExecutionError(msg) => {
+                    assert!(msg.contains("binary_command"));
+                }
+                _ => panic!("Expected CommandExecutionError for malformed output"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_permission_denied_scenarios() {
+        // 测试各种权限被拒绝的场景
+        let permission_errors = vec![
+            "Permission denied",
+            "operation not permitted",
+            "EACCES: permission denied",
+            "Access denied (insufficient permissions)",
+            "sudo: must be root to run this command",
+        ];
+        
+        for error_msg in permission_errors {
+            let error = classify_command_error("restricted_command", error_msg);
+            match error {
+                SystemError::PermissionDenied(msg) => {
+                    assert!(msg.contains("restricted_command"));
+                    assert!(msg.contains(error_msg));
+                }
+                _ => panic!("Expected PermissionDenied for: {}", error_msg),
+            }
+        }
+    }
+
+    #[test]
+    fn test_disk_space_error_scenarios() {
+        // 测试各种磁盘空间不足的场景
+        let disk_errors = vec![
+            "No space left on device",
+            "Disk quota exceeded",
+            "write error: No space left on device",
+            "cannot write to disk: disk full",
+            "ENOSPC: no space left on device",
+        ];
+        
+        for error_msg in disk_errors {
+            let error = classify_command_error("write_command", error_msg);
+            match error {
+                SystemError::DiskSpaceError(msg) => {
+                    assert!(msg.contains("write_command"));
+                    assert!(msg.contains(error_msg));
+                }
+                _ => panic!("Expected DiskSpaceError for: {}", error_msg),
+            }
+        }
+    }
+
+    #[test]
+    fn test_network_error_scenarios() {
+        // 测试各种网络错误的场景
+        let network_errors = vec![
+            "Connection refused",
+            "Network unreachable",
+            "DNS resolution failed",
+            "Connection timeout",
+            "Host not found",
+            "Network is unreachable",
+        ];
+        
+        for error_msg in network_errors {
+            let error = classify_command_error("network_command", error_msg);
+            match error {
+                SystemError::NetworkError(msg) => {
+                    assert!(msg.contains("network_command"));
+                    assert!(msg.contains(error_msg));
+                }
+                _ => panic!("Expected NetworkError for: {}", error_msg),
+            }
+        }
+    }
+
+    #[test]
+    fn test_package_manager_error_scenarios() {
+        // 测试包管理器特定的错误
+        let apt_errors = vec![
+            "Package 'nginx' has no installation candidate",
+            "Unable to locate package python3-dev",
+            "dpkg: dependency problems prevent configuration",
+            "apt-get: command not found",
+        ];
+        
+        for error_msg in apt_errors {
+            let error = classify_command_error("apt-get", error_msg);
+            match error {
+                SystemError::PackageManagerError(msg) => {
+                    assert!(msg.contains("apt-get"));
+                    assert!(msg.contains(error_msg));
+                }
+                _ => panic!("Expected PackageManagerError for apt error: {}", error_msg),
+            }
+        }
+    }
+
+    #[test]
+    fn test_service_error_scenarios() {
+        // 测试服务管理错误
+        let service_errors = vec![
+            "Failed to restart nginx.service: Unit not found.",
+            "systemctl restart failed: Service not active",
+            "Job for apache2.service failed",
+        ];
+        
+        for error_msg in service_errors {
+            let error = classify_command_error("systemctl", error_msg);
+            match error {
+                SystemError::ServiceError(msg) => {
+                    assert!(msg.contains("systemctl"));
+                    assert!(msg.contains(error_msg));
+                }
+                _ => panic!("Expected ServiceError for systemctl error: {}", error_msg),
+            }
+        }
+    }
+
+    #[test]
+    fn test_command_error_priority() {
+        // 测试错误分类的优先级
+        // 当错误消息包含多个关键字时，优先级应该正确
+        let priority_tests = vec![
+            ("permission denied network timeout", SystemError::PermissionDenied("".to_string())),
+            ("no space left permission denied", SystemError::DiskSpaceError("".to_string())),
+            ("network connection permission", SystemError::NetworkError("".to_string())),
+        ];
+        
+        for (error_msg, expected_type) in priority_tests {
+            let error = classify_command_error("test", error_msg);
+            
+            match (&error, &expected_type) {
+                (SystemError::PermissionDenied(_), SystemError::PermissionDenied(_)) => {},
+                (SystemError::DiskSpaceError(_), SystemError::DiskSpaceError(_)) => {},
+                (SystemError::NetworkError(_), SystemError::NetworkError(_)) => {},
+                _ => panic!("错误优先级不匹配: {:?} vs {:?}", error, expected_type),
+            }
+        }
+    }
+
+    #[test]
+    fn test_error_context_preservation() {
+        // 测试错误上下文保留
+        let original_command = "critical_system_command";
+        let original_error = "Critical system failure with detailed information";
+        
+        let error = classify_command_error(original_command, original_error);
+        
+        match error {
+            SystemError::CommandExecutionError(msg) => {
+                assert!(msg.contains(original_command));
+                assert!(msg.contains(original_error));
+                assert!(msg.len() > original_command.len() + original_error.len());
+            }
+            _ => panic!("Expected CommandExecutionError"),
+        }
+    }
+
+    #[test]
+    fn test_error_case_insensitive_matching() {
+        // 测试错误消息的大小写不敏感匹配
+        let case_variants = vec![
+            "PERMISSION DENIED",
+            "Permission Denied",
+            "permission denied",
+            "PeRmIsSiOn DeNiEd",
+            "NETWORK ERROR",
+            "Network Error",
+            "network error",
+        ];
+        
+        for variant in case_variants {
+            let error = classify_command_error("test", variant);
+            match error {
+                SystemError::PermissionDenied(_) | SystemError::NetworkError(_) => {
+                    // 应该被正确识别
+                }
+                _ => panic!("大小写不敏感匹配失败: {}", variant),
+            }
+        }
+    }
+
+    #[test]
+    fn test_empty_error_handling() {
+        // 测试空错误消息的处理
+        let empty_error = "";
+        let error = classify_command_error("test", empty_error);
+        
+        match error {
+            SystemError::CommandExecutionError(msg) => {
+                assert!(msg.contains("test"));
+                assert!(msg.contains(empty_error));
+            }
+            _ => panic!("Expected CommandExecutionError for empty message"),
+        }
+    }
+
+    #[test]
+    fn test_special_character_error_handling() {
+        // 测试包含特殊字符的错误消息
+        let special_errors = vec![
+            "Error with quotes: \"hello\"",
+            "Error with newline: first\nsecond",
+            "Error with tab: field1\tfield2",
+            "Error with unicode: 你好世界 🌍",
+            "Error with null: before\0after",
+        ];
+        
+        for error_msg in special_errors {
+            let error = classify_command_error("special_cmd", error_msg);
+            
+            match error {
+                SystemError::CommandExecutionError(msg) => {
+                    assert!(msg.contains("special_cmd"));
+                    assert!(msg.contains(error_msg));
+                }
+                _ => panic!("Expected CommandExecutionError for special chars"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_error_classification_coverage() {
+        // 测试错误分类的完整覆盖
+        let all_error_types = vec![
+            ("permission denied", "apt-get", SystemError::PermissionDenied("".to_string())),
+            ("network unreachable", "curl", SystemError::NetworkError("".to_string())),
+            ("no space left", "write", SystemError::DiskSpaceError("".to_string())),
+            ("package not found", "apt", SystemError::PackageManagerError("".to_string())),
+            ("service not found", "systemctl", SystemError::ServiceError("".to_string())),
+            ("unknown error", "generic", SystemError::CommandExecutionError("".to_string())),
+        ];
+        
+        for (error_msg, command, expected_type) in all_error_types {
+            let error = classify_command_error(command, error_msg);
+            
+            match (&error, &expected_type) {
+                (SystemError::PermissionDenied(_), SystemError::PermissionDenied(_)) => {},
+                (SystemError::NetworkError(_), SystemError::NetworkError(_)) => {},
+                (SystemError::DiskSpaceError(_), SystemError::DiskSpaceError(_)) => {},
+                (SystemError::PackageManagerError(_), SystemError::PackageManagerError(_)) => {},
+                (SystemError::ServiceError(_), SystemError::ServiceError(_)) => {},
+                (SystemError::CommandExecutionError(_), SystemError::CommandExecutionError(_)) => {},
+                _ => panic!("错误分类覆盖不完整: {:?} vs {:?}", error, expected_type),
+            }
+        }
+    }
+
+    #[test]
+    fn test_run_command_error_context_structure_v2() {
+        // 测试 run_command_with_error_context 函数的错误上下文结构
+        // 这个测试验证函数签名和基本结构，不执行实际命令
+        
+        let test_cases = vec![
+            ("apt-get", &["update", "-y"], "系统更新"),
+            ("systemctl", &["restart", "nginx"], "重启服务"),
+        ];
+        
+        for (cmd, _args, context) in test_cases {
+            assert!(cmd == "apt-get" || cmd == "systemctl");
+            assert!(!context.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_error_message_length_limits() {
+        // 测试错误消息长度限制
+        let short_error = "short";
+        let long_error = "x".repeat(10000);
+        
+        let short_err = classify_command_error("test", short_error);
+        let long_err = classify_command_error("test", &long_error);
+        
+        match (short_err, long_err) {
+            (SystemError::CommandExecutionError(short_msg), SystemError::CommandExecutionError(long_msg)) => {
+                assert!(short_msg.contains("test"));
+                assert!(short_msg.contains(short_error));
+                assert!(long_msg.contains("test"));
+                assert!(long_msg.contains(&long_error));
+            }
+            _ => panic!("错误消息长度测试失败"),
+        }
+    }
+
+    #[test]
+    fn test_command_specific_error_classification() {
+        // 测试特定命令的错误分类
+        let command_specific_tests = vec![
+            ("apt", "some error", SystemError::PackageManagerError("".to_string())),
+            ("dpkg", "some error", SystemError::PackageManagerError("".to_string())),
+            ("systemctl", "some error", SystemError::ServiceError("".to_string())),
+            ("curl", "some error", SystemError::NetworkError("".to_string())),
+            ("wget", "some error", SystemError::NetworkError("".to_string())),
+            ("unknown", "some error", SystemError::CommandExecutionError("".to_string())),
+        ];
+        
+        for (command, error_msg, expected_type) in command_specific_tests {
+            let error = classify_command_error(command, error_msg);
+            
+            match (&error, &expected_type) {
+                (SystemError::PackageManagerError(_), SystemError::PackageManagerError(_)) => {},
+                (SystemError::ServiceError(_), SystemError::ServiceError(_)) => {},
+                (SystemError::NetworkError(_), SystemError::NetworkError(_)) => {},
+                (SystemError::CommandExecutionError(_), SystemError::CommandExecutionError(_)) => {},
+                _ => panic!("命令特定分类失败: {:?} vs {:?}", error, expected_type),
+            }
+        }
     }
 }

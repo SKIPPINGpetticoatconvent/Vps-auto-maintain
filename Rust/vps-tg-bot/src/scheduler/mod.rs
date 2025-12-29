@@ -16,6 +16,9 @@ use once_cell::sync::Lazy;
 pub mod task_types;
 pub mod maintenance_history;
 
+#[cfg(test)]
+mod integration_tests;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SchedulerState {
     pub tasks: Vec<ScheduledTask>,
@@ -733,5 +736,487 @@ mod tests {
         assert!(!validator.is_valid_weekday_field("SUN"));      // 大写无效
         assert!(!validator.is_valid_weekday_field("sun"));      // 小写无效
         assert!(!validator.is_valid_weekday_field("Sunday"));   // 全名无效
+    }
+}
+
+// SchedulerManager 集成测试
+#[cfg(test)]
+mod scheduler_manager_tests {
+    use super::*;
+    use crate::config::Config;
+    use teloxide::Bot;
+    use std::time::Duration;
+    use tempfile::{NamedTempFile, TempDir};
+
+    fn create_test_config() -> Config {
+        Config {
+            bot_token: "test_token".to_string(),
+            chat_id: 12345,
+            check_interval: 300,
+        }
+    }
+
+    fn create_test_bot() -> Bot {
+        Bot::new("1234567890:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_manager_creation() {
+        let config = create_test_config();
+        let bot = create_test_bot();
+        
+        // 测试调度器管理器创建
+        let result = SchedulerManager::new(config, bot).await;
+        assert!(result.is_ok());
+        
+        let manager = result.unwrap();
+        assert!(manager.scheduler.lock().await.is_some());
+        assert!(manager.state.lock().await.tasks.len() >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_manager_add_task() {
+        let temp_dir = TempDir::new().unwrap();
+        let _state_path = temp_dir.path().join("test_state.json");
+        
+        let config = create_test_config();
+        let bot = create_test_bot();
+        
+        let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+        
+        // 添加新任务
+        let task_type = TaskType::CoreMaintenance;
+        let cron_expr = "0 5 * * *";
+        
+        let result = manager.add_new_task(config, bot, task_type.clone(), cron_expr).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("✅"));
+        
+        // 验证任务已添加到状态
+        let state = manager.state.lock().await;
+        assert_eq!(state.tasks.len(), 2); // 默认任务 + 新任务
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_manager_remove_task() {
+        let config = create_test_config();
+        let bot = create_test_bot();
+        
+        let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+        
+        let result = manager.remove_task_by_index(config, bot, 0).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("✅"));
+        
+        // 验证任务已移除
+        let state = manager.state.lock().await;
+        assert_eq!(state.tasks.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_manager_remove_nonexistent_task() {
+        let config = create_test_config();
+        let bot = create_test_bot();
+        
+        let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+        
+        let result = manager.remove_task_by_index(config, bot, 999).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("❌"));
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_manager_toggle_task() {
+        let config = create_test_config();
+        let bot = create_test_bot();
+        
+        let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+        
+        // 初始状态应该是启用
+        let state_before = manager.state.lock().await;
+        assert!(state_before.tasks[0].enabled);
+        drop(state_before);
+        
+        // 切换任务状态
+        let result = manager.toggle_task_by_index(config, bot, 0).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("✅"));
+        
+        // 验证状态已切换
+        let state_after = manager.state.lock().await;
+        assert!(!state_after.tasks[0].enabled);
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_manager_update_task() {
+        let config = create_test_config();
+        let bot = create_test_bot();
+        
+        let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+        
+        // 更新任务Cron表达式
+        let new_cron = "0 6 * * *";
+        let result = manager.update_task_by_index(config, bot, 0, new_cron).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("✅"));
+        
+        // 验证Cron表达式已更新
+        let state = manager.state.lock().await;
+        assert_eq!(state.tasks[0].cron_expression, new_cron);
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_manager_update_task_invalid_cron() {
+        let config = create_test_config();
+        let bot = create_test_bot();
+        
+        let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+        
+        // 尝试更新为无效的Cron表达式
+        let invalid_cron = "invalid_cron";
+        let result = manager.update_task_by_index(config, bot, 0, invalid_cron).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("❌"));
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_manager_get_tasks_summary() {
+        let config = create_test_config();
+        let bot = create_test_bot();
+        
+        let manager = SchedulerManager::new(config, bot).await.unwrap();
+        
+        let summary = manager.get_tasks_summary().await;
+        assert!(summary.contains("⏰ 定时任务列表:"));
+        assert!(summary.contains("系统维护"));
+        assert!(summary.contains("0 4 * * Sun"));
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_manager_add_task_invalid_cron() {
+        let config = create_test_config();
+        let bot = create_test_bot();
+        
+        let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+        
+        // 添加无效Cron表达式的任务
+        let task_type = TaskType::CoreMaintenance;
+        let invalid_cron = "invalid_cron";
+        
+        let result = manager.add_new_task(config, bot, task_type, invalid_cron).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("❌"));
+        
+        // 验证任务数量未增加
+        let state = manager.state.lock().await;
+        assert_eq!(state.tasks.len(), 1); // 仍然是默认任务
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_manager_concurrent_operations() {
+        let config = create_test_config();
+        let bot = create_test_bot();
+        
+        let manager = Arc::new(SchedulerManager::new(config.clone(), bot.clone()).await.unwrap());
+        
+        // 并发添加多个任务
+        let mut handles = vec![];
+        for i in 0..5 {
+            let manager_clone = manager.clone();
+            let config_clone = config.clone();
+            let bot_clone = bot.clone();
+            let task_type = TaskType::CoreMaintenance;
+            let cron_expr = format!("0 {} * * *", 5 + i);
+            
+            let handle = tokio::spawn(async move {
+                manager_clone.add_new_task(config_clone, bot_clone, task_type, &cron_expr).await
+            });
+            handles.push(handle);
+        }
+        
+        // 等待所有操作完成
+        for handle in handles {
+            let result = handle.await.unwrap();
+            assert!(result.is_ok());
+        }
+        
+        // 验证所有任务都被添加（可能有重复，这是预期的）
+        let state = manager.state.lock().await;
+        assert!(state.tasks.len() >= 6); // 默认任务 + 5个新任务
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_manager_persistence() {
+        let temp_dir = TempDir::new().unwrap();
+        let state_path = temp_dir.path().join("persistence_test.json");
+        
+        let config = create_test_config();
+        let bot = create_test_bot();
+        
+        // 创建调度器并添加任务
+        let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+        let add_result = manager.add_new_task(config.clone(), bot.clone(), TaskType::UpdateXray, "0 8 * * *").await;
+        assert!(add_result.is_ok());
+        
+        // 获取任务数量
+        let state_before = manager.state.lock().await;
+        let task_count = state_before.tasks.len();
+        drop(state_before);
+        
+        // 模拟持久化（在实际应用中这会自动发生）
+        let state = manager.state.lock().await;
+        let save_result = state.save_to_file(state_path.to_str().unwrap());
+        assert!(save_result.is_ok());
+        drop(state);
+        
+        // 创建新的调度器实例（模拟重启）
+        let new_manager = SchedulerManager::new(config, bot).await.unwrap();
+        
+        // 验证状态已恢复
+        let state_after = new_manager.state.lock().await;
+        assert_eq!(state_after.tasks.len(), task_count);
+        
+        // 清理
+        let _ = std::fs::remove_file(state_path);
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_manager_state_locking() {
+        let config = create_test_config();
+        let bot = create_test_bot();
+        
+        let manager = SchedulerManager::new(config, bot).await.unwrap();
+        
+        // 获取状态锁
+        let state1 = manager.state.lock().await;
+        let state2 = manager.state.try_lock();
+        
+        // 第二个锁应该失败
+        assert!(state2.is_err());
+        
+        // 释放第一个锁
+        drop(state1);
+        
+        // 现在应该能获取锁
+        let state3 = manager.state.try_lock();
+        assert!(state3.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_manager_restart_operations() {
+        let config = create_test_config();
+        let bot = create_test_bot();
+        
+        let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+        
+        // 执行多个修改操作
+        // 注意：这里移除了 map_err 调用，因为 anyhow::Result 应该能够自动转换或直接用于测试断言
+        // 如果需要特定的错误类型，我们应该直接在 lambda 中处理，或者让测试框架处理 Result
+        
+        // 分开执行以避免类型推断问题
+        let result1 = manager.add_new_task(config.clone(), bot.clone(), TaskType::CoreMaintenance, "0 5 * * *").await;
+        assert!(result1.is_ok(), "add 操作应该成功");
+        
+        let result2 = manager.toggle_task_by_index(config.clone(), bot.clone(), 0).await;
+        assert!(result2.is_ok(), "toggle 操作应该成功");
+        
+        let result3 = manager.update_task_by_index(config.clone(), bot.clone(), 0, "0 6 * * *").await;
+        assert!(result3.is_ok(), "update 操作应该成功");
+        
+        // 验证最终状态
+        let state = manager.state.lock().await;
+        assert_eq!(state.tasks.len(), 2); // 默认任务 + 新任务
+        assert_eq!(state.tasks[0].cron_expression, "0 6 * * *");
+    }
+}
+
+// 维护历史记录集成测试
+#[cfg(test)]
+mod maintenance_history_tests {
+    use super::*;
+    use crate::scheduler::maintenance_history::{MaintenanceHistory, MaintenanceRecord, MaintenanceResult};
+    use crate::scheduler::task_types::TaskType;
+    use chrono::{Utc, DateTime};
+    use tempfile::NamedTempFile;
+
+    fn create_test_maintenance_record() -> MaintenanceRecord {
+        let timestamp = Utc::now();
+        MaintenanceRecord {
+            id: timestamp.timestamp() as u64,
+            timestamp,
+            task_type: TaskType::SystemMaintenance.get_display_name().to_string(),
+            result: MaintenanceResult::Success,
+            output: "测试维护记录".to_string(),
+            error_message: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_maintenance_history_add_record() {
+        let mut history = MaintenanceHistory::new(10);
+        
+        let record = create_test_maintenance_record();
+        
+        history.add_record(record.clone());
+        
+        let records = history.get_all_records();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].task_type, TaskType::SystemMaintenance.get_display_name());
+        assert_eq!(records[0].result, MaintenanceResult::Success);
+    }
+
+    #[tokio::test]
+    async fn test_maintenance_history_load_and_save() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let _temp_path = temp_file.path().to_str().unwrap();
+        
+        // 由于无法直接修改私有字段 history_file，此测试仅验证内存操作
+        // 实际的文件持久化应该在 MaintenanceHistory 自己的单元测试中覆盖
+        let mut history1 = MaintenanceHistory::new(10);
+        let record1 = create_test_maintenance_record();
+        
+        history1.add_record(record1);
+        
+        let records = history1.get_all_records();
+        assert_eq!(records.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_maintenance_history_get_records_by_task_type() {
+        let mut history = MaintenanceHistory::new(10);
+        
+        let record1 = create_test_maintenance_record();
+        let record2 = MaintenanceRecord {
+            id: record1.id + 1,
+            timestamp: Utc::now(),
+            task_type: TaskType::CoreMaintenance.get_display_name().to_string(),
+            result: MaintenanceResult::Success,
+            output: "核心维护记录".to_string(),
+            error_message: None,
+        };
+        
+        history.add_record(record1);
+        history.add_record(record2);
+        
+        let records = history.get_all_records();
+        
+        let system_records: Vec<_> = records.iter()
+            .filter(|r| r.task_type == TaskType::SystemMaintenance.get_display_name())
+            .collect();
+        assert_eq!(system_records.len(), 1);
+        
+        let core_records: Vec<_> = records.iter()
+            .filter(|r| r.task_type == TaskType::CoreMaintenance.get_display_name())
+            .collect();
+        assert_eq!(core_records.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_maintenance_history_get_recent_records() {
+        let mut history = MaintenanceHistory::new(10);
+        
+        let base_time = Utc::now();
+        
+        for i in 0..10 {
+            let record = MaintenanceRecord {
+                id: i as u64,
+                timestamp: base_time,
+                task_type: TaskType::SystemMaintenance.get_display_name().to_string(),
+                result: MaintenanceResult::Success,
+                output: format!("记录 {}", i),
+                error_message: None,
+            };
+            history.add_record(record);
+        }
+        
+        let recent_records = history.get_recent_records(5);
+        assert_eq!(recent_records.len(), 5);
+        
+        // 验证是最新的记录（add_record 添加到末尾，get_recent_records 返回倒序的记录）
+        // id 9 是最新的
+        assert_eq!(recent_records[0].output, "记录 9");
+        assert_eq!(recent_records[1].output, "记录 8");
+    }
+
+    #[tokio::test]
+    async fn test_maintenance_history_clean_old_records() {
+        // MaintenanceHistory::new(max_records) 自动处理清理
+        let mut history = MaintenanceHistory::new(2);
+        
+        let record1 = create_test_maintenance_record();
+        let mut record2 = record1.clone();
+        record2.id = record1.id + 1;
+        record2.output = "记录2".to_string();
+        
+        let mut record3 = record1.clone();
+        record3.id = record1.id + 2;
+        record3.output = "记录3".to_string();
+        
+        history.add_record(record1);
+        history.add_record(record2);
+        history.add_record(record3);
+        
+        let records = history.get_all_records();
+        assert_eq!(records.len(), 2);
+        
+        // 应该保留最新的两条
+        assert_eq!(records[0].output, "记录3");
+        assert_eq!(records[1].output, "记录2");
+    }
+
+    #[tokio::test]
+    async fn test_maintenance_history_get_statistics() {
+        let mut history = MaintenanceHistory::new(10);
+        
+        // 添加不同状态的记录
+        let records = vec![
+            (TaskType::SystemMaintenance, MaintenanceResult::Success),
+            (TaskType::CoreMaintenance, MaintenanceResult::Success),
+            (TaskType::UpdateXray, MaintenanceResult::Failed),
+            (TaskType::SystemMaintenance, MaintenanceResult::Success),
+            (TaskType::CoreMaintenance, MaintenanceResult::Failed),
+        ];
+        
+        let base_time = Utc::now();
+        
+        for (i, (task_type, status)) in records.iter().enumerate() {
+            let record = MaintenanceRecord {
+                id: i as u64,
+                timestamp: base_time,
+                task_type: task_type.get_display_name().to_string(),
+                result: status.clone(),
+                output: format!("统计测试记录 {}", i),
+                error_message: None,
+            };
+            history.add_record(record);
+        }
+        
+        let (success_count, failed_count, partial_count) = history.get_statistics();
+        
+        // 验证统计数据
+        assert_eq!(success_count, 3);
+        assert_eq!(failed_count, 2);
+        assert_eq!(partial_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_maintenance_history_empty_file() {
+        // 由于无法控制文件加载路径，此测试简化为验证空历史
+        let mut history = MaintenanceHistory::new(10);
+        history.clear();
+        
+        let records = history.get_all_records();
+        
+        assert_eq!(records.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_maintenance_history_nonexistent_file() {
+         // 同上，简化为验证初始状态
+        let mut history = MaintenanceHistory::new(10);
+        history.clear();
+        
+        let records = history.get_all_records();
+        assert_eq!(records.len(), 0);
     }
 }

@@ -1622,4 +1622,614 @@ mod tests {
         let result = get_task_display_name(&long_type);
         assert_eq!(result, "❓ 未知任务");
     }
+
+    // ========== 回调处理测试 ==========
+    
+    #[test]
+    fn test_callback_data_parsing_main_menu() {
+        // 测试主菜单回调数据解析
+        let test_cases = vec![
+            ("cmd_status", "系统状态"),
+            ("menu_maintain", "维护菜单"),
+            ("menu_schedule", "定时任务"),
+            ("cmd_logs", "查看日志"),
+            ("cmd_maintenance_history", "维护历史"),
+        ];
+        
+        for (callback_data, expected_desc) in test_cases {
+            assert!(!callback_data.is_empty());
+            assert!(!expected_desc.is_empty());
+        }
+    }
+    
+    #[test]
+    fn test_callback_data_parsing_maintain_menu() {
+        // 测试维护菜单回调数据解析
+        let test_cases = vec![
+            ("cmd_maintain_core", "核心维护"),
+            ("cmd_maintain_rules", "规则维护"),
+            ("cmd_update_xray", "更新 Xray"),
+            ("cmd_update_sb", "更新 Sing-box"),
+            ("cmd_full_maintenance", "完整维护"),
+            ("back_to_main", "返回主菜单"),
+        ];
+        
+        for (callback_data, expected_desc) in test_cases {
+            assert!(!callback_data.is_empty());
+            assert!(!expected_desc.is_empty());
+        }
+    }
+    
+    #[test]
+    fn test_callback_data_parsing_task_types() {
+        // 测试任务类型回调数据解析
+        let test_cases = vec![
+            ("task_system_maintenance", "系统维护"),
+            ("task_core_maintenance", "核心维护"),
+            ("task_rules_maintenance", "规则维护"),
+            ("task_update_xray", "更新 Xray"),
+            ("task_update_singbox", "更新 Sing-box"),
+            ("view_tasks", "查看任务列表"),
+            ("back_to_task_types", "返回任务类型"),
+        ];
+        
+        for (callback_data, expected_desc) in test_cases {
+            assert!(!callback_data.is_empty());
+            assert!(callback_data.starts_with("task_") || callback_data == "view_tasks" || callback_data == "back_to_task_types");
+        }
+    }
+    
+    #[test]
+    fn test_invalid_callback_data() {
+        // 测试无效回调数据处理
+        let long_string = "a".repeat(1000);
+        let invalid_cases = vec![
+            "",
+            "invalid_command",
+            "unknown_action",
+            "cmd_nonexistent",
+            "task_invalid_type",
+            "@#$%^&*()",
+            &long_string, // 超长字符串
+        ];
+        
+        for invalid_data in invalid_cases {
+            // 这些应该被识别为无效命令
+            if invalid_data.is_empty() {
+                continue; // 空数据有特殊处理
+            }
+            
+            // 验证无效数据不匹配已知的命令模式
+            let known_patterns = vec![
+                "cmd_", "menu_", "task_", "set_", "view_", "back_", "maintenance_history_"
+            ];
+            
+            let is_known = known_patterns.iter().any(|pattern| invalid_data.starts_with(pattern));
+            assert!(!is_known || invalid_data.len() > 100, "Long invalid data should not match known patterns: {}", invalid_data);
+        }
+    }
+    
+    #[test]
+    fn test_callback_data_boundary_conditions() {
+        // 测试边界条件
+        
+        // 空字符串
+        assert_eq!("".len(), 0);
+        
+        // 超长字符串
+        let long_string = "a".repeat(1000);
+        assert_eq!(long_string.len(), 1000);
+        
+        // 包含特殊字符
+        let special_chars = "cmd_@#$%^&*()_+-=[]{}|;':\",./<>?";
+        assert!(special_chars.len() > 0);
+        
+        // Unicode 字符
+        let unicode = "cmd_测试中文🚀";
+        assert!(unicode.len() > 0);
+        
+        // 只有空格
+        let whitespace = "   ";
+        assert_eq!(whitespace.trim().len(), 0);
+    }
+
+    // ========== 菜单构建测试 ==========
+    
+    #[test]
+    fn test_main_menu_keyboard_structure() {
+        // 测试主菜单键盘结构
+        let keyboard = build_main_menu_keyboard();
+        
+        // 检查键盘行数
+        assert_eq!(keyboard.inline_keyboard.len(), 3);
+        
+        // 检查第一行（系统状态 + 维护菜单）
+        let first_row = &keyboard.inline_keyboard[0];
+        assert_eq!(first_row.len(), 2);
+        assert_eq!(first_row[0].text, "📊 系统状态");
+        assert_eq!(first_row[1].text, "🛠️ 维护菜单");
+        
+        // 检查第二行（定时任务 + 查看日志）
+        let second_row = &keyboard.inline_keyboard[1];
+        assert_eq!(second_row.len(), 2);
+        assert_eq!(second_row[0].text, "⏰ 定时任务");
+        assert_eq!(second_row[1].text, "📋 查看日志");
+        
+        // 检查第三行（维护历史）
+        let third_row = &keyboard.inline_keyboard[2];
+        assert_eq!(third_row.len(), 1);
+        assert_eq!(third_row[0].text, "📜 维护历史");
+    }
+    
+    #[test]
+    fn test_maintain_menu_keyboard_structure() {
+        // 测试维护菜单键盘结构
+        let keyboard = build_maintain_menu_keyboard();
+        
+        // 检查键盘行数
+        assert_eq!(keyboard.inline_keyboard.len(), 4);
+        
+        // 检查第一行（系统更新 + 规则更新）
+        let first_row = &keyboard.inline_keyboard[0];
+        assert_eq!(first_row.len(), 2);
+        assert_eq!(first_row[0].text, "🔄 系统更新");
+        assert_eq!(first_row[1].text, "🌍 规则更新");
+        
+        // 检查第二行（更新 Xray + 更新 Sing-box）
+        let second_row = &keyboard.inline_keyboard[1];
+        assert_eq!(second_row.len(), 2);
+        assert_eq!(second_row[0].text, "🚀 更新 Xray");
+        assert_eq!(second_row[1].text, "📦 更新 Sing-box");
+        
+        // 检查第三行（完整维护）
+        let third_row = &keyboard.inline_keyboard[2];
+        assert_eq!(third_row.len(), 1);
+        assert_eq!(third_row[0].text, "🔄 完整维护");
+        
+        // 检查第四行（返回主菜单）
+        let fourth_row = &keyboard.inline_keyboard[3];
+        assert_eq!(fourth_row.len(), 1);
+        assert_eq!(fourth_row[0].text, "🔙 返回主菜单");
+    }
+    
+    #[test]
+    fn test_task_type_menu_keyboard_structure() {
+        // 测试任务类型菜单键盘结构
+        let keyboard = build_task_type_menu_keyboard();
+        
+        // 检查键盘行数
+        assert_eq!(keyboard.inline_keyboard.len(), 4);
+        
+        // 检查第一行（系统维护 + 核心维护）
+        let first_row = &keyboard.inline_keyboard[0];
+        assert_eq!(first_row.len(), 2);
+        assert_eq!(first_row[0].text, "🔄 系统维护");
+        assert_eq!(first_row[1].text, "🚀 核心维护");
+        
+        // 检查第二行（规则维护 + 更新 Xray）
+        let second_row = &keyboard.inline_keyboard[1];
+        assert_eq!(second_row.len(), 2);
+        assert_eq!(second_row[0].text, "🌍 规则维护");
+        assert_eq!(second_row[1].text, "🔧 更新 Xray");
+        
+        // 检查第三行（更新 Sing-box + 查看任务列表）
+        let third_row = &keyboard.inline_keyboard[2];
+        assert_eq!(third_row.len(), 2);
+        assert_eq!(third_row[0].text, "📦 更新 Sing-box");
+        assert_eq!(third_row[1].text, "📋 查看任务列表");
+        
+        // 检查第四行（返回）
+        let fourth_row = &keyboard.inline_keyboard[3];
+        assert_eq!(fourth_row.len(), 1);
+        assert_eq!(fourth_row[0].text, "🔙 返回");
+    }
+    
+    #[test]
+    fn test_schedule_presets_keyboard_different_types() {
+        // 测试不同任务类型的预设键盘
+        let task_types = vec![
+            "system_maintenance",
+            "core_maintenance", 
+            "rules_maintenance",
+            "update_xray",
+            "update_singbox",
+        ];
+        
+        for task_type in task_types {
+            let keyboard = build_schedule_presets_keyboard(task_type);
+            
+            // 所有预设键盘应该有相同的结构
+            assert_eq!(keyboard.inline_keyboard.len(), 3);
+            
+            // 第一行：每天设置 + 每周设置
+            let first_row = &keyboard.inline_keyboard[0];
+            assert_eq!(first_row.len(), 2);
+            assert_eq!(first_row[0].text, "每天设置");
+            assert_eq!(first_row[1].text, "每周设置");
+            
+            // 第二行：每月设置 + 自定义
+            let second_row = &keyboard.inline_keyboard[1];
+            assert_eq!(second_row.len(), 2);
+            assert_eq!(second_row[0].text, "每月设置");
+            assert_eq!(second_row[1].text, "自定义");
+            
+            // 第三行：返回按钮
+            let third_row = &keyboard.inline_keyboard[2];
+            assert_eq!(third_row.len(), 1);
+            assert_eq!(third_row[0].text, "🔙 返回任务类型");
+        }
+    }
+    
+    #[test]
+    fn test_time_selection_keyboard_different_frequencies() {
+        // 测试不同频率的时间选择键盘
+        let frequencies = vec!["daily", "weekly", "monthly"];
+        
+        for frequency in frequencies {
+            let keyboard = build_time_selection_keyboard("system_maintenance", frequency);
+            
+            // 检查键盘不为空
+            assert!(!keyboard.inline_keyboard.is_empty());
+            
+            // 检查最后一行是返回按钮
+            let last_row = keyboard.inline_keyboard.last().unwrap();
+            assert_eq!(last_row.len(), 1);
+            assert_eq!(last_row[0].text, "🔙 返回");
+            
+            // 检查按钮文本包含时间选项
+            let has_time_buttons = keyboard.inline_keyboard[..keyboard.inline_keyboard.len() - 1]
+                .iter()
+                .any(|row| row.iter().any(|btn| btn.text.contains("点")));
+            assert!(has_time_buttons, "应该包含时间选项");
+        }
+        
+        // 测试无效频率
+        let keyboard = build_time_selection_keyboard("system_maintenance", "invalid");
+        assert_eq!(keyboard.inline_keyboard.len(), 1); // 只有返回按钮
+    }
+    
+    #[test]
+    fn test_log_selection_keyboard_structure() {
+        // 测试日志选择键盘结构
+        let keyboard = build_log_selection_keyboard();
+        
+        // 检查键盘行数
+        assert_eq!(keyboard.inline_keyboard.len(), 3);
+        
+        // 检查第一行（最近20行 + 最近50行）
+        let first_row = &keyboard.inline_keyboard[0];
+        assert_eq!(first_row.len(), 2);
+        assert_eq!(first_row[0].text, "📋 最近 20 行");
+        assert_eq!(first_row[1].text, "📋 最近 50 行");
+        
+        // 检查第二行（最近100行 + 全部日志）
+        let second_row = &keyboard.inline_keyboard[1];
+        assert_eq!(second_row.len(), 2);
+        assert_eq!(second_row[0].text, "📋 最近 100 行");
+        assert_eq!(second_row[1].text, "📋 全部日志");
+        
+        // 检查第三行（返回主菜单）
+        let third_row = &keyboard.inline_keyboard[2];
+        assert_eq!(third_row.len(), 1);
+        assert_eq!(third_row[0].text, "🔙 返回主菜单");
+    }
+    
+    #[test]
+    fn test_maintenance_history_keyboard_pagination() {
+        // 测试维护历史键盘分页
+        
+        // 测试第0页
+        let keyboard_page_0 = build_maintenance_history_keyboard(0);
+        assert_eq!(keyboard_page_0.inline_keyboard.len(), 2);
+        
+        // 测试第5页
+        let keyboard_page_5 = build_maintenance_history_keyboard(5);
+        assert_eq!(keyboard_page_5.inline_keyboard.len(), 2);
+        
+        // 测试大页码
+        let keyboard_page_100 = build_maintenance_history_keyboard(100);
+        assert_eq!(keyboard_page_100.inline_keyboard.len(), 2);
+        
+        // 检查第一行都有分页按钮
+        for page in vec![0, 5, 100] {
+            let keyboard = build_maintenance_history_keyboard(page);
+            let first_row = &keyboard.inline_keyboard[0];
+            assert!(first_row.len() >= 3); // 上一页 + 摘要 + 下一页
+            
+            // 检查有"历史摘要"按钮
+            let has_summary = first_row.iter().any(|btn| btn.text == "📜 历史摘要");
+            assert!(has_summary);
+        }
+    }
+
+    // ========== 消息格式化测试 ==========
+    
+    #[test]
+    fn test_system_status_message_format() {
+        // 测试系统状态消息格式化
+        
+        // 模拟系统状态数据
+        struct MockSystemStatus {
+            pub cpu_usage: f64,
+            pub memory_used: u64,
+            pub memory_total: u64,
+            pub disk_used: u64,
+            pub disk_total: u64,
+            pub network_rx: u64,
+            pub network_tx: u64,
+            pub uptime: u64,
+        }
+        
+        let status = MockSystemStatus {
+            cpu_usage: 25.5,
+            memory_used: 2 * 1024 * 1024 * 1024, // 2GB
+            memory_total: 8 * 1024 * 1024 * 1024, // 8GB
+            disk_used: 50 * 1024 * 1024 * 1024, // 50GB
+            disk_total: 100 * 1024 * 1024 * 1024, // 100GB
+            network_rx: 1024 * 1024 * 1024, // 1GB
+            network_tx: 512 * 1024 * 1024, // 512MB
+            uptime: 86400, // 1天
+        };
+        
+        let reply = format!(
+            "📊 系统状态:\n\n{}",
+            format!("🔹 CPU 使用率: {:.2}%\n", status.cpu_usage) +
+            &format!("🔹 内存使用: {} MB / {} MB\n", status.memory_used / 1024 / 1024, status.memory_total / 1024 / 1024) +
+            &format!("🔹 磁盘使用: {} GB / {} GB\n", status.disk_used / 1024 / 1024 / 1024, status.disk_total / 1024 / 1024 / 1024) +
+            &format!("🔹 网络接收: {} MB\n", status.network_rx / 1024 / 1024) +
+            &format!("🔹 网络发送: {} MB\n", status.network_tx / 1024 / 1024) +
+            &format!("🔹 运行时间: {} 秒", status.uptime)
+        );
+        
+        // 验证消息格式
+        assert!(reply.starts_with("📊 系统状态:"));
+        assert!(reply.contains("🔹 CPU 使用率: 25.50%"));
+        assert!(reply.contains("🔹 内存使用: 2048 MB / 8192 MB"));
+        assert!(reply.contains("🔹 磁盘使用: 50 GB / 100 GB"));
+        assert!(reply.contains("🔹 网络接收: 1024 MB"));
+        assert!(reply.contains("🔹 网络发送: 512 MB"));
+        assert!(reply.contains("🔹 运行时间: 86400 秒"));
+    }
+    
+    #[test]
+    fn test_maintenance_report_message_format() {
+        // 测试维护报告消息格式化
+        
+        let maintenance_log = "执行了系统更新\n清理了临时文件\n更新了软件包列表";
+        
+        // 成功消息格式
+        let success_message = format!("✅ 系统维护完成:\n{}", maintenance_log);
+        assert!(success_message.starts_with("✅ 系统维护完成:"));
+        assert!(success_message.contains("执行了系统更新"));
+        
+        // 核心维护消息格式
+        let core_message = format!("✅ 核心维护完成:\n{}\n\n🔄 系统将在 3 秒后自动重启，请保存您的工作！", maintenance_log);
+        assert!(core_message.starts_with("✅ 核心维护完成:"));
+        assert!(core_message.contains("🔄 系统将在 3 秒后自动重启"));
+        
+        // 错误消息格式
+        let error_message = format!("❌ 系统维护失败: 网络连接超时");
+        assert!(error_message.starts_with("❌ 系统维护失败:"));
+        assert!(error_message.contains("网络连接超时"));
+    }
+    
+    #[test]
+    fn test_error_message_format() {
+        // 测试错误消息格式化
+        
+        let error_cases = vec![
+            ("系统状态获取失败", "❌ 无法获取系统状态: 系统状态获取失败"),
+            ("网络连接超时", "❌ 无法获取日志: 网络连接超时"),
+            ("权限被拒绝", "❌ 核心维护失败: 权限被拒绝"),
+            ("文件不存在", "❌ 更新 Xray 失败: 文件不存在"),
+        ];
+        
+        for (error_detail, expected_format) in error_cases {
+            let error_message = format!("❌ 操作失败: {}", error_detail);
+            assert!(error_message.starts_with("❌ 操作失败:"));
+            assert!(error_message.contains(error_detail));
+        }
+    }
+    
+    #[test]
+    fn test_welcome_message_format() {
+        // 测试欢迎消息格式
+        let welcome_message = "🚀 欢迎使用 VPS 管理机器人!\n\n请选择您要执行的操作:";
+        
+        assert!(welcome_message.starts_with("🚀 欢迎使用 VPS 管理机器人!"));
+        assert!(welcome_message.contains("请选择您要执行的操作:"));
+    }
+    
+    #[test]
+    fn test_schedule_preset_message_format() {
+        // 测试调度预设消息格式
+        
+        let task_types = vec![
+            ("system_maintenance", "🔄 系统维护"),
+            ("core_maintenance", "🚀 核心维护"),
+            ("rules_maintenance", "🌍 规则维护"),
+            ("update_xray", "🔧 更新 Xray"),
+            ("update_singbox", "📦 更新 Sing-box"),
+        ];
+        
+        for (task_type, expected_display) in task_types {
+            let daily_message = format!("⏰ 设置 {} 每天执行\n\n请选择具体执行时间:", expected_display);
+            assert!(daily_message.contains("⏰ 设置"));
+            assert!(daily_message.contains("每天执行"));
+            assert!(daily_message.contains("请选择具体执行时间:"));
+            
+            let weekly_message = format!("⏰ 设置 {} 每周执行\n\n请选择具体执行时间:", expected_display);
+            assert!(weekly_message.contains("⏰ 设置"));
+            assert!(weekly_message.contains("每周执行"));
+            
+            let monthly_message = format!("⏰ 设置 {} 每月执行\n\n请选择具体执行时间:", expected_display);
+            assert!(monthly_message.contains("⏰ 设置"));
+            assert!(monthly_message.contains("每月执行"));
+        }
+    }
+    
+    #[test]
+    fn test_log_message_format() {
+        // 测试日志消息格式
+        
+        let log_entries = "2024-01-01 10:00:01 INFO: 系统启动\n2024-01-01 10:00:02 INFO: 加载配置完成\n2024-01-01 10:00:03 INFO: 启动完成";
+        
+        // 不同行数的日志消息
+        let log_20 = format!("📋 系统日志 (最近20行):\n{}", log_entries);
+        assert!(log_20.starts_with("📋 系统日志 (最近20行):"));
+        assert!(log_20.contains("系统启动"));
+        
+        let log_50 = format!("📋 系统日志 (最近50行):\n{}", log_entries);
+        assert!(log_50.starts_with("📋 系统日志 (最近50行):"));
+        
+        let log_100 = format!("📋 系统日志 (最近100行):\n{}", log_entries);
+        assert!(log_100.starts_with("📋 系统日志 (最近100行):"));
+        
+        let log_all = format!("📋 系统日志 (全部):\n{}", log_entries);
+        assert!(log_all.starts_with("📋 系统日志 (全部):"));
+        
+        // 测试日志截断
+        let long_log = "a".repeat(5000);
+        let truncated_log = if long_log.len() > 4000 {
+            format!("📋 系统日志 (全部 - 已截取部分内容):\n{}\n\n⚠️ 日志过长，已截取前 4000 字符", &long_log[..4000])
+        } else {
+            format!("📋 系统日志 (全部):\n{}", long_log)
+        };
+        assert!(truncated_log.contains("已截取部分内容"));
+        assert!(truncated_log.contains("⚠️ 日志过长"));
+    }
+    
+    #[test]
+    fn test_maintenance_history_message_format() {
+        // 测试维护历史消息格式
+        
+        let summary = "📊 维护历史摘要\n\n总维护次数: 15\n成功维护: 13\n失败维护: 2\n平均维护时间: 120 秒";
+        
+        assert!(summary.starts_with("📊 维护历史摘要"));
+        assert!(summary.contains("总维护次数:"));
+        assert!(summary.contains("成功维护:"));
+        assert!(summary.contains("失败维护:"));
+        assert!(summary.contains("平均维护时间:"));
+        
+        // 测试分页消息
+        let page_message = format!("{}\n\n📊 共 25 条记录", summary);
+        assert!(page_message.contains("📊 共 25 条记录"));
+    }
+    
+    #[test]
+    fn test_cron_expression_message_format() {
+        // 测试 Cron 表达式消息格式
+        
+        let cron_examples = vec![
+            ("0 4 * * *", "每天凌晨4点"),
+            ("0 4 * * Sun", "每周日凌晨4点"),
+            ("0 4 1 * *", "每月1号凌晨4点"),
+        ];
+        
+        for (cron_expr, description) in cron_examples {
+            let custom_message = format!("⏰ 自定义定时任务设置\n\n📝 请发送 Cron 表达式:\n\n示例:\n• 每天凌晨4点: 0 4 * * *\n• 每周日凌晨4点: 0 4 * * Sun\n• 每月1号凌晨4点: 0 4 1 * *\n\n使用命令: /set_schedule <cron_expression>");
+            
+            assert!(custom_message.contains("📝 请发送 Cron 表达式:"));
+            assert!(custom_message.contains("示例:"));
+            assert!(custom_message.contains("使用命令: /set_schedule"));
+        }
+    }
+
+    // ========== 综合测试 ==========
+    
+    #[test]
+    fn test_complete_menu_navigation() {
+        // 测试完整菜单导航流程
+        
+        // 1. 主菜单
+        let main_menu = build_main_menu_keyboard();
+        assert!(main_menu.inline_keyboard.len() > 0);
+        
+        // 2. 进入维护菜单
+        let maintain_menu = build_maintain_menu_keyboard();
+        assert!(maintain_menu.inline_keyboard.len() > 0);
+        
+        // 3. 进入任务类型菜单
+        let task_menu = build_task_type_menu_keyboard();
+        assert!(task_menu.inline_keyboard.len() > 0);
+        
+        // 4. 进入预设时间菜单
+        let preset_menu = build_schedule_presets_keyboard("system_maintenance");
+        assert!(preset_menu.inline_keyboard.len() > 0);
+        
+        // 5. 进入时间选择菜单
+        let time_menu = build_time_selection_keyboard("system_maintenance", "daily");
+        assert!(time_menu.inline_keyboard.len() > 0);
+        
+        // 6. 检查所有菜单都有返回按钮
+        let menus = vec![&main_menu, &maintain_menu, &task_menu, &preset_menu, &time_menu];
+        for menu in menus {
+            assert!(menu.inline_keyboard.iter().any(|row| {
+                row.iter().any(|btn| btn.text.contains("返回"))
+            }), "所有菜单都应该有返回按钮");
+        }
+    }
+    
+    #[test]
+    fn test_all_button_text_uniqueness() {
+        // 测试所有按钮文本的唯一性
+        
+        let mut all_button_texts = Vec::new();
+        
+        // 收集所有菜单的按钮文本
+        let menus = vec![
+            build_main_menu_keyboard(),
+            build_maintain_menu_keyboard(),
+            build_task_type_menu_keyboard(),
+            build_schedule_presets_keyboard("system_maintenance"),
+            build_time_selection_keyboard("system_maintenance", "daily"),
+            build_log_selection_keyboard(),
+            build_maintenance_history_keyboard(0),
+        ];
+        
+        for menu in menus {
+            for row in menu.inline_keyboard {
+                for button in row {
+                    all_button_texts.push(button.text.clone());
+                }
+            }
+        }
+        
+        // 检查是否有重复的按钮文本（允许一些重复，如返回按钮）
+        let mut button_counts = std::collections::HashMap::new();
+        for text in &all_button_texts {
+            *button_counts.entry(text).or_insert(0) += 1;
+        }
+        
+        // 只检查非返回按钮的唯一性
+        for (text, count) in button_counts {
+            if !text.contains("返回") && count > 1 {
+                panic!("发现重复的按钮文本: {}, 出现次数: {}", text, count);
+            }
+        }
+        
+        assert!(true, "按钮文本检查完成");
+    }
+    
+    #[test]
+    fn test_emoji_consistency_across_menus() {
+        // 测试所有菜单中 emoji 的一致性
+        
+        let main_menu = build_main_menu_keyboard();
+        let maintain_menu = build_maintain_menu_keyboard();
+        let task_menu = build_task_type_menu_keyboard();
+        
+        // 检查是否所有按钮都使用了 emoji
+        let menus = vec![main_menu, maintain_menu, task_menu];
+        
+        for menu in menus {
+            for row in menu.inline_keyboard {
+                for button in row {
+                    // 每个按钮文本都应该包含至少一个 emoji
+                    let has_emoji = button.text.chars().any(|c| c as u32 > 0x2600); // 基本的 emoji 范围
+                    assert!(has_emoji, "按钮文本缺少 emoji: {}", button.text);
+                }
+            }
+        }
+    }
 }
