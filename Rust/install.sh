@@ -562,6 +562,8 @@ StandardOutput=journal
 StandardError=journal
 
 # 使用 LoadCredential 加载敏感凭证
+# 格式: LoadCredential=<name>:<path>
+# systemd 会将文件挂载到 /run/credentials/{service}.service/<name>
 LoadCredential=bot-token:$BOT_TOKEN_CRED
 LoadCredential=chat-id:$CHAT_ID_CRED
 

@@ -25,11 +25,18 @@ impl EnvironmentLoader {
     fn load_from_credentials(&self) -> Option<(String, i64)> {
         let cred_dir = "/run/credentials/vps-tg-bot-rust.service";
         
-        // 尝试读取 BOT_TOKEN
+        // 尝试读取 BOT_TOKEN（注意：LoadCredential 会创建不带扩展名的文件）
         let bot_token = match std::fs::read_to_string(format!("{}/bot-token", cred_dir)) {
-            Ok(token) => token.trim().to_string(),
-            Err(_) => {
-                debug!("无法读取 BOT_TOKEN 凭证文件");
+            Ok(token) => {
+                let trimmed = token.trim().to_string();
+                if trimmed.is_empty() {
+                    debug!("BOT_TOKEN 凭证文件为空");
+                    return None;
+                }
+                trimmed
+            },
+            Err(e) => {
+                debug!("无法读取 BOT_TOKEN 凭证文件: {}", e);
                 return None;
             }
         };
@@ -37,24 +44,34 @@ impl EnvironmentLoader {
         // 尝试读取 CHAT_ID
         let chat_id = match std::fs::read_to_string(format!("{}/chat-id", cred_dir)) {
             Ok(id) => {
-                match id.trim().parse::<i64>() {
-                    Ok(parsed_id) => parsed_id,
-                    Err(_) => {
-                        debug!("CHAT_ID 凭证格式无效");
+                let trimmed = id.trim().to_string();
+                if trimmed.is_empty() {
+                    debug!("CHAT_ID 凭证文件为空");
+                    return None;
+                }
+                match trimmed.parse::<i64>() {
+                    Ok(parsed_id) => {
+                        if parsed_id <= 0 {
+                            debug!("CHAT_ID 必须为正整数");
+                            return None;
+                        }
+                        parsed_id
+                    },
+                    Err(e) => {
+                        debug!("CHAT_ID 凭证格式无效: {}", e);
                         return None;
                     }
                 }
             },
-            Err(_) => {
-                debug!("无法读取 CHAT_ID 凭证文件");
+            Err(e) => {
+                debug!("无法读取 CHAT_ID 凭证文件: {}", e);
                 return None;
             }
         };
         
-        if bot_token.is_empty() || chat_id <= 0 {
-            debug!("凭证文件内容无效");
-            return None;
-        }
+        debug!("成功从 systemd 凭证文件读取配置");
+        debug!("BOT_TOKEN 前缀: {}", bot_token.chars().take(10).collect::<String>() + "...");
+        debug!("CHAT_ID: {}", chat_id);
         
         debug!("✅ 从 systemd 凭证文件成功加载配置");
         Some((bot_token, chat_id))
@@ -170,6 +187,8 @@ impl ConfigLoader for EnvironmentLoader {
         
         // 尝试从 systemd 凭证文件加载（生产环境）
         debug!("尝试从 systemd 凭证文件加载配置...");
+        debug!("检查凭证目录: /run/credentials/vps-tg-bot-rust.service");
+        
         if let Some((bot_token, chat_id)) = self.load_from_credentials() {
             let check_interval = env::var("CHECK_INTERVAL")
                 .map(|s| s.parse::<u64>().unwrap_or(300))
