@@ -105,8 +105,7 @@ pub async fn update_xray() -> Result<String, SystemError> {
 }
 
 pub async fn update_singbox() -> Result<String, SystemError> {
-    let script = "bash -c $(curl -L https://github.com/SagerNet/sing-box/raw/master/install.sh) @ install";
-    let result = run_command_with_error_context("bash", &["-c", script], "更新 Sing-box")
+    let result = run_command_with_error_context("sb", &["up"], "更新 Sing-box")
         .await
         .map_err(|e| SystemError::NetworkError(format!("Sing-box 更新失败: {}", e)))?;
     

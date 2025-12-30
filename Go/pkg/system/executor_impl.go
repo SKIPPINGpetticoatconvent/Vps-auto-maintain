@@ -213,5 +213,5 @@ func (e *RealSystemExecutor) UpdateXray() (string, error) {
 func (e *RealSystemExecutor) UpdateSingbox() (string, error) {
 	log.Println("正在更新 Sing-box 核心...")
 	// 执行 Sing-box 更新命令
-	return e.runCommandWithTimeout("bash", "-c", "curl -Ls https://raw.githubusercontent.com/fscarmen/sing-box/main/sing-box.sh | bash")
+	return e.runCommandWithTimeout("sb", "up")
 }
