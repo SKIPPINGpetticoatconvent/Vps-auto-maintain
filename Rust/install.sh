@@ -41,6 +41,76 @@ print_info() {
     print_color "$CYAN" "ℹ️  $1"
 }
 
+# 发送 Telegram 通知
+send_telegram_notification() {
+    local message="$1"
+    local bot_token=""
+    local chat_id=""
+
+    # 尝试从凭证文件读取
+    if [ -f "$BOT_TOKEN_CRED" ]; then
+        bot_token=$(cat "$BOT_TOKEN_CRED" 2>/dev/null | tr -d '\n')
+    fi
+    if [ -f "$CHAT_ID_CRED" ]; then
+        chat_id=$(cat "$CHAT_ID_CRED" 2>/dev/null | tr -d '\n')
+    fi
+
+    # 如果凭证文件不存在，尝试从环境文件读取
+    if [ -z "$bot_token" ] || [ -z "$chat_id" ]; then
+        if [ -f "$ENV_FILE" ]; then
+            source "$ENV_FILE" 2>/dev/null
+            bot_token="${BOT_TOKEN:-$bot_token}"
+            chat_id="${CHAT_ID:-$chat_id}"
+        fi
+    fi
+
+    # 如果仍然没有凭证，跳过通知
+    if [ -z "$bot_token" ] || [ -z "$chat_id" ]; then
+        print_warning "无法发送 Telegram 通知：未找到凭证配置"
+        return 1
+    fi
+
+    # 发送通知
+    local api_url="https://api.telegram.org/bot${bot_token}/sendMessage"
+    local send_result=0
+
+    if command -v curl &> /dev/null; then
+        local response
+        response=$(curl -s -X POST "$api_url" \
+            -d "chat_id=${chat_id}" \
+            -d "text=${message}" \
+            -d "parse_mode=HTML" 2>&1)
+        send_result=$?
+        # 检查 Telegram API 返回的 ok 字段
+        if echo "$response" | grep -q '"ok":true'; then
+            send_result=0
+        elif echo "$response" | grep -q '"ok":false'; then
+            send_result=1
+        fi
+    elif command -v wget &> /dev/null; then
+        local response
+        response=$(wget -q --post-data="chat_id=${chat_id}&text=${message}&parse_mode=HTML" \
+            "$api_url" -O - 2>&1)
+        send_result=$?
+        if echo "$response" | grep -q '"ok":true'; then
+            send_result=0
+        elif echo "$response" | grep -q '"ok":false'; then
+            send_result=1
+        fi
+    else
+        print_warning "无法发送通知：未找到 curl 或 wget"
+        return 1
+    fi
+
+    if [ $send_result -eq 0 ]; then
+        print_success "Telegram 通知已发送"
+        return 0
+    else
+        print_warning "Telegram 通知发送失败"
+        return 1
+    fi
+}
+
 # 检查 Root 权限
 if [ "$EUID" -ne 0 ]; then
     print_error "请以 root 用户身份运行此脚本"
@@ -591,8 +661,26 @@ echo
 print_header "安装完成！"
 if [ "$UPDATE_MODE" = "true" ]; then
     print_success "$BOT_NAME 已成功更新到版本 $VERSION 并启动。"
+    # 发送更新完成通知
+    HOSTNAME=$(hostname 2>/dev/null || echo "VPS")
+    send_telegram_notification "🔄 <b>VPS Bot 更新完成</b>
+
+🖥️ 主机: ${HOSTNAME}
+📦 版本: ${VERSION}
+✅ 状态: 已成功更新并重启
+
+Bot 服务已恢复运行。"
 else
     print_success "$BOT_NAME 已成功安装并启动。"
+    # 发送安装完成通知
+    HOSTNAME=$(hostname 2>/dev/null || echo "VPS")
+    send_telegram_notification "🎉 <b>VPS Bot 安装完成</b>
+
+🖥️ 主机: ${HOSTNAME}
+📦 版本: ${VERSION}
+✅ 状态: 已成功安装并启动
+
+欢迎使用 VPS Telegram Bot!"
 fi
 echo
 
