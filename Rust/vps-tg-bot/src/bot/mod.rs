@@ -5,6 +5,7 @@ use crate::config::Config;
 use crate::system;
 use crate::scheduler;
 use crate::scheduler::task_types::TaskType;
+use crate::scheduler::maintenance_history::{record_maintenance, MaintenanceResult};
 
 #[derive(BotCommands, Clone)]
 #[command(
@@ -583,14 +584,19 @@ async fn handle_callback_query(
                                 format!("✅ 完整维护完成:\n{}\n\n请选择下一步操作:", log)
                             ).reply_markup(build_maintain_menu_keyboard())
                             .await;
+                            // 记录到维护历史
+                            record_maintenance("🔧 完整维护 (手动)", MaintenanceResult::Success, &log, None).await;
                         }
                         Err(e) => {
+                            let error_msg = format!("{}", e);
                             let _ = bot_clone.edit_message_text(
                                 chat_id_clone,
                                 message_id_clone,
                                 format!("❌ 完整维护失败: {}\n\n请选择下一步操作:", e)
                             ).reply_markup(build_maintain_menu_keyboard())
                             .await;
+                            // 记录到维护历史
+                            record_maintenance("🔧 完整维护 (手动)", MaintenanceResult::Failed, "执行失败", Some(&error_msg)).await;
                         }
                     }
                 });
@@ -1445,7 +1451,7 @@ async fn handle_maintain_core_command(
     )
     .reply_markup(build_maintain_menu_keyboard())
     .await?;
-    
+
     match system::ops::maintain_core().await {
         Ok(log) => {
             bot.edit_message_text(
@@ -1455,8 +1461,11 @@ async fn handle_maintain_core_command(
             )
             .reply_markup(build_maintain_menu_keyboard())
             .await?;
+            // 记录到维护历史
+            record_maintenance("🚀 核心维护 (手动)", MaintenanceResult::Success, &log, None).await;
         }
         Err(e) => {
+            let error_msg = format!("{}", e);
             bot.edit_message_text(
                 callback_query.message.as_ref().unwrap().chat.id,
                 callback_query.message.as_ref().unwrap().id,
@@ -1464,6 +1473,8 @@ async fn handle_maintain_core_command(
             )
             .reply_markup(build_maintain_menu_keyboard())
             .await?;
+            // 记录到维护历史
+            record_maintenance("🚀 核心维护 (手动)", MaintenanceResult::Failed, "执行失败", Some(&error_msg)).await;
         }
     }
     Ok(())
@@ -1481,7 +1492,7 @@ async fn handle_maintain_rules_command(
     )
     .reply_markup(build_maintain_menu_keyboard())
     .await?;
-    
+
     match system::ops::maintain_rules().await {
         Ok(log) => {
             bot.edit_message_text(
@@ -1491,8 +1502,11 @@ async fn handle_maintain_rules_command(
             )
             .reply_markup(build_maintain_menu_keyboard())
             .await?;
+            // 记录到维护历史
+            record_maintenance("🌍 规则维护 (手动)", MaintenanceResult::Success, &log, None).await;
         }
         Err(e) => {
+            let error_msg = format!("{}", e);
             bot.edit_message_text(
                 callback_query.message.as_ref().unwrap().chat.id,
                 callback_query.message.as_ref().unwrap().id,
@@ -1500,6 +1514,8 @@ async fn handle_maintain_rules_command(
             )
             .reply_markup(build_maintain_menu_keyboard())
             .await?;
+            // 记录到维护历史
+            record_maintenance("🌍 规则维护 (手动)", MaintenanceResult::Failed, "执行失败", Some(&error_msg)).await;
         }
     }
     Ok(())
@@ -1517,7 +1533,7 @@ async fn handle_update_xray_command(
     )
     .reply_markup(build_maintain_menu_keyboard())
     .await?;
-    
+
     match system::ops::update_xray().await {
         Ok(log) => {
             bot.edit_message_text(
@@ -1527,8 +1543,11 @@ async fn handle_update_xray_command(
             )
             .reply_markup(build_maintain_menu_keyboard())
             .await?;
+            // 记录到维护历史
+            record_maintenance("🔧 更新 Xray (手动)", MaintenanceResult::Success, &log, None).await;
         }
         Err(e) => {
+            let error_msg = format!("{}", e);
             bot.edit_message_text(
                 callback_query.message.as_ref().unwrap().chat.id,
                 callback_query.message.as_ref().unwrap().id,
@@ -1536,6 +1555,8 @@ async fn handle_update_xray_command(
             )
             .reply_markup(build_maintain_menu_keyboard())
             .await?;
+            // 记录到维护历史
+            record_maintenance("🔧 更新 Xray (手动)", MaintenanceResult::Failed, "执行失败", Some(&error_msg)).await;
         }
     }
     Ok(())
@@ -1553,7 +1574,7 @@ async fn handle_update_sb_command(
     )
     .reply_markup(build_maintain_menu_keyboard())
     .await?;
-    
+
     match system::ops::update_singbox().await {
         Ok(log) => {
             bot.edit_message_text(
@@ -1563,8 +1584,11 @@ async fn handle_update_sb_command(
             )
             .reply_markup(build_maintain_menu_keyboard())
             .await?;
+            // 记录到维护历史
+            record_maintenance("📦 更新 Sing-box (手动)", MaintenanceResult::Success, &log, None).await;
         }
         Err(e) => {
+            let error_msg = format!("{}", e);
             bot.edit_message_text(
                 callback_query.message.as_ref().unwrap().chat.id,
                 callback_query.message.as_ref().unwrap().id,
@@ -1572,6 +1596,8 @@ async fn handle_update_sb_command(
             )
             .reply_markup(build_maintain_menu_keyboard())
             .await?;
+            // 记录到维护历史
+            record_maintenance("📦 更新 Sing-box (手动)", MaintenanceResult::Failed, "执行失败", Some(&error_msg)).await;
         }
     }
     Ok(())

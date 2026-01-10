@@ -3,6 +3,7 @@ use teloxide::Bot;
 use teloxide::types::ChatId;
 use teloxide::prelude::Requester;
 use crate::system::ops;
+use crate::scheduler::maintenance_history::{record_maintenance, MaintenanceResult};
 use anyhow::{Result, anyhow};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -80,20 +81,29 @@ impl TaskType {
 
     pub async fn execute(&self, bot: &Bot, chat_id: i64) -> Result<String> {
         let task_name = self.get_display_name();
-        
+
+        // 发送任务开始执行通知
+        let _ = bot.send_message(ChatId(chat_id),
+            format!("🔄 [定时任务] {} 开始执行...", task_name)).await;
+
         match self {
             TaskType::SystemMaintenance => {
                 match ops::perform_maintenance().await {
                     Ok(log) => {
-                        let _ = bot.send_message(ChatId(chat_id), 
-                            format!("✅ {} 任务已完成:\n{}", task_name, log)).await;
+                        let _ = bot.send_message(ChatId(chat_id),
+                            format!("✅ [定时任务] {} 执行成功:\n{}", task_name, log)).await;
+                        // 记录到维护历史
+                        record_maintenance(task_name, MaintenanceResult::Success, &log, None).await;
                         Ok(format!("{} 完成", task_name))
                     }
                     Err(e) => {
                         let user_message = e.user_message();
-                        let _ = bot.send_message(ChatId(chat_id), 
-                            format!("❌ {} 任务失败:\n{}\n\n建议: {}", task_name, e, 
+                        let error_msg = format!("{}", e);
+                        let _ = bot.send_message(ChatId(chat_id),
+                            format!("❌ [定时任务] {} 执行失败:\n{}\n\n建议: {}", task_name, e,
                                 if e.is_retryable() { "可以稍后重试" } else { "请检查系统配置" })).await;
+                        // 记录到维护历史
+                        record_maintenance(task_name, MaintenanceResult::Failed, &user_message, Some(&error_msg)).await;
                         Err(anyhow!("{}", user_message))
                     }
                 }
@@ -101,15 +111,20 @@ impl TaskType {
             TaskType::CoreMaintenance => {
                 match ops::maintain_core().await {
                     Ok(log) => {
-                        let _ = bot.send_message(ChatId(chat_id), 
-                            format!("✅ {} 任务已完成:\n{}", task_name, log)).await;
+                        let _ = bot.send_message(ChatId(chat_id),
+                            format!("✅ [定时任务] {} 执行成功:\n{}", task_name, log)).await;
+                        // 记录到维护历史
+                        record_maintenance(task_name, MaintenanceResult::Success, &log, None).await;
                         Ok(format!("{} 完成", task_name))
                     }
                     Err(e) => {
                         let user_message = e.user_message();
-                        let _ = bot.send_message(ChatId(chat_id), 
-                            format!("❌ {} 任务失败:\n{}\n\n建议: {}", task_name, e,
+                        let error_msg = format!("{}", e);
+                        let _ = bot.send_message(ChatId(chat_id),
+                            format!("❌ [定时任务] {} 执行失败:\n{}\n\n建议: {}", task_name, e,
                                 if e.is_retryable() { "可以稍后重试" } else { "请检查系统配置" })).await;
+                        // 记录到维护历史
+                        record_maintenance(task_name, MaintenanceResult::Failed, &user_message, Some(&error_msg)).await;
                         Err(anyhow!("{}", user_message))
                     }
                 }
@@ -117,15 +132,20 @@ impl TaskType {
             TaskType::RulesMaintenance => {
                 match ops::maintain_rules().await {
                     Ok(log) => {
-                        let _ = bot.send_message(ChatId(chat_id), 
-                            format!("✅ {} 任务已完成:\n{}", task_name, log)).await;
+                        let _ = bot.send_message(ChatId(chat_id),
+                            format!("✅ [定时任务] {} 执行成功:\n{}", task_name, log)).await;
+                        // 记录到维护历史
+                        record_maintenance(task_name, MaintenanceResult::Success, &log, None).await;
                         Ok(format!("{} 完成", task_name))
                     }
                     Err(e) => {
                         let user_message = e.user_message();
-                        let _ = bot.send_message(ChatId(chat_id), 
-                            format!("❌ {} 任务失败:\n{}\n\n建议: {}", task_name, e,
+                        let error_msg = format!("{}", e);
+                        let _ = bot.send_message(ChatId(chat_id),
+                            format!("❌ [定时任务] {} 执行失败:\n{}\n\n建议: {}", task_name, e,
                                 if e.is_retryable() { "可以稍后重试" } else { "请检查系统配置" })).await;
+                        // 记录到维护历史
+                        record_maintenance(task_name, MaintenanceResult::Failed, &user_message, Some(&error_msg)).await;
                         Err(anyhow!("{}", user_message))
                     }
                 }
@@ -133,15 +153,20 @@ impl TaskType {
             TaskType::UpdateXray => {
                 match ops::update_xray().await {
                     Ok(log) => {
-                        let _ = bot.send_message(ChatId(chat_id), 
-                            format!("✅ {} 任务已完成:\n{}", task_name, log)).await;
+                        let _ = bot.send_message(ChatId(chat_id),
+                            format!("✅ [定时任务] {} 执行成功:\n{}", task_name, log)).await;
+                        // 记录到维护历史
+                        record_maintenance(task_name, MaintenanceResult::Success, &log, None).await;
                         Ok(format!("{} 完成", task_name))
                     }
                     Err(e) => {
                         let user_message = e.user_message();
-                        let _ = bot.send_message(ChatId(chat_id), 
-                            format!("❌ {} 任务失败:\n{}\n\n建议: {}", task_name, e,
+                        let error_msg = format!("{}", e);
+                        let _ = bot.send_message(ChatId(chat_id),
+                            format!("❌ [定时任务] {} 执行失败:\n{}\n\n建议: {}", task_name, e,
                                 if e.is_retryable() { "可以稍后重试" } else { "请检查系统配置" })).await;
+                        // 记录到维护历史
+                        record_maintenance(task_name, MaintenanceResult::Failed, &user_message, Some(&error_msg)).await;
                         Err(anyhow!("{}", user_message))
                     }
                 }
@@ -149,15 +174,20 @@ impl TaskType {
             TaskType::UpdateSingbox => {
                 match ops::update_singbox().await {
                     Ok(log) => {
-                        let _ = bot.send_message(ChatId(chat_id), 
-                            format!("✅ {} 任务已完成:\n{}", task_name, log)).await;
+                        let _ = bot.send_message(ChatId(chat_id),
+                            format!("✅ [定时任务] {} 执行成功:\n{}", task_name, log)).await;
+                        // 记录到维护历史
+                        record_maintenance(task_name, MaintenanceResult::Success, &log, None).await;
                         Ok(format!("{} 完成", task_name))
                     }
                     Err(e) => {
                         let user_message = e.user_message();
-                        let _ = bot.send_message(ChatId(chat_id), 
-                            format!("❌ {} 任务失败:\n{}\n\n建议: {}", task_name, e,
+                        let error_msg = format!("{}", e);
+                        let _ = bot.send_message(ChatId(chat_id),
+                            format!("❌ [定时任务] {} 执行失败:\n{}\n\n建议: {}", task_name, e,
                                 if e.is_retryable() { "可以稍后重试" } else { "请检查系统配置" })).await;
+                        // 记录到维护历史
+                        record_maintenance(task_name, MaintenanceResult::Failed, &user_message, Some(&error_msg)).await;
                         Err(anyhow!("{}", user_message))
                     }
                 }
