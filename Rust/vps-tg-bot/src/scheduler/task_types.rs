@@ -103,7 +103,7 @@ impl TaskType {
                             format!("❌ [定时任务] {} 执行失败:\n{}\n\n建议: {}", task_name, e,
                                 if e.is_retryable() { "可以稍后重试" } else { "请检查系统配置" })).await;
                         // 记录到维护历史
-                        record_maintenance(task_name, MaintenanceResult::Failed, &user_message, Some(&error_msg)).await;
+                        record_maintenance(task_name, MaintenanceResult::Failed, user_message, Some(&error_msg)).await;
                         Err(anyhow!("{}", user_message))
                     }
                 }
@@ -124,7 +124,7 @@ impl TaskType {
                             format!("❌ [定时任务] {} 执行失败:\n{}\n\n建议: {}", task_name, e,
                                 if e.is_retryable() { "可以稍后重试" } else { "请检查系统配置" })).await;
                         // 记录到维护历史
-                        record_maintenance(task_name, MaintenanceResult::Failed, &user_message, Some(&error_msg)).await;
+                        record_maintenance(task_name, MaintenanceResult::Failed, user_message, Some(&error_msg)).await;
                         Err(anyhow!("{}", user_message))
                     }
                 }
@@ -145,7 +145,7 @@ impl TaskType {
                             format!("❌ [定时任务] {} 执行失败:\n{}\n\n建议: {}", task_name, e,
                                 if e.is_retryable() { "可以稍后重试" } else { "请检查系统配置" })).await;
                         // 记录到维护历史
-                        record_maintenance(task_name, MaintenanceResult::Failed, &user_message, Some(&error_msg)).await;
+                        record_maintenance(task_name, MaintenanceResult::Failed, user_message, Some(&error_msg)).await;
                         Err(anyhow!("{}", user_message))
                     }
                 }
@@ -166,7 +166,7 @@ impl TaskType {
                             format!("❌ [定时任务] {} 执行失败:\n{}\n\n建议: {}", task_name, e,
                                 if e.is_retryable() { "可以稍后重试" } else { "请检查系统配置" })).await;
                         // 记录到维护历史
-                        record_maintenance(task_name, MaintenanceResult::Failed, &user_message, Some(&error_msg)).await;
+                        record_maintenance(task_name, MaintenanceResult::Failed, user_message, Some(&error_msg)).await;
                         Err(anyhow!("{}", user_message))
                     }
                 }
@@ -187,7 +187,7 @@ impl TaskType {
                             format!("❌ [定时任务] {} 执行失败:\n{}\n\n建议: {}", task_name, e,
                                 if e.is_retryable() { "可以稍后重试" } else { "请检查系统配置" })).await;
                         // 记录到维护历史
-                        record_maintenance(task_name, MaintenanceResult::Failed, &user_message, Some(&error_msg)).await;
+                        record_maintenance(task_name, MaintenanceResult::Failed, user_message, Some(&error_msg)).await;
                         Err(anyhow!("{}", user_message))
                     }
                 }
