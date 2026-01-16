@@ -1,17 +1,16 @@
 {
   "tasks": [
     {
-      "task_type": "SystemMaintenance",
-      "cron_expression": "0 6 * * *",
+      "task_type": "CoreMaintenance",
+      "cron_expression": "invalid_cron",
       "enabled": false
     },
     {
       "task_type": "CoreMaintenance",
       "cron_expression": "0 5 * * *",
       "enabled": true
-    }
-  ]
-}{
+    },
+    {
       "task_type": "CoreMaintenance",
       "cron_expression": "0 6 * * *",
       "enabled": true
@@ -29,6 +28,16 @@
     {
       "task_type": "CoreMaintenance",
       "cron_expression": "0 9 * * *",
+      "enabled": true
+    },
+    {
+      "task_type": "UpdateXray",
+      "cron_expression": "0 8 * * *",
+      "enabled": true
+    },
+    {
+      "task_type": "CoreMaintenance",
+      "cron_expression": "0 5 * * *",
       "enabled": true
     }
   ]

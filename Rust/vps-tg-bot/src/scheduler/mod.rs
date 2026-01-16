@@ -149,7 +149,14 @@ impl SchedulerManager {
             // 添加所有启用的任务
             for task in tasks.iter() {
                 if task.enabled {
-                    let job = Job::new_async(task.cron_expression.as_str(), {
+                    // 自动适配 5 字段 cron 表达式（补充秒位）
+                    let cron_expr = if task.cron_expression.split_whitespace().count() == 5 {
+                        format!("0 {}", task.cron_expression)
+                    } else {
+                        task.cron_expression.clone()
+                    };
+
+                    let job = Job::new_async(cron_expr.as_str(), {
                         let bot = bot.clone();
                         let task_type = task.task_type.clone();
                         let chat_id = config.chat_id;

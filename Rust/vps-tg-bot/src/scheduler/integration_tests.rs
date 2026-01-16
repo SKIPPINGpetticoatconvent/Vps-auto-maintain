@@ -15,12 +15,19 @@ fn create_test_config() -> Config {
     }
 }
 
+// Helper to cleanup state file
+fn cleanup_state_file() {
+    let _ = std::fs::remove_file("scheduler_state.json");
+    let _ = std::fs::remove_file("maintenance_history.json");
+}
+
 fn create_test_bot() -> Bot {
     Bot::new("1234567890:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 }
 
 #[tokio::test]
 async fn test_scheduler_manager_creation() {
+    cleanup_state_file();
     let config = create_test_config();
     let bot = create_test_bot();
     
@@ -34,6 +41,7 @@ async fn test_scheduler_manager_creation() {
 
 #[tokio::test]
 async fn test_scheduler_manager_add_task() {
+    cleanup_state_file();
     let config = create_test_config();
     let bot = create_test_bot();
     
@@ -52,7 +60,31 @@ async fn test_scheduler_manager_add_task() {
 }
 
 #[tokio::test]
+async fn test_scheduler_manager_add_task_5_fields() {
+    cleanup_state_file();
+    let config = create_test_config();
+    let bot = create_test_bot();
+    
+    let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+    
+    let task_type = TaskType::RulesMaintenance;
+    // 5 fields: minute hour day month weekday
+    let cron_expr = "0 4 * * *";
+    
+    let result = manager.add_new_task(config.clone(), bot.clone(), task_type.clone(), cron_expr).await;
+    assert!(result.is_ok(), "Should accept 5-field cron expression");
+    let msg = result.unwrap();
+    assert!(msg.contains("✅"), "Should return success message");
+    
+    // Verify it's stored as 5 fields in state (user input preserved)
+    let state = manager.state.lock().await;
+    let task = state.tasks.iter().find(|t| t.task_type == TaskType::RulesMaintenance).expect("Task should exist");
+    assert_eq!(task.cron_expression, cron_expr);
+}
+
+#[tokio::test]
 async fn test_scheduler_manager_remove_task() {
+    cleanup_state_file();
     let config = create_test_config();
     let bot = create_test_bot();
     
@@ -67,6 +99,7 @@ async fn test_scheduler_manager_remove_task() {
 
 #[tokio::test]
 async fn test_scheduler_manager_toggle_task() {
+    cleanup_state_file();
     let config = create_test_config();
     let bot = create_test_bot();
     
@@ -90,6 +123,7 @@ async fn test_scheduler_manager_toggle_task() {
 
 #[tokio::test]
 async fn test_scheduler_manager_update_task() {
+    cleanup_state_file();
     let config = create_test_config();
     let bot = create_test_bot();
     
@@ -105,6 +139,7 @@ async fn test_scheduler_manager_update_task() {
 
 #[tokio::test]
 async fn test_scheduler_manager_add_task_invalid_cron() {
+    cleanup_state_file();
     let config = create_test_config();
     let bot = create_test_bot();
     
