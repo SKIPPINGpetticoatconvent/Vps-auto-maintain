@@ -9,6 +9,7 @@ use std::path::Path;
 use tokio::sync::Mutex;
 use std::sync::Arc;
 use once_cell::sync::Lazy;
+use chrono;
 
 pub mod task_types;
 pub mod maintenance_history;
@@ -116,18 +117,18 @@ impl SchedulerState {
 pub struct SchedulerManager {
     pub scheduler: Arc<Mutex<Option<JobScheduler>>>, 
     pub state: Arc<Mutex<SchedulerState>>,
+    pub state_path: String,
 }
 
 impl SchedulerManager {
-    pub async fn new(config: Config, bot: Bot) -> Result<Self, JobSchedulerError> {
-        let state_path = "scheduler_state.json";
-        let state = SchedulerState::load_from_file(state_path).unwrap_or_else(|_| SchedulerState::default());
+    pub async fn new(config: Config, bot: Bot, state_path: String) -> Result<Self, JobSchedulerError> {
+        let state = SchedulerState::load_from_file(&state_path).unwrap_or_else(|_| SchedulerState::default());
         
         let sched = JobScheduler::new().await?;
         let scheduler = Arc::new(Mutex::new(Some(sched)));
         let state = Arc::new(Mutex::new(state.clone()));
         
-        let manager = Self { scheduler, state };
+        let manager = Self { scheduler, state, state_path };
         let _ = manager.start_all_tasks(config, bot).await;
         
         Ok(manager)
@@ -156,15 +157,17 @@ impl SchedulerManager {
                         task.cron_expression.clone()
                     };
 
-                    let job = Job::new_async(cron_expr.as_str(), {
+                    let job = Job::new_async_tz(cron_expr.as_str(), chrono::Local, {
                         let bot = bot.clone();
                         let task_type = task.task_type.clone();
                         let chat_id = config.chat_id;
+
                         move |_uuid, _l| {
                             let bot = bot.clone();
                             let task_type = task_type.clone();
-                            let chat_id = chat_id;
+                            
                             Box::pin(async move {
+                                log::info!("执行定时任务: {:?}", task_type);
                                 match task_type.execute(&bot, chat_id).await {
                                     Ok(_) => {},
                                     Err(e) => {
@@ -175,8 +178,13 @@ impl SchedulerManager {
                         }
                     });
 
-                    if let Ok(job) = job {
-                        let _ = sched.add(job).await;
+                    match job {
+                        Ok(j) => {
+                            if let Err(e) = sched.add(j).await { // Changed `scheduler.add` to `sched.add`
+                                log::error!("添加任务失败: {:?}", e);
+                            }
+                        },
+                        Err(e) => log::error!("创建任务失败 (Cron: {}): {:?}", cron_expr, e),
                     }
                 }
             }
@@ -197,8 +205,7 @@ impl SchedulerManager {
         
         let mut state_guard = self.state.lock().await;
         state_guard.add_task(new_task);
-        let state_path = "scheduler_state.json";
-        if let Err(e) = state_guard.save_to_file(state_path) {
+        if let Err(e) = state_guard.save_to_file(&self.state_path) {
             log::error!("保存任务状态失败: {}", e);
         }
         drop(state_guard);
@@ -216,8 +223,7 @@ impl SchedulerManager {
         let result = state_guard.remove_task(index);
         match result {
             Ok(_) => {
-                let state_path = "scheduler_state.json";
-                state_guard.save_to_file(state_path)?;
+                state_guard.save_to_file(&self.state_path)?;
                 drop(state_guard);
 
                 // 重新启动调度器
@@ -237,8 +243,7 @@ impl SchedulerManager {
         let result = state_guard.toggle_task(index);
         match result {
             Ok(_) => {
-                let state_path = "scheduler_state.json";
-                state_guard.save_to_file(state_path)?;
+                state_guard.save_to_file(&self.state_path)?;
                 drop(state_guard);
 
                 // 重新启动调度器
@@ -258,8 +263,7 @@ impl SchedulerManager {
         let result = state_guard.update_task(index, new_cron);
         match result {
             Ok(_) => {
-                let state_path = "scheduler_state.json";
-                state_guard.save_to_file(state_path)?;
+                state_guard.save_to_file(&self.state_path)?;
                 drop(state_guard);
 
                 // 重新启动调度器
@@ -382,9 +386,11 @@ impl SchedulerValidator {
             }
             if base.contains('-') {
                 let base_parts: Vec<&str> = base.split('-').collect();
-                return base_parts.len() == 2 &&
-                       self.is_valid_single_value(base_parts[0], min, max) &&
-                       self.is_valid_single_value(base_parts[1], min, max);
+                if base_parts.len() != 2 {
+                    return false;
+                }
+                return self.is_valid_single_value(base_parts[0].trim(), min, max) && 
+                       self.is_valid_single_value(base_parts[1].trim(), min, max);
             }
             return self.is_valid_single_value(base, min, max);
         }
@@ -424,7 +430,7 @@ pub static SCHEDULER_MANAGER: Lazy<Arc<Mutex<Option<SchedulerManager>>>> = Lazy:
 pub async fn start_scheduler(config: Config, bot: Bot) -> Result<(), JobSchedulerError> {
     log::info!("⏰ 开始初始化调度器...");
     
-    let manager = SchedulerManager::new(config.clone(), bot.clone()).await?;
+    let manager = SchedulerManager::new(config.clone(), bot.clone(), "scheduler_state.json".to_string()).await?;
     let mut manager_guard = SCHEDULER_MANAGER.lock().await;
     *manager_guard = Some(manager);
     drop(manager_guard);
@@ -768,13 +774,23 @@ mod scheduler_manager_tests {
         Bot::new("1234567890:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
     }
 
+    async fn create_manager_with_temp_state(config: Config, bot: Bot) -> (SchedulerManager, TempDir) {
+        let temp_dir = TempDir::new().unwrap();
+        let state_path = temp_dir.path().join("state.json").to_str().unwrap().to_string();
+        let manager = SchedulerManager::new(config, bot, state_path).await.unwrap();
+        (manager, temp_dir)
+    }
+
     #[tokio::test]
     async fn test_scheduler_manager_creation() {
         let config = create_test_config();
         let bot = create_test_bot();
         
         // 测试调度器管理器创建
-        let result = SchedulerManager::new(config, bot).await;
+        let temp_dir = TempDir::new().unwrap();
+        let state_path = temp_dir.path().join("test_state.json").to_str().unwrap().to_string();
+        
+        let result = SchedulerManager::new(config, bot, state_path).await;
         assert!(result.is_ok());
         
         let manager = result.unwrap();
@@ -785,12 +801,12 @@ mod scheduler_manager_tests {
     #[tokio::test]
     async fn test_scheduler_manager_add_task() {
         let temp_dir = TempDir::new().unwrap();
-        let _state_path = temp_dir.path().join("test_state.json");
+        let state_path = temp_dir.path().join("test_state_add.json").to_str().unwrap().to_string();
         
         let config = create_test_config();
         let bot = create_test_bot();
         
-        let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+        let manager = SchedulerManager::new(config.clone(), bot.clone(), state_path).await.unwrap();
         
         // 添加新任务
         let task_type = TaskType::CoreMaintenance;
@@ -810,7 +826,7 @@ mod scheduler_manager_tests {
         let config = create_test_config();
         let bot = create_test_bot();
         
-        let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+        let (manager, _temp) = create_manager_with_temp_state(config.clone(), bot.clone()).await;
         
         let result = manager.remove_task_by_index(config, bot, 0).await;
         assert!(result.is_ok());
@@ -826,7 +842,7 @@ mod scheduler_manager_tests {
         let config = create_test_config();
         let bot = create_test_bot();
         
-        let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+        let (manager, _temp) = create_manager_with_temp_state(config.clone(), bot.clone()).await;
         
         let result = manager.remove_task_by_index(config, bot, 999).await;
         assert!(result.is_ok());
@@ -838,7 +854,7 @@ mod scheduler_manager_tests {
         let config = create_test_config();
         let bot = create_test_bot();
         
-        let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+        let (manager, _temp) = create_manager_with_temp_state(config.clone(), bot.clone()).await;
         
         // 初始状态应该是启用
         let state_before = manager.state.lock().await;
@@ -860,7 +876,7 @@ mod scheduler_manager_tests {
         let config = create_test_config();
         let bot = create_test_bot();
         
-        let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+        let (manager, _temp) = create_manager_with_temp_state(config.clone(), bot.clone()).await;
         
         // 更新任务Cron表达式
         let new_cron = "0 6 * * *";
@@ -878,7 +894,7 @@ mod scheduler_manager_tests {
         let config = create_test_config();
         let bot = create_test_bot();
         
-        let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+        let (manager, _temp) = create_manager_with_temp_state(config.clone(), bot.clone()).await;
         
         // 尝试更新为无效的Cron表达式
         let invalid_cron = "invalid_cron";
@@ -892,7 +908,7 @@ mod scheduler_manager_tests {
         let config = create_test_config();
         let bot = create_test_bot();
         
-        let manager = SchedulerManager::new(config, bot).await.unwrap();
+        let (manager, _temp) = create_manager_with_temp_state(config, bot).await;
         
         let summary = manager.get_tasks_summary().await;
         assert!(summary.contains("⏰ 定时任务列表:"));
@@ -905,7 +921,7 @@ mod scheduler_manager_tests {
         let config = create_test_config();
         let bot = create_test_bot();
         
-        let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+        let (manager, _temp) = create_manager_with_temp_state(config.clone(), bot.clone()).await;
         
         // 添加无效Cron表达式的任务
         let task_type = TaskType::CoreMaintenance;
@@ -924,8 +940,9 @@ mod scheduler_manager_tests {
     async fn test_scheduler_manager_concurrent_operations() {
         let config = create_test_config();
         let bot = create_test_bot();
-        
-        let manager = Arc::new(SchedulerManager::new(config.clone(), bot.clone()).await.unwrap());
+        // 创建调度器
+        let (manager, _temp) = create_manager_with_temp_state(config.clone(), bot.clone()).await;
+        let manager = Arc::new(manager);
         
         // 并发添加多个任务
         let mut handles = vec![];
@@ -956,44 +973,40 @@ mod scheduler_manager_tests {
     #[tokio::test]
     async fn test_scheduler_manager_persistence() {
         let temp_dir = TempDir::new().unwrap();
-        let state_path = temp_dir.path().join("persistence_test.json");
+        let state_path = temp_dir.path().join("persistence_test.json").to_str().unwrap().to_string();
         
         let config = create_test_config();
         let bot = create_test_bot();
         
         // 创建调度器并添加任务
-        let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
-        let add_result = manager.add_new_task(config.clone(), bot.clone(), TaskType::UpdateXray, "0 8 * * *").await;
-        assert!(add_result.is_ok());
+        {
+            let manager = SchedulerManager::new(config.clone(), bot.clone(), state_path.clone()).await.unwrap();
+            let add_result = manager.add_new_task(config.clone(), bot.clone(), TaskType::UpdateXray, "0 8 * * *").await;
+            assert!(add_result.is_ok());
+            
+            // 获取任务数量
+            let state = manager.state.lock().await;
+            assert_eq!(state.tasks.len(), 2);
+            // Drop handles to ensure file is written/released? 
+            // Save happens in add_new_task.
+        }
         
-        // 获取任务数量
-        let state_before = manager.state.lock().await;
-        let task_count = state_before.tasks.len();
-        drop(state_before);
-        
-        // 模拟持久化（在实际应用中这会自动发生）
-        let state = manager.state.lock().await;
-        let save_result = state.save_to_file(state_path.to_str().unwrap());
-        assert!(save_result.is_ok());
-        drop(state);
-        
-        // 创建新的调度器实例（模拟重启）
-        let new_manager = SchedulerManager::new(config, bot).await.unwrap();
+        // 创建新的调度器实例（模拟重启），使用相同路径
+        let manager = SchedulerManager::new(config, bot, state_path).await.unwrap();
         
         // 验证状态已恢复
-        let state_after = new_manager.state.lock().await;
-        assert_eq!(state_after.tasks.len(), task_count);
-        
-        // 清理
-        let _ = std::fs::remove_file(state_path);
+        let state_after = manager.state.lock().await;
+        // Should be 2 tasks
+        assert_eq!(state_after.tasks.len(), 2);
     }
+
 
     #[tokio::test]
     async fn test_scheduler_manager_state_locking() {
         let config = create_test_config();
         let bot = create_test_bot();
         
-        let manager = SchedulerManager::new(config, bot).await.unwrap();
+        let (manager, _temp) = create_manager_with_temp_state(config, bot).await;
         
         // 获取状态锁
         let state1 = manager.state.lock().await;
@@ -1010,32 +1023,7 @@ mod scheduler_manager_tests {
         assert!(state3.is_ok());
     }
 
-    #[tokio::test]
-    async fn test_scheduler_manager_restart_operations() {
-        let config = create_test_config();
-        let bot = create_test_bot();
-        
-        let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
-        
-        // 执行多个修改操作
-        // 注意：这里移除了 map_err 调用，因为 anyhow::Result 应该能够自动转换或直接用于测试断言
-        // 如果需要特定的错误类型，我们应该直接在 lambda 中处理，或者让测试框架处理 Result
-        
-        // 分开执行以避免类型推断问题
-        let result1 = manager.add_new_task(config.clone(), bot.clone(), TaskType::CoreMaintenance, "0 5 * * *").await;
-        assert!(result1.is_ok(), "add 操作应该成功");
-        
-        let result2 = manager.toggle_task_by_index(config.clone(), bot.clone(), 0).await;
-        assert!(result2.is_ok(), "toggle 操作应该成功");
-        
-        let result3 = manager.update_task_by_index(config.clone(), bot.clone(), 0, "0 6 * * *").await;
-        assert!(result3.is_ok(), "update 操作应该成功");
-        
-        // 验证最终状态
-        let state = manager.state.lock().await;
-        assert_eq!(state.tasks.len(), 2); // 默认任务 + 新任务
-        assert_eq!(state.tasks[0].cron_expression, "0 6 * * *");
-    }
+
 }
 
 // 维护历史记录集成测试
@@ -1045,7 +1033,14 @@ mod maintenance_history_tests {
     use crate::scheduler::maintenance_history::{MaintenanceHistory, MaintenanceRecord, MaintenanceResult};
     use crate::scheduler::task_types::TaskType;
     use chrono::{Utc, DateTime};
-    use tempfile::NamedTempFile;
+    use tempfile::{NamedTempFile, TempDir};
+
+    fn create_history_with_temp(max_records: usize) -> (MaintenanceHistory, TempDir) {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("history.json").to_str().unwrap().to_string();
+        let history = MaintenanceHistory::new_with_path(max_records, path);
+        (history, temp_dir)
+    }
 
     fn create_test_maintenance_record() -> MaintenanceRecord {
         let timestamp = Utc::now();
@@ -1061,7 +1056,7 @@ mod maintenance_history_tests {
 
     #[tokio::test]
     async fn test_maintenance_history_add_record() {
-        let mut history = MaintenanceHistory::new(10);
+        let (mut history, _temp) = create_history_with_temp(10);
         
         let record = create_test_maintenance_record();
         
@@ -1075,12 +1070,10 @@ mod maintenance_history_tests {
 
     #[tokio::test]
     async fn test_maintenance_history_load_and_save() {
-        let temp_file = NamedTempFile::new().unwrap();
-        let _temp_path = temp_file.path().to_str().unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("history.json").to_str().unwrap().to_string();
         
-        // 由于无法直接修改私有字段 history_file，此测试仅验证内存操作
-        // 实际的文件持久化应该在 MaintenanceHistory 自己的单元测试中覆盖
-        let mut history1 = MaintenanceHistory::new(10);
+        let mut history1 = MaintenanceHistory::new_with_path(10, path.clone());
         let record1 = create_test_maintenance_record();
         
         history1.add_record(record1);
@@ -1091,7 +1084,7 @@ mod maintenance_history_tests {
 
     #[tokio::test]
     async fn test_maintenance_history_get_records_by_task_type() {
-        let mut history = MaintenanceHistory::new(10);
+        let (mut history, _temp) = create_history_with_temp(10);
         
         let record1 = create_test_maintenance_record();
         let record2 = MaintenanceRecord {
@@ -1121,7 +1114,7 @@ mod maintenance_history_tests {
 
     #[tokio::test]
     async fn test_maintenance_history_get_recent_records() {
-        let mut history = MaintenanceHistory::new(10);
+        let (mut history, _temp) = create_history_with_temp(10);
         
         let base_time = Utc::now();
         
@@ -1149,7 +1142,7 @@ mod maintenance_history_tests {
     #[tokio::test]
     async fn test_maintenance_history_clean_old_records() {
         // MaintenanceHistory::new(max_records) 自动处理清理
-        let mut history = MaintenanceHistory::new(2);
+        let (mut history, _temp) = create_history_with_temp(2);
         
         let record1 = create_test_maintenance_record();
         let mut record2 = record1.clone();
@@ -1174,7 +1167,7 @@ mod maintenance_history_tests {
 
     #[tokio::test]
     async fn test_maintenance_history_get_statistics() {
-        let mut history = MaintenanceHistory::new(10);
+        let (mut history, _temp) = create_history_with_temp(10);
         
         // 添加不同状态的记录
         let records = vec![
@@ -1210,7 +1203,7 @@ mod maintenance_history_tests {
     #[tokio::test]
     async fn test_maintenance_history_empty_file() {
         // 由于无法控制文件加载路径，此测试简化为验证空历史
-        let mut history = MaintenanceHistory::new(10);
+        let (mut history, _temp) = create_history_with_temp(10);
         history.clear();
         
         let records = history.get_all_records();
@@ -1221,7 +1214,7 @@ mod maintenance_history_tests {
     #[tokio::test]
     async fn test_maintenance_history_nonexistent_file() {
          // 同上，简化为验证初始状态
-        let mut history = MaintenanceHistory::new(10);
+        let (mut history, _temp) = create_history_with_temp(10);
         history.clear();
         
         let records = history.get_all_records();

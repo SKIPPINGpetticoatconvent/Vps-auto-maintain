@@ -52,8 +52,10 @@ pub struct MaintenanceHistory {
 
 impl MaintenanceHistory {
     pub fn new(max_records: usize) -> Self {
-        let history_file = "maintenance_history.json".to_string();
-        
+        Self::new_with_path(max_records, "maintenance_history.json".to_string())
+    }
+
+    pub fn new_with_path(max_records: usize, history_file: String) -> Self {
         let mut history = Self {
             records: VecDeque::with_capacity(max_records),
             max_records,
@@ -140,12 +142,14 @@ impl MaintenanceHistory {
         let records: Vec<MaintenanceRecord> = serde_json::from_str(&content)?;
         
         // 限制记录数量
+        // JSON 是最新的在前 [3, 2, 1]
         let limited_records: Vec<_> = if records.len() > self.max_records {
-            records.into_iter().rev().take(self.max_records).collect()
+            records.into_iter().take(self.max_records).collect()
         } else {
-            records.into_iter().rev().collect()
+            records
         };
         
+        // 存入 Deque 需要反转为 [1, 2, 3] (由于 push_back)
         self.records = limited_records.into_iter().rev().collect();
         Ok(())
     }
@@ -304,6 +308,15 @@ mod tests {
     use chrono::{DateTime, Utc, Duration};
     use tempfile::{NamedTempFile};
     use std::fs;
+    use tempfile::TempDir;
+
+    fn create_history_with_temp(max_records: usize) -> (MaintenanceHistory, TempDir) {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("history.json").to_str().unwrap().to_string();
+        let history = MaintenanceHistory::new_with_path(max_records, path);
+        (history, temp_dir)
+    }
+
 
     #[test]
     fn test_maintenance_result_variants() {
@@ -358,7 +371,7 @@ mod tests {
 
     #[test]
     fn test_maintenance_history_add_record() {
-        let mut history = MaintenanceHistory::new(10);
+        let (mut history, _temp) = create_history_with_temp(10);
         
         let record = MaintenanceRecord::new(
             "测试记录".to_string(),
@@ -375,7 +388,7 @@ mod tests {
 
     #[test]
     fn test_maintenance_history_max_records_limit() {
-        let mut history = MaintenanceHistory::new(3);
+        let (mut history, _temp) = create_history_with_temp(3);
         
         // 添加4条记录，应该只保留最新的3条
         for i in 1..=4 {
@@ -395,7 +408,7 @@ mod tests {
 
     #[test]
     fn test_maintenance_history_get_all_records() {
-        let mut history = MaintenanceHistory::new(10);
+        let (mut history, _temp) = create_history_with_temp(10);
         
         // 添加几条记录
         for i in 1..=3 {
@@ -419,7 +432,7 @@ mod tests {
 
     #[test]
     fn test_maintenance_history_get_recent_records() {
-        let mut history = MaintenanceHistory::new(10);
+        let (mut history, _temp) = create_history_with_temp(10);
         
         // 添加5条记录
         for i in 1..=5 {
@@ -445,7 +458,7 @@ mod tests {
 
     #[test]
     fn test_maintenance_history_get_records_by_task_type() {
-        let mut history = MaintenanceHistory::new(10);
+        let (mut history, _temp) = create_history_with_temp(10);
         
         // 添加不同类型的记录
         let records_data = vec![
@@ -481,7 +494,7 @@ mod tests {
 
     #[test]
     fn test_maintenance_history_get_statistics() {
-        let mut history = MaintenanceHistory::new(10);
+        let (mut history, _temp) = create_history_with_temp(10);
         
         // 添加不同结果的记录
         let records_data = vec![
@@ -511,7 +524,7 @@ mod tests {
 
     #[test]
     fn test_maintenance_history_clear() {
-        let mut history = MaintenanceHistory::new(10);
+        let (mut history, _temp) = create_history_with_temp(10);
         
         // 添加一些记录
         for i in 1..=3 {
@@ -533,7 +546,7 @@ mod tests {
 
     #[test]
     fn test_maintenance_history_format_record() {
-        let history = MaintenanceHistory::new(10);
+        let (history, _temp) = create_history_with_temp(10);
         let timestamp = Utc::now();
         
         let record = MaintenanceRecord {
@@ -572,7 +585,7 @@ mod tests {
 
     #[test]
     fn test_maintenance_history_generate_summary_empty() {
-        let history = MaintenanceHistory::new(10);
+        let (history, _temp) = create_history_with_temp(10);
         let summary = history.generate_summary();
         
         assert_eq!(summary, "📋 暂无维护历史记录");
@@ -580,7 +593,7 @@ mod tests {
 
     #[test]
     fn test_maintenance_history_generate_summary_with_records() {
-        let mut history = MaintenanceHistory::new(10);
+        let (mut history, _temp) = create_history_with_temp(10);
         
         // 添加一些记录
         let records_data = vec![
@@ -613,85 +626,95 @@ mod tests {
 
     #[test]
     fn test_maintenance_history_save_and_load() {
-        let temp_file = NamedTempFile::new().unwrap();
-        let temp_path = temp_file.path().to_str().unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("history.json").to_str().unwrap().to_string();
         
-        let mut history = MaintenanceHistory::new(10);
-        history.history_file = temp_path.to_string();
-        
-        // 添加一些记录
-        for i in 1..=3 {
-            let record = MaintenanceRecord::new(
-                format!("任务{}", i),
-                MaintenanceResult::Success,
-                format!("输出{}", i),
-                None,
-            );
-            history.add_record(record);
-        }
+        {
+            let mut history = MaintenanceHistory::new_with_path(10, path.clone());
+            
+            // 添加一些记录
+            for i in 1..=3 {
+                let record = MaintenanceRecord::new(
+                    format!("任务{}", i),
+                    MaintenanceResult::Success,
+                    format!("输出{}", i),
+                    None,
+                );
+                history.add_record(record);
+            }
+        } // Drop to ensure flush (though changes are immediate on add_record)
         
         // 创建新的历史实例并加载
-        let mut loaded_history = MaintenanceHistory::new(10);
-        loaded_history.history_file = temp_path.to_string();
+        let mut loaded_history = MaintenanceHistory::new_with_path(10, path.clone());
         let result = loaded_history.load_from_file();
         
         assert!(result.is_ok());
         assert_eq!(loaded_history.records.len(), 3);
+        // Correct expectation: "任务3" is the last added, so it should be back() (newest)
+        // If save reversed it (3,2,1), load reversed it back (1,2,3).
+        // So back() should be 3.
         assert_eq!(loaded_history.records.back().unwrap().task_type, "任务3");
-        
-        // 清理
-        let _ = fs::remove_file(temp_path);
     }
 
     #[test]
     fn test_maintenance_history_load_nonexistent_file() {
-        let temp_file = NamedTempFile::new().unwrap();
-        let temp_path = temp_file.path().to_str().unwrap();
+        let (mut history, _temp) = create_history_with_temp(10);
         
-        // 删除文件
-        let _ = fs::remove_file(temp_path);
+        // The file is created by create_history_with_temp (path generation), but not written until saved?
+        // Actually new_with_path calls load_from_file.
+        // If file doesn't exist, it handles it.
+        // We want to ensure it DOES NOT exist.
+        // existing helper creates a path in a temp dir. File doesn't exist yet unless created.
+        // So just calling new_with_path works.
         
-        let mut history = MaintenanceHistory::new(10);
-        history.history_file = temp_path.to_string();
-        let result = history.load_from_file();
+        // Use manual setup to be explicit about "load_from_file" call if we want to test RE-load
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("nonexistent.json").to_str().unwrap().to_string();
         
-        assert!(result.is_ok());
+        let mut history = MaintenanceHistory::new_with_path(10, path); // calls load internally
         assert_eq!(history.records.len(), 0);
     }
 
     #[test]
     fn test_maintenance_history_save_preserves_order() {
-        let temp_file = NamedTempFile::new().unwrap();
-        let temp_path = temp_file.path().to_str().unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("history_order.json").to_str().unwrap().to_string();
         
-        let mut history = MaintenanceHistory::new(10);
-        history.history_file = temp_path.to_string();
-        
-        // 按顺序添加记录
-        for i in 1..=5 {
-            let record = MaintenanceRecord::new(
-                format!("任务{}", i),
-                MaintenanceResult::Success,
-                format!("输出{}", i),
-                None,
-            );
-            history.add_record(record);
+        {
+            let mut history = MaintenanceHistory::new_with_path(10, path.clone());
+            
+            // 按顺序添加记录
+            for i in 1..=5 {
+                let record = MaintenanceRecord::new(
+                    format!("任务{}", i),
+                    MaintenanceResult::Success,
+                    format!("输出{}", i),
+                    None,
+                );
+                history.add_record(record);
+            }
         }
         
         // 重新加载
-        let mut loaded_history = MaintenanceHistory::new(10);
-        loaded_history.history_file = temp_path.to_string();
-        let _ = loaded_history.load_from_file();
+        let mut loaded_history = MaintenanceHistory::new_with_path(10, path);
+        // load_from_file called in new
         
         // 验证顺序保持不变
-        let loaded_records = loaded_history.get_all_records();
+        // records: [1, 2, 3, 4, 5] (queue order)
+        let loaded_records = loaded_history.get_all_records(); 
+        // get_all_records returns reversed iterator: 5, 4, 3, 2, 1?
+        // Let's check get_all_records impl: iter().rev().collect().
+        // If queue is [1, 2, 3, 4, 5]. rev is 5, 4, 3, 2, 1.
         assert_eq!(loaded_records.len(), 5);
+        
+        // The test originally asserted:
+        // for (i, record) in loaded_records.iter().enumerate() {
+        //    assert_eq!(record.task_type, format!("任务{}", 5 - i));
+        // }
+        // If i=0, 5-0=5. "任务5". Correct.
         for (i, record) in loaded_records.iter().enumerate() {
             assert_eq!(record.task_type, format!("任务{}", 5 - i));
         }
-        
-        // 清理
-        let _ = fs::remove_file(temp_path);
     }
 
     #[test]

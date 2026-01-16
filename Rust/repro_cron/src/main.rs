@@ -56,16 +56,23 @@ async fn main() {
         println!("Next tick (Local): {}", next_local);
     }
     
+    // Test proper 5 field behavior with 0.13.0 (checking if it auto-parses or we still need 6)
+    // 0.13.0 claims english support etc, maybe better parsing?
+    let output_cron = cron_5; // Try direct 5 field
+    /*
     let output_cron = if cron_5.split_whitespace().count() == 5 {
         format!("0 {}", cron_5)
     } else {
         cron_5.to_string()
     };
-    println!("Adjusted cron: '{}'", output_cron);
+    */
+    // Verify 5-field with Timezone
+    let cron_tz_str_5 = "0 4 * * *"; // 5 fields
+    println!("Testing 5-field cron with TZ: '{}'", cron_tz_str_5);
     
-    let job = Job::new_async(output_cron.as_str(), |_uuid, _l| Box::pin(async {
+    let job_tz_5 = Job::new_async_tz(cron_tz_str_5, chrono::Local, |_uuid, _l| Box::pin(async {
         println!("Job ran");
-    })).expect("Failed to create job");
+    })).expect("Failed to create job with tz 5-field");
     
-    sched.add(job).await.expect("Failed to add job");
+    sched.add(job_tz_5).await.expect("Failed to add job tz 5-field");
 }

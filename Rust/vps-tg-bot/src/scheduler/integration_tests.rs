@@ -2,7 +2,7 @@ use super::*;
 use crate::config::Config;
 use teloxide::Bot;
 use std::time::Duration;
-use tempfile::NamedTempFile;
+use tempfile::{NamedTempFile, TempDir};
 use std::fs;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -15,23 +15,27 @@ fn create_test_config() -> Config {
     }
 }
 
-// Helper to cleanup state file
-fn cleanup_state_file() {
-    let _ = std::fs::remove_file("scheduler_state.json");
-    let _ = std::fs::remove_file("maintenance_history.json");
-}
+
 
 fn create_test_bot() -> Bot {
     Bot::new("1234567890:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 }
 
+async fn create_manager_with_temp_state(config: Config, bot: Bot) -> (SchedulerManager, TempDir) {
+    let temp_dir = TempDir::new().unwrap();
+    let state_path = temp_dir.path().join("state.json").to_str().unwrap().to_string();
+    let manager = SchedulerManager::new(config, bot, state_path).await.unwrap();
+    (manager, temp_dir)
+}
+
 #[tokio::test]
 async fn test_scheduler_manager_creation() {
-    cleanup_state_file();
+    // cleanup_state_file(); // Removed
     let config = create_test_config();
     let bot = create_test_bot();
     
-    let result = SchedulerManager::new(config, bot).await;
+    let (manager, _temp) = create_manager_with_temp_state(config, bot).await;
+    let result: Result<SchedulerManager, JobSchedulerError> = Ok(manager); // Simulating previous result structure for assertion below
     assert!(result.is_ok());
     
     let manager = result.unwrap();
@@ -41,11 +45,11 @@ async fn test_scheduler_manager_creation() {
 
 #[tokio::test]
 async fn test_scheduler_manager_add_task() {
-    cleanup_state_file();
+    // cleanup_state_file(); // Removed
     let config = create_test_config();
     let bot = create_test_bot();
     
-    let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+    let (manager, _temp) = create_manager_with_temp_state(config.clone(), bot.clone()).await;
     
     let task_type = TaskType::CoreMaintenance;
     let cron_expr = "0 5 * * *";
@@ -61,11 +65,11 @@ async fn test_scheduler_manager_add_task() {
 
 #[tokio::test]
 async fn test_scheduler_manager_add_task_5_fields() {
-    cleanup_state_file();
+    // cleanup_state_file(); // Removed
     let config = create_test_config();
     let bot = create_test_bot();
     
-    let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+    let (manager, _temp) = create_manager_with_temp_state(config.clone(), bot.clone()).await;
     
     let task_type = TaskType::RulesMaintenance;
     // 5 fields: minute hour day month weekday
@@ -84,11 +88,11 @@ async fn test_scheduler_manager_add_task_5_fields() {
 
 #[tokio::test]
 async fn test_scheduler_manager_remove_task() {
-    cleanup_state_file();
+    // cleanup_state_file(); // Removed
     let config = create_test_config();
     let bot = create_test_bot();
     
-    let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+    let (manager, _temp) = create_manager_with_temp_state(config.clone(), bot.clone()).await;
     
     let result = manager.remove_task_by_index(config.clone(), bot.clone(), 0).await;
     assert!(result.is_ok());
@@ -99,11 +103,11 @@ async fn test_scheduler_manager_remove_task() {
 
 #[tokio::test]
 async fn test_scheduler_manager_toggle_task() {
-    cleanup_state_file();
+    // cleanup_state_file(); // Removed
     let config = create_test_config();
     let bot = create_test_bot();
     
-    let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+    let (manager, _temp) = create_manager_with_temp_state(config.clone(), bot.clone()).await;
     
     // Initial state check
     {
@@ -123,11 +127,11 @@ async fn test_scheduler_manager_toggle_task() {
 
 #[tokio::test]
 async fn test_scheduler_manager_update_task() {
-    cleanup_state_file();
+    // cleanup_state_file(); // Removed
     let config = create_test_config();
     let bot = create_test_bot();
     
-    let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+    let (manager, _temp) = create_manager_with_temp_state(config.clone(), bot.clone()).await;
     
     let new_cron = "0 6 * * *";
     let result = manager.update_task_by_index(config.clone(), bot.clone(), 0, new_cron).await;
@@ -139,11 +143,11 @@ async fn test_scheduler_manager_update_task() {
 
 #[tokio::test]
 async fn test_scheduler_manager_add_task_invalid_cron() {
-    cleanup_state_file();
+    // cleanup_state_file(); // Removed
     let config = create_test_config();
     let bot = create_test_bot();
     
-    let manager = SchedulerManager::new(config.clone(), bot.clone()).await.unwrap();
+    let (manager, _temp) = create_manager_with_temp_state(config.clone(), bot.clone()).await;
     
     let task_type = TaskType::CoreMaintenance;
     let invalid_cron = "invalid_cron";
@@ -219,22 +223,11 @@ fn create_test_maintenance_record() -> MaintenanceRecord {
 #[tokio::test]
 async fn test_maintenance_history_persistence() {
     let temp_file = NamedTempFile::new().unwrap();
-    let temp_path = temp_file.path().to_str().unwrap();
+    let temp_path = temp_file.path().to_str().unwrap().to_string();
     
-    let mut history = MaintenanceHistory::new(10);
-    // HACK: modify the private field via some method or use constructor if allowed.
-    // MaintenanceHistory::new creates a file at "maintenance_history.json".
-    // We can't easily change the path unless we modify the struct code to accept a path in new/load.
-    // However, MaintenanceHistory::new hardcodes "maintenance_history.json".
-    // But `load_from_file` uses `self.history_file`.
-    // Since we cannot change `history_file` path in integration test easily without `pub` access,
-    // and `new()` hardcodes it to "maintenance_history.json" in CWD.
-    // The previous test logic relied on `mod.rs` being in same module hierarchy or mocking.
-    // Here we will just test the in-memory behavior which is robust enough for unit/integration logic
-    // without file I/O side effects on CWD.
-    
-    let mut history = MaintenanceHistory::new(5);
-    // Clearing history to ensure clean state if it loaded from existing file
+    // Use new_with_path with the temp file
+    let mut history = MaintenanceHistory::new_with_path(5, temp_path.clone());
+    // Clearing history to ensure clean state if it loaded from existing file (though temp is empty usually)
     history.clear();
     
     let record = create_test_maintenance_record();
@@ -242,5 +235,6 @@ async fn test_maintenance_history_persistence() {
     
     let records = history.get_all_records();
     assert_eq!(records.len(), 1);
+    // Note: create_test_maintenance_record creates "SystemMaintenance"
     assert_eq!(records[0].task_type, "SystemMaintenance");
 }
