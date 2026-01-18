@@ -73,6 +73,7 @@ fn build_maintain_menu_keyboard() -> InlineKeyboardMarkup {
         ],
         vec![
             InlineKeyboardButton::callback("🔄 完整维护", "cmd_full_maintenance"),
+            InlineKeyboardButton::callback("🤖 更新 Bot", "cmd_update_bot"),
         ],
         vec![
             InlineKeyboardButton::callback("🔙 返回主菜单", "back_to_main"),
@@ -665,6 +666,85 @@ async fn handle_callback_query(
                 log::info!("✅ cmd_full_maintenance 处理完成");
                 return Ok(());
             }
+            "cmd_update_bot" => {
+                log::info!("🎯 处理更新 Bot: cmd_update_bot 命令");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                bot.edit_message_text(chat_id, message_id, "🔍 正在检查更新...").await?;
+                
+                // 异步检查更新
+                let bot_clone = bot.clone();
+                let chat_id_clone = chat_id;
+                let message_id_clone = message_id;
+                
+                tokio::spawn(async move {
+                    match system::update::check_latest_version().await {
+                        Ok(status) => {
+                            match status {
+                                system::update::UpdateStatus::UpToDate => {
+                                    let current_version = system::update::get_current_version();
+                                    let _ = bot_clone.edit_message_text(
+                                        chat_id_clone,
+                                        message_id_clone,
+                                        format!("✅ 当前已是最新版本: v{}\n\n请选择下一步操作:", current_version)
+                                    ).reply_markup(build_maintain_menu_keyboard())
+                                    .await;
+                                }
+                                system::update::UpdateStatus::UpdateAvailable { current, latest, release_notes } => {
+                                    let mut msg = format!(
+                                        "🆕 发现新版本！\n\n\
+                                        📌 当前版本: v{}\n\
+                                        📦 最新版本: v{}\n",
+                                        current, latest
+                                    );
+                                    
+                                    if let Some(notes) = release_notes {
+                                        let truncated_notes: String = notes.chars().take(500).collect();
+                                        msg.push_str(&format!("\n📝 更新说明:\n{}", truncated_notes));
+                                        if notes.len() > 500 {
+                                            msg.push_str("...");
+                                        }
+                                    }
+                                    
+                                    // 构建确认按钮
+                                    let keyboard = InlineKeyboardMarkup::new(vec![
+                                        vec![
+                                            InlineKeyboardButton::callback("✅ 确认更新", "confirm_update"),
+                                            InlineKeyboardButton::callback("❌ 取消", "cancel_update"),
+                                        ],
+                                    ]);
+                                    
+                                    let _ = bot_clone.edit_message_text(
+                                        chat_id_clone, 
+                                        message_id_clone, 
+                                        msg
+                                    ).reply_markup(keyboard)
+                                    .await;
+                                }
+                                system::update::UpdateStatus::Unknown(reason) => {
+                                    let _ = bot_clone.edit_message_text(
+                                        chat_id_clone,
+                                        message_id_clone,
+                                        format!("⚠️ 无法确定版本状态: {}\n\n请选择下一步操作:", reason)
+                                    ).reply_markup(build_maintain_menu_keyboard())
+                                    .await;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            let _ = bot_clone.edit_message_text(
+                                chat_id_clone,
+                                message_id_clone,
+                                format!("❌ 检查更新失败: {}\n\n请选择下一步操作:", e)
+                            ).reply_markup(build_maintain_menu_keyboard())
+                            .await;
+                        }
+                    }
+                });
+                
+                log::info!("✅ cmd_update_bot 处理完成");
+                return Ok(());
+            }
             
             // 维护菜单按钮
             "cmd_maintain_core" => {
@@ -905,8 +985,10 @@ async fn handle_callback_query(
                 bot.edit_message_text(
                     chat_id,
                     message_id,
-                    "❌ 更新已取消",
-                ).await?;
+                    "❌ 更新已取消\n\n请选择下一步操作:",
+                )
+                .reply_markup(build_maintain_menu_keyboard())
+                .await?;
                 
                 log::info!("✅ cancel_update 处理完成");
             }
