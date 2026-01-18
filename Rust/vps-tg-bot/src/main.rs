@@ -172,9 +172,10 @@ async fn send_startup_notification(bot: &teloxide::Bot, chat_id: i64) {
         boot_time, uptime
     );
     
-    if let Err(_) = bot.send_message(ChatId(chat_id), message)
+    if bot.send_message(ChatId(chat_id), message)
         .parse_mode(teloxide::types::ParseMode::MarkdownV2)
         .await
+        .is_err()
     {
         // 如果 MarkdownV2 失败，尝试纯文本
         let plain_message = format!(
