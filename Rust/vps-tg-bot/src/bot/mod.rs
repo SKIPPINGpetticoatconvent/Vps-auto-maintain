@@ -37,6 +37,8 @@ pub enum Command {
     MaintenanceHistory,
     #[command(description = "完整维护")]
     FullMaintenance,
+    #[command(description = "更新 Bot")]
+    UpdateBot,
 }
 
 // 构建主菜单 Inline Keyboard
@@ -460,6 +462,57 @@ async fn answer(bot: Bot, message: Message, command: Command) -> Result<(), Box<
                 }
             }
         }
+        Command::UpdateBot => {
+            bot.send_message(message.chat.id, "🔍 正在检查更新...").await?;
+            
+            match system::update::check_latest_version().await {
+                Ok(status) => {
+                    match status {
+                        system::update::UpdateStatus::UpToDate => {
+                            let current_version = system::update::get_current_version();
+                            bot.send_message(message.chat.id, 
+                                format!("✅ 当前已是最新版本: v{}", current_version)).await?;
+                        }
+                        system::update::UpdateStatus::UpdateAvailable { current, latest, release_notes } => {
+                            let mut msg = format!(
+                                "🆕 发现新版本！\n\n\
+                                📌 当前版本: v{}\n\
+                                📦 最新版本: v{}\n",
+                                current, latest
+                            );
+                            
+                            if let Some(notes) = release_notes {
+                                let truncated_notes: String = notes.chars().take(500).collect();
+                                msg.push_str(&format!("\n📝 更新说明:\n{}", truncated_notes));
+                                if notes.len() > 500 {
+                                    msg.push_str("...");
+                                }
+                            }
+                            
+                            // 构建确认按钮
+                            let keyboard = InlineKeyboardMarkup::new(vec![
+                                vec![
+                                    InlineKeyboardButton::callback("✅ 确认更新", "confirm_update"),
+                                    InlineKeyboardButton::callback("❌ 取消", "cancel_update"),
+                                ],
+                            ]);
+                            
+                            bot.send_message(message.chat.id, msg)
+                                .reply_markup(keyboard)
+                                .await?;
+                        }
+                        system::update::UpdateStatus::Unknown(reason) => {
+                            bot.send_message(message.chat.id, 
+                                format!("⚠️ 无法确定版本状态: {}", reason)).await?;
+                        }
+                    }
+                }
+                Err(e) => {
+                    bot.send_message(message.chat.id, 
+                        format!("❌ 检查更新失败: {}", e)).await?;
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -797,6 +850,65 @@ async fn handle_callback_query(
                 .reply_markup(keyboard)
                 .await?;
                 log::info!("✅ back_to_main 处理完成");
+            }
+            
+            // 更新确认回调
+            "confirm_update" => {
+                log::info!("🎯 处理确认更新: confirm_update");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                bot.edit_message_text(
+                    chat_id,
+                    message_id,
+                    "📥 正在下载更新，请稍候...",
+                ).await?;
+                
+                // 异步执行更新
+                let bot_clone = bot.clone();
+                let chat_id_clone = chat_id;
+                
+                tokio::spawn(async move {
+                    match system::update::perform_update().await {
+                        Ok(version) => {
+                            let _ = bot_clone.send_message(
+                                chat_id_clone,
+                                format!("✅ 更新下载完成 (v{})\n\n🔄 Bot 将在 3 秒后重启...", version)
+                            ).await;
+                            
+                            // 等待 3 秒
+                            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                            
+                            // 触发服务重启
+                            if let Err(e) = system::update::restart_service().await {
+                                let _ = bot_clone.send_message(
+                                    chat_id_clone,
+                                    format!("❌ 服务重启失败: {}\n\n请手动执行: systemctl restart vps-tg-bot-rust", e)
+                                ).await;
+                            }
+                        }
+                        Err(e) => {
+                            let _ = bot_clone.send_message(
+                                chat_id_clone,
+                                format!("❌ 更新失败: {}", e)
+                            ).await;
+                        }
+                    }
+                });
+                
+                log::info!("✅ confirm_update 处理完成");
+            }
+            
+            "cancel_update" => {
+                log::info!("🎯 处理取消更新: cancel_update");
+                bot.answer_callback_query(&callback_query.id).await?;
+                
+                bot.edit_message_text(
+                    chat_id,
+                    message_id,
+                    "❌ 更新已取消",
+                ).await?;
+                
+                log::info!("✅ cancel_update 处理完成");
             }
             // 自定义任务设置按钮
             cmd if cmd.starts_with("set_custom_") => {
