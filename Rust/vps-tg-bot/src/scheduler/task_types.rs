@@ -94,6 +94,17 @@ impl TaskType {
                             format!("✅ [定时任务] {} 执行成功:\n{}", task_name, log)).await;
                         // 记录到维护历史
                         record_maintenance(task_name, MaintenanceResult::Success, &log, None).await;
+                        
+                        // 系统维护完成后自动重启
+                        let _ = bot.send_message(ChatId(chat_id),
+                            "🔄 系统维护完成，将在 5 秒后自动重启...".to_string()).await;
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        
+                        if let Err(e) = ops::reboot_system().await {
+                            let _ = bot.send_message(ChatId(chat_id),
+                                format!("❌ 自动重启失败: {}", e)).await;
+                        }
+                        
                         Ok(format!("{} 完成", task_name))
                     }
                     Err(e) => {

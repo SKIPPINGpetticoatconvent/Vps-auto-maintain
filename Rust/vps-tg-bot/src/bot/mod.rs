@@ -345,6 +345,14 @@ async fn answer(bot: Bot, message: Message, command: Command) -> Result<(), Box<
             match system::ops::perform_maintenance().await {
                 Ok(log) => {
                     bot.send_message(message.chat.id, format!("✅ 系统维护完成:\n{}", log)).await?;
+                    
+                    // 系统维护完成后自动重启
+                    bot.send_message(message.chat.id, "🔄 系统维护完成，将在 5 秒后自动重启...").await?;
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    
+                    if let Err(e) = system::ops::reboot_system().await {
+                        bot.send_message(message.chat.id, format!("❌ 自动重启失败: {}", e)).await?;
+                    }
                 }
                 Err(e) => {
                     bot.send_message(message.chat.id, format!("❌ 系统维护失败: {}", e)).await?;

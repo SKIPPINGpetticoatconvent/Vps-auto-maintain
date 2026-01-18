@@ -138,6 +138,58 @@ async fn provide_recovery_suggestions(is_systemd: bool, is_container: bool) {
     error!("    • 查看详细错误日志");
 }
 
+/// 发送启动通知
+async fn send_startup_notification(bot: &teloxide::Bot, chat_id: i64) {
+    use teloxide::prelude::Requester;
+    use teloxide::types::ChatId;
+    use teloxide::payloads::SendMessageSetters;
+    
+    // 获取系统运行时间
+    let uptime = match tokio::process::Command::new("uptime")
+        .arg("-p")
+        .output()
+        .await
+    {
+        Ok(output) => String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        Err(_) => "未知".to_string(),
+    };
+    
+    // 获取系统启动时间
+    let boot_time = match tokio::process::Command::new("uptime")
+        .arg("-s")
+        .output()
+        .await
+    {
+        Ok(output) => String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        Err(_) => "未知".to_string(),
+    };
+    
+    let message = format!(
+        "✅ *VPS Bot 已上线*\n\n\
+        🖥️ 系统启动时间: {}\n\
+        ⏱️ 运行时长: {}\n\n\
+        📋 Bot 已就绪，可以接收命令。",
+        boot_time, uptime
+    );
+    
+    if let Err(_) = bot.send_message(ChatId(chat_id), message)
+        .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+        .await
+    {
+        // 如果 MarkdownV2 失败，尝试纯文本
+        let plain_message = format!(
+            "✅ VPS Bot 已上线\n\n\
+            🖥️ 系统启动时间: {}\n\
+            ⏱️ 运行时长: {}\n\n\
+            📋 Bot 已就绪，可以接收命令。",
+            boot_time, uptime
+        );
+        if let Err(e) = bot.send_message(ChatId(chat_id), plain_message).await {
+            warn!("发送启动通知失败: {}", e);
+        }
+    }
+}
+
 /// 运行 Bot
 async fn run_bot() -> Result<()> {
     info!("🚀 启动 VPS Telegram Bot...");
@@ -210,6 +262,10 @@ async fn run_bot() -> Result<()> {
 
     // 等待调度器完全初始化
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    // 发送启动通知
+    info!("📢 发送启动通知...");
+    send_startup_notification(&bot_instance, config.chat_id).await;
 
     // 然后启动 Bot
     info!("🤖 启动 Bot...");
